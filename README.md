@@ -17,17 +17,17 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 
 ## Supported Exchanges
 
-| Exchange    | Perp | Spot | Margin |
-|-------------|------|------|--------|
-| Binance     | ✅    | ✅    | ✅      |
-| OKX         | ✅    | ✅    | —      |
-| Aster       | ✅    | ✅    | —      |
-| Nado        | ✅    | ✅    | —      |
-| Lighter     | ✅    | ✅    | —      |
-| Hyperliquid | ✅    | ✅    | —      |
-| StandX      | ✅    | —    | —      |
-| GRVT        | ✅    | —    | —      |
-| EdgeX       | ✅    | ✅    | —      |
+| Exchange    | Perp | Spot | Margin | Quote Currencies | Default |
+|-------------|------|------|--------|------------------|---------|
+| Binance     | ✅    | ✅    | ✅      | USDT, USDC       | USDT    |
+| OKX         | ✅    | ✅    | —      | USDT, USDC       | USDT    |
+| Aster       | ✅    | ✅    | —      | USDT, USDC       | USDC    |
+| Nado        | ✅    | ✅    | —      | USDT             | USDT    |
+| Lighter     | ✅    | ✅    | —      | USDC             | USDC    |
+| Hyperliquid | ✅    | ✅    | —      | USDC             | USDC    |
+| StandX      | ✅    | —    | —      | DUSD             | DUSD    |
+| GRVT        | ✅    | —    | —      | USDT             | USDT    |
+| EdgeX       | ✅    | ✅    | —      | USDC             | USDC    |
 
 ## Installation
 
@@ -56,11 +56,11 @@ func getSpread(ctx context.Context, adp exchanges.Exchange, symbol string) (deci
 
 ### 2. Symbol Convention
 
-All methods accept a **base currency symbol** (e.g. `"BTC"`, `"ETH"`). The adapter handles conversion to exchange-specific formats internally:
+All methods accept a **base currency symbol** (e.g. `"BTC"`, `"ETH"`). The adapter handles conversion to exchange-specific formats internally based on the configured quote currency:
 
-| You Pass | Binance Sees      | OKX Sees       | Hyperliquid Sees | GRVT Sees        |
-|----------|-------------------|----------------|------------------|------------------|
-| `"BTC"`  | `"BTCUSDT"`       | `"BTC-USDT"`   | `"BTC"`          | `"BTC_USDT_Perp"` |
+| You Pass | Binance (USDT)    | Binance (USDC)   | OKX (USDT)       | Hyperliquid      |
+|----------|-------------------|------------------|------------------|------------------|
+| `"BTC"`  | `"BTCUSDT"`       | `"BTCUSDC"`      | `"BTC-USDT-SWAP"`| `"BTC"`          |
 
 ### 3. Two-Layer Architecture
 
@@ -100,10 +100,11 @@ import (
 func main() {
     ctx := context.Background()
 
-    // Create a Binance perpetual adapter
+    // Create a Binance perpetual adapter (defaults to USDT market)
     adp, err := binance.NewAdapter(ctx, binance.Options{
         APIKey:    "your-api-key",
         SecretKey: "your-secret-key",
+        // QuoteCurrency: exchanges.QuoteCurrencyUSDC, // uncomment for USDC market
     })
     if err != nil {
         panic(err)
@@ -240,24 +241,51 @@ go func() {
 ### Switching Exchanges
 
 ```go
-// Binance
+// Binance — USDT market (default)
 adp, _ := binance.NewAdapter(ctx, binance.Options{
     APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
 })
 
+// Binance — USDC market
+adpUSDC, _ := binance.NewAdapter(ctx, binance.Options{
+    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
+    QuoteCurrency: exchanges.QuoteCurrencyUSDC,
+})
+
 // OKX — same interface, different constructor
-adp := okx.NewAdapter(ctx, okx.Options{
+adp, _ := okx.NewAdapter(ctx, okx.Options{
     APIKey: os.Getenv("OKX_API_KEY"), SecretKey: os.Getenv("OKX_SECRET"),
     Passphrase: os.Getenv("OKX_PASSPHRASE"),
 })
 
-// Hyperliquid — wallet-based auth
+// Hyperliquid — wallet-based auth (USDC only)
 adp, _ := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
     PrivateKey: os.Getenv("HL_PRIVATE_KEY"), AccountAddr: os.Getenv("HL_ADDR"),
 })
 
 // All adapters expose the exact same Exchange interface
 ticker, _ := adp.FetchTicker(ctx, "BTC")
+```
+
+### Quote Currency
+
+Each adapter supports a `QuoteCurrency` option that determines which quote currency market to connect to. If omitted, the exchange-specific default is used (CEX → USDT, DEX → USDC).
+
+```go
+// Available quote currencies
+exchanges.QuoteCurrencyUSDT // "USDT"
+exchanges.QuoteCurrencyUSDC // "USDC"
+exchanges.QuoteCurrencyDUSD // "DUSD" (StandX only)
+```
+
+Passing an unsupported quote currency returns an error at construction time:
+
+```go
+// This will fail: Hyperliquid only supports USDC
+_, err := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
+    QuoteCurrency: exchanges.QuoteCurrencyUSDT, // error!
+})
+// err: "hyperliquid: unsupported quote currency "USDT", supported: [USDC]"
 ```
 
 ---
@@ -423,7 +451,7 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── ratelimit/              Declarative sliding-window rate limiter
 ├── testsuite/              Adapter compliance test suite
 ├── binance/                Binance adapter + SDK
-│   ├── options.go          Options{APIKey, SecretKey, Logger}
+│   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}
 │   ├── perp_adapter.go     Perp adapter (Exchange + PerpExchange)
 │   ├── spot_adapter.go     Spot adapter (Exchange + SpotExchange)
 │   └── sdk/                Low-level REST & WebSocket clients
@@ -448,6 +476,7 @@ Run unit tests (no API keys needed):
 ```bash
 go test ./ratelimit/ -v
 go test . -run TestBan -v
+go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -v  # QuoteCurrency tests
 ```
 
 Run integration tests (requires API keys in `.env`):

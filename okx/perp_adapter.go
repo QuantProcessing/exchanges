@@ -24,9 +24,10 @@ type Adapter struct {
 	wsPrivate *okx.WsClient
 
 	// Symbol mapping: Token -> InstId (e.g. BTC -> BTC-USDT-SWAP)
-	symbolMap   map[string]string         // BTC -> BTC-USDT-SWAP
-	idMap       map[string]string         // BTC-USDT-SWAP -> BTC
-	instruments map[string]okx.Instrument // InstId -> Instrument
+	symbolMap     map[string]string         // BTC -> BTC-USDT-SWAP
+	idMap         map[string]string         // BTC-USDT-SWAP -> BTC
+	instruments   map[string]okx.Instrument // InstId -> Instrument
+	quoteCurrency string                    // "USDT" or "USDC"
 
 	posMode string // long_short_mode or net_mode
 
@@ -39,7 +40,12 @@ type Adapter struct {
 }
 
 // NewAdapter creates a new OKX adapter
-func NewAdapter(ctx context.Context, opts Options) *Adapter {
+func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+
 	client := okx.NewClient()
 	wsPublic := okx.NewWsClient(ctx)
 	wsPrivate := okx.NewWsClient(ctx)
@@ -53,14 +59,15 @@ func NewAdapter(ctx context.Context, opts Options) *Adapter {
 	base.WithRateLimiter(rateLimitRules, rateLimitWeights)
 
 	a := &Adapter{
-		BaseAdapter: base,
-		client:      client,
-		wsPublic:    wsPublic,
-		wsPrivate:   wsPrivate,
-		symbolMap:   make(map[string]string),
-		idMap:       make(map[string]string),
-		instruments: make(map[string]okx.Instrument),
-		posMode:     "net_mode", // default
+		BaseAdapter:   base,
+		client:        client,
+		wsPublic:      wsPublic,
+		wsPrivate:     wsPrivate,
+		symbolMap:     make(map[string]string),
+		idMap:         make(map[string]string),
+		instruments:   make(map[string]okx.Instrument),
+		quoteCurrency: string(quote),
+		posMode:       "net_mode", // default
 	}
 
 	// Load Instruments
@@ -76,7 +83,7 @@ func NewAdapter(ctx context.Context, opts Options) *Adapter {
 	}
 
 	// TODO: logger.Info("Initialized OKX Adapter", zap.String("posMode", a.posMode))
-	return a
+	return a, nil
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
@@ -119,7 +126,7 @@ func (a *Adapter) fetchInstruments(ctx context.Context) error {
 	a.instruments = make(map[string]okx.Instrument)
 
 	for _, inst := range insts {
-		if strings.Contains(inst.InstId, "USDT") && inst.State == "live" {
+		if strings.Contains(inst.InstId, a.quoteCurrency) && inst.State == "live" {
 			a.symbolMap[inst.CtValCcy] = inst.InstId
 			a.idMap[inst.InstId] = inst.CtValCcy
 			a.instruments[inst.InstId] = inst
@@ -165,7 +172,7 @@ func (a *Adapter) FormatSymbol(symbol string) string {
 	if instId, ok := a.symbolMap[symbol]; ok {
 		return instId
 	}
-	return symbol + "-USDT-SWAP"
+	return FormatSymbolWithQuote(symbol, a.quoteCurrency, "SWAP")
 }
 
 func (a *Adapter) ExtractSymbol(instId string) string {

@@ -18,36 +18,42 @@ import (
 // SpotAdapter implements exchanges.Exchange for Binance Spot markets
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client    *spot.Client
-	wsMarket  *spot.WsMarketClient
-	wsAccount *spot.WsAccountClient
-	wsAPI     *spot.WsAPIClient
+	client        *spot.Client
+	wsMarket      *spot.WsMarketClient
+	wsAccount     *spot.WsAccountClient
+	wsAPI         *spot.WsAPIClient
 
-	apiKey    string
-	secretKey string
+	apiKey        string
+	secretKey     string
+	quoteCurrency string // "USDT" or "USDC"
 
 	// OrderBook management cancellations
 	cancelMu sync.Mutex
 	cancels  map[string]context.CancelFunc
-
 }
 
 // NewSpotAdapter creates a new Binance Spot adapter instance
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+
 	client := spot.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
 	wsMarket := spot.NewWsMarketClient(ctx)
 	wsAPI := spot.NewWsAPIClient(ctx)
 	wsAccount := spot.NewWsAccountClient(wsAPI, opts.APIKey, opts.SecretKey)
 
 	a := &SpotAdapter{
-		BaseAdapter: exchanges.NewBaseAdapter("BINANCE", exchanges.MarketTypeSpot, opts.logger()),
-		client:      client,
-		wsMarket:    wsMarket,
-		wsAccount:   wsAccount,
-		wsAPI:       wsAPI,
-		apiKey:      opts.APIKey,
-		secretKey:   opts.SecretKey,
-		cancels:     make(map[string]context.CancelFunc),
+		BaseAdapter:   exchanges.NewBaseAdapter("BINANCE", exchanges.MarketTypeSpot, opts.logger()),
+		client:        client,
+		wsMarket:      wsMarket,
+		wsAccount:     wsAccount,
+		wsAPI:         wsAPI,
+		apiKey:        opts.APIKey,
+		secretKey:     opts.SecretKey,
+		quoteCurrency: string(quote),
+		cancels:       make(map[string]context.CancelFunc),
 	}
 
 	// Initialize metadata
@@ -109,8 +115,8 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 			Total:  total,
 		})
 
-		// Simple USDT equity calculation (would need price conversion for accuracy)
-		if b.Asset == "USDT" {
+		// Simple quote currency equity calculation (would need price conversion for accuracy)
+		if b.Asset == a.quoteCurrency {
 			totalEquity = totalEquity.Add(total)
 		}
 	}
@@ -150,7 +156,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		return nil, err
 	}
 
-	formattedSymbol := strings.ToUpper(FormatSymbol(params.Symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(params.Symbol))
 
 	side := "BUY"
 	if params.Side == exchanges.OrderSideSell {
@@ -193,7 +199,7 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 		return err
 	}
 
-	formattedSymbol := strings.ToUpper(FormatSymbol(symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid order id: %w", err)
@@ -210,7 +216,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}
 
 	// Binance spot supports cancel-replace
-	formattedSymbol := FormatSymbol(symbol)
+	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid order id: %w", err)
@@ -252,7 +258,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 }
 
 func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	formattedSymbol := strings.ToUpper(FormatSymbol(symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid order id: %w", err)
@@ -267,7 +273,7 @@ func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	formattedSymbol := strings.ToUpper(FormatSymbol(symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	resp, err := a.client.GetOpenOrders(ctx, formattedSymbol)
 	if err != nil {
 		return nil, err
@@ -338,7 +344,7 @@ func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.Trans
 
 func (a *SpotAdapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
 	// Try 24hr Ticker for volume/high/low
-	formattedSymbol := strings.ToUpper(FormatSymbol(symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	bookTicker, err := a.client.BookTicker(ctx, formattedSymbol)
 	if err != nil {
 		return nil, err
@@ -371,7 +377,7 @@ func (a *SpotAdapter) FetchTicker(ctx context.Context, symbol string) (*exchange
 }
 
 func (a *SpotAdapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	formattedSymbol := strings.ToUpper(FormatSymbol(symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	res, err := a.client.Depth(ctx, formattedSymbol, limit)
 	if err != nil {
 		return nil, err
@@ -408,7 +414,7 @@ func (a *SpotAdapter) FetchKlines(ctx context.Context, symbol string, interval e
 	_ = start
 	_ = end
 	_ = limit
-	formattedSymbol := strings.ToUpper(FormatSymbol(symbol))
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	var startTime, endTime int64
 	if start != nil {
 		startTime = start.UnixMilli()
@@ -450,7 +456,7 @@ func (a *SpotAdapter) FetchKlines(ctx context.Context, symbol string, interval e
 }
 
 func (a *SpotAdapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
-	resp, err := a.client.MyTrades(ctx, strings.ToUpper(FormatSymbol(symbol)), limit, 0, 0, 0)
+	resp, err := a.client.MyTrades(ctx, strings.ToUpper(a.FormatSymbol(symbol)), limit, 0, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +470,7 @@ func (a *SpotAdapter) FetchTrades(ctx context.Context, symbol string, limit int)
 
 		trades = append(trades, exchanges.Trade{
 			ID:        fmt.Sprintf("%d", t.ID),
-			Symbol:    ExtractSymbol(t.Symbol),
+			Symbol:    a.ExtractSymbol(t.Symbol),
 			Price:     parseDecimal(t.Price),
 			Quantity:  parseDecimal(t.Qty),
 			Side:      side,
@@ -535,7 +541,7 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 
 		order := &exchanges.Order{
 			OrderID:        fmt.Sprintf("%d", report.OrderID),
-			Symbol:         ExtractSymbol(report.Symbol),
+			Symbol:         a.ExtractSymbol(report.Symbol),
 			Side:           side,
 			Type:           exchanges.OrderType(report.OrderType),
 			Quantity:       parseDecimal(report.Quantity),
@@ -566,11 +572,11 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 		return nil
 	}
 
-	return a.wsMarket.SubscribeBookTicker(ExtractSymbol(symbol), handler)
+	return a.wsMarket.SubscribeBookTicker(a.ExtractSymbol(symbol), handler)
 }
 
 func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
-	formattedSymbol := FormatSymbol(symbol)
+	formattedSymbol := a.FormatSymbol(symbol)
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -744,7 +750,7 @@ func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval e
 		return nil
 	}
 
-	return a.wsMarket.SubscribeKline(ExtractSymbol(symbol), string(interval), handler)
+	return a.wsMarket.SubscribeKline(a.ExtractSymbol(symbol), string(interval), handler)
 }
 
 func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
@@ -772,7 +778,7 @@ func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback e
 		return nil
 	}
 
-	return a.wsMarket.SubscribeAggTrade(ExtractSymbol(symbol), handler)
+	return a.wsMarket.SubscribeAggTrade(a.ExtractSymbol(symbol), handler)
 }
 
 // Unsubscribe methods
@@ -786,7 +792,7 @@ func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error 
 	if a.wsMarket == nil {
 		return nil
 	}
-	return a.wsMarket.UnsubscribeBookTicker(ExtractSymbol(symbol))
+	return a.wsMarket.UnsubscribeBookTicker(a.ExtractSymbol(symbol))
 }
 
 func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -801,21 +807,21 @@ func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) err
 		return nil
 	}
 	// Try standard depth unsubscribe
-	return a.wsMarket.UnsubscribeLimitOrderBook(ExtractSymbol(symbol), 20, "100ms")
+	return a.wsMarket.UnsubscribeLimitOrderBook(a.ExtractSymbol(symbol), 20, "100ms")
 }
 
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
 	if a.wsMarket == nil {
 		return nil
 	}
-	return a.wsMarket.UnsubscribeKline(ExtractSymbol(symbol), string(interval))
+	return a.wsMarket.UnsubscribeKline(a.ExtractSymbol(symbol), string(interval))
 }
 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
 	if a.wsMarket == nil {
 		return nil
 	}
-	return a.wsMarket.UnsubscribeAggTrade(ExtractSymbol(symbol))
+	return a.wsMarket.UnsubscribeAggTrade(a.ExtractSymbol(symbol))
 }
 
 // ================= Internal Helpers =================
@@ -846,7 +852,7 @@ func (a *SpotAdapter) normalizeOrderResponse(resp *spot.OrderResponse) (*exchang
 
 	return &exchanges.Order{
 		OrderID:        fmt.Sprintf("%d", resp.OrderID),
-		Symbol:         ExtractSymbol(resp.Symbol),
+		Symbol:         a.ExtractSymbol(resp.Symbol),
 		Side:           side,
 		Type:           exchanges.OrderType(resp.Type),
 		Quantity:       qty,
@@ -867,13 +873,13 @@ func (a *SpotAdapter) RefreshSymbolDetails(ctx context.Context) error {
 	symbols := make(map[string]*exchanges.SymbolDetails)
 
 	for _, s := range info.Symbols {
-		// Only USDT pairs
-		if !strings.HasSuffix(s.Symbol, "USDT") {
+		// Only pairs matching configured quote currency
+		if !strings.HasSuffix(s.Symbol, a.quoteCurrency) {
 			continue
 		}
 
 		details := &exchanges.SymbolDetails{
-			Symbol:            ExtractSymbol(s.Symbol),
+			Symbol:            a.ExtractSymbol(s.Symbol),
 			PricePrecision:    int32(s.QuotePrecision),
 			QuantityPrecision: int32(s.BaseAssetPrecision),
 		}
@@ -923,19 +929,17 @@ func getPrecision(s string) int32 {
 	return count
 }
 
-// FormatSymbol is now in common.go but kept here as wrapper for compatibility
 func (a *SpotAdapter) FormatSymbol(symbol string) string {
-	return FormatSymbol(symbol)
+	return FormatSymbolWithQuote(symbol, a.quoteCurrency)
 }
 
-// ExtractSymbol is now in common.go but kept here as wrapper for compatibility
 func (a *SpotAdapter) ExtractSymbol(symbol string) string {
-	return ExtractSymbol(symbol)
+	return ExtractSymbolWithQuote(symbol, a.quoteCurrency)
 }
 
 // GetLocalOrderBook retrieves locally maintained order book
 func (a *SpotAdapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBook {
-	formattedSymbol := FormatSymbol(symbol)
+	formattedSymbol := a.FormatSymbol(symbol)
 
 	ob, ok := a.GetLocalOrderBookImplementation(formattedSymbol)
 	if !ok {
@@ -971,7 +975,7 @@ func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exch
 	if err := a.subscribeOrderBookInternal(ctx, symbol, cb); err != nil {
 		return err
 	}
-	formattedSymbol := FormatSymbol(symbol)
+	formattedSymbol := a.FormatSymbol(symbol)
 	return a.BaseAdapter.WaitOrderBookReady(ctx, formattedSymbol)
 }
 

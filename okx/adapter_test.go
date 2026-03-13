@@ -16,11 +16,15 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 	if os.Getenv("EXCHANGES_OKX_API_KEY") == "" {
 		t.Skip("Skipping: OKX keys not set")
 	}
-	return NewAdapter(context.Background(), Options{
+	adp, err := NewAdapter(context.Background(), Options{
 		APIKey:     os.Getenv("EXCHANGES_OKX_API_KEY"),
 		SecretKey:  os.Getenv("EXCHANGES_OKX_SECRET_KEY"),
 		Passphrase: os.Getenv("EXCHANGES_OKX_PASSPHRASE"),
 	})
+	if err != nil {
+		t.Fatalf("NewAdapter failed: %v", err)
+	}
+	return adp
 }
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {

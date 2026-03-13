@@ -1,12 +1,22 @@
 package hyperliquid
 
-import exchanges "github.com/QuantProcessing/exchanges"
+import (
+	"fmt"
+
+	exchanges "github.com/QuantProcessing/exchanges"
+)
+
+// supportedQuoteCurrencies lists the quote currencies supported by Hyperliquid.
+var supportedQuoteCurrencies = []exchanges.QuoteCurrency{
+	exchanges.QuoteCurrencyUSDC,
+}
 
 // Options configures a Hyperliquid adapter.
 type Options struct {
-	PrivateKey  string
-	AccountAddr string
-	Logger      exchanges.Logger
+	PrivateKey    string
+	AccountAddr   string
+	QuoteCurrency exchanges.QuoteCurrency // "USDC" (only supported)
+	Logger        exchanges.Logger
 }
 
 func (o Options) logger() exchanges.Logger {
@@ -14,4 +24,18 @@ func (o Options) logger() exchanges.Logger {
 		return o.Logger
 	}
 	return exchanges.NopLogger
+}
+
+// quoteCurrency returns the validated quote currency, defaulting to USDC for DEX.
+func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
+	q := o.QuoteCurrency
+	if q == "" {
+		return exchanges.QuoteCurrencyUSDC, nil
+	}
+	for _, supported := range supportedQuoteCurrencies {
+		if q == supported {
+			return q, nil
+		}
+	}
+	return "", fmt.Errorf("hyperliquid: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
 }

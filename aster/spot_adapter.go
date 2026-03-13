@@ -16,11 +16,12 @@ import (
 
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client    *spot.Client
-	wsMarket  *spot.WsMarketClient
-	wsAccount *spot.WsAccountClient
-	apiKey    string
-	secretKey string
+	client        *spot.Client
+	wsMarket      *spot.WsMarketClient
+	wsAccount     *spot.WsAccountClient
+	apiKey        string
+	secretKey     string
+	quoteCurrency string // "USDT" or "USDC"
 
 	// OrderBook management cancellations
 	cancelMu sync.Mutex
@@ -29,18 +30,24 @@ type SpotAdapter struct {
 
 // NewSpotAdapter creates a new Aster Spot Adapter
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+
 	client := spot.NewClient(opts.APIKey, opts.SecretKey)
 	wsMarket := spot.NewWsMarketClient(ctx)
 	wsAccount := spot.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 
 	a := &SpotAdapter{
-		BaseAdapter: exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypeSpot, opts.logger()),
-		client:      client,
-		wsMarket:    wsMarket,
-		wsAccount:   wsAccount,
-		apiKey:      opts.APIKey,
-		secretKey:   opts.SecretKey,
-		cancels:     make(map[string]context.CancelFunc),
+		BaseAdapter:   exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypeSpot, opts.logger()),
+		client:        client,
+		wsMarket:      wsMarket,
+		wsAccount:     wsAccount,
+		apiKey:        opts.APIKey,
+		secretKey:     opts.SecretKey,
+		quoteCurrency: string(quote),
+		cancels:       make(map[string]context.CancelFunc),
 	}
 
 	if err := a.RefreshSymbolDetails(context.Background()); err != nil {
@@ -91,12 +98,12 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 	// Spot has balances, not positions (conceptually) or positions are treated as assets.
 	// Adapter.Account struct:
 	// TotalBalance: usually total estimated value in USD or BTC
-	// AvailableBalance: usually USDT available
+	// AvailableBalance: usually quote currency available
 	// But Spot Account has many assets.
-	// We'll try to find USDT for AvailableBalance.
+	// We'll try to find the configured quote currency for AvailableBalance.
 
 	for _, b := range res.Balances {
-		if b.Asset == "USDT" {
+		if b.Asset == a.quoteCurrency {
 			free := parseDecimal(b.Free)
 			locked := parseDecimal(b.Locked)
 			account.AvailableBalance = free
@@ -665,7 +672,7 @@ func (a *SpotAdapter) RefreshSymbolDetails(ctx context.Context) error {
 	symbols := make(map[string]*exchanges.SymbolDetails)
 
 	for _, s := range res.Symbols {
-		if !strings.HasSuffix(s.Symbol, "USDT") {
+		if !strings.HasSuffix(s.Symbol, a.quoteCurrency) {
 			continue
 		}
 
@@ -704,19 +711,22 @@ func (a *SpotAdapter) RefreshSymbolDetails(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) FormatSymbol(symbol string) string {
-	// if has not suffix "USDT", add it
-	if !strings.HasSuffix(symbol, "USDT") && !strings.HasSuffix(symbol, "usdt") {
-		symbol += "USDT"
+	s := strings.ToUpper(symbol)
+	q := strings.ToUpper(a.quoteCurrency)
+	ql := strings.ToLower(a.quoteCurrency)
+	if !strings.HasSuffix(symbol, q) && !strings.HasSuffix(symbol, ql) {
+		symbol = s + q
 	}
 	return strings.ToLower(symbol)
 }
 
 func (a *SpotAdapter) ExtractSymbol(symbol string) string {
-	// if has suffix "USDT", remove it
-	if strings.HasSuffix(symbol, "USDT") || strings.HasSuffix(symbol, "usdt") {
-		symbol = symbol[:len(symbol)-4]
+	s := strings.ToUpper(symbol)
+	q := strings.ToUpper(a.quoteCurrency)
+	if strings.HasSuffix(s, q) {
+		s = s[:len(s)-len(q)]
 	}
-	return strings.ToUpper(symbol)
+	return s
 }
 
 func (a *SpotAdapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBook {

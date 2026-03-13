@@ -46,17 +46,30 @@ func boolToMarginType(isolated bool) string {
 }
 
 // FormatSymbol converts base currency to exchange-specific format (e.g., BTC → btcusdt)
+// Kept for backward compatibility and SDK-level usage.
 func FormatSymbol(symbol string) string {
+	return FormatSymbolWithQuote(symbol, "USDT")
+}
+
+// ExtractSymbol extracts base currency from exchange-specific format (e.g., BTCUSDT → BTC)
+// Kept for backward compatibility and SDK-level usage.
+func ExtractSymbol(symbol string) string {
+	return ExtractSymbolWithQuote(symbol, "USDT")
+}
+
+// FormatSymbolWithQuote converts base currency with configurable quote (e.g., BTC + USDC → btcusdc)
+func FormatSymbolWithQuote(symbol, quote string) string {
 	s := strings.ToLower(symbol)
-	if !strings.HasSuffix(s, "usdt") {
-		s += "usdt"
+	q := strings.ToLower(quote)
+	if !strings.HasSuffix(s, q) {
+		s += q
 	}
 	return s
 }
 
-// ExtractSymbol extracts base currency from exchange-specific format (e.g., BTCUSDT → BTC)
-func ExtractSymbol(symbol string) string {
+// ExtractSymbolWithQuote extracts base currency by trimming configurable quote (e.g., BTCUSDC → BTC)
+func ExtractSymbolWithQuote(symbol, quote string) string {
 	s := strings.ToUpper(symbol)
-	s = strings.TrimSuffix(s, "USDT")
-	return s
+	return strings.TrimSuffix(s, strings.ToUpper(quote))
 }
+

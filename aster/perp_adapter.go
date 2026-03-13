@@ -17,11 +17,12 @@ import (
 // Adapter Aster 适配器
 type Adapter struct {
 	*exchanges.BaseAdapter
-	client    *perp.Client
-	wsMarket  *perp.WsMarketClient
-	wsAccount *perp.WsAccountClient
-	apiKey    string
-	secretKey string
+	client        *perp.Client
+	wsMarket      *perp.WsMarketClient
+	wsAccount     *perp.WsAccountClient
+	apiKey        string
+	secretKey     string
+	quoteCurrency string // "USDT" or "USDC"
 
 	// OrderBook management cancellations
 	cancelMu sync.Mutex
@@ -33,6 +34,11 @@ type Adapter struct {
 
 // NewAdapter 创建 Aster 适配器
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+
 	client := perp.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
 	wsMarket := perp.NewWsMarketClient(ctx)
 	wsAccount := perp.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
@@ -41,13 +47,14 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	base.WithRateLimiter(rateLimitRules, rateLimitWeights)
 
 	a := &Adapter{
-		BaseAdapter: base,
-		client:      client,
-		wsMarket:    wsMarket,
-		wsAccount:   wsAccount,
-		apiKey:      opts.APIKey,
-		secretKey:   opts.SecretKey,
-		cancels:     make(map[string]context.CancelFunc),
+		BaseAdapter:   base,
+		client:        client,
+		wsMarket:      wsMarket,
+		wsAccount:     wsAccount,
+		apiKey:        opts.APIKey,
+		secretKey:     opts.SecretKey,
+		quoteCurrency: string(quote),
+		cancels:       make(map[string]context.CancelFunc),
 	}
 
 	if err := a.RefreshSymbolDetails(context.Background()); err != nil {
@@ -109,7 +116,7 @@ func (a *Adapter) FetchAccount(ctx context.Context) (_ *exchanges.Account, retEr
 
 	var availBalance decimal.Decimal
 	for _, asset := range res.Assets {
-		if asset.Asset == "USDT" {
+		if asset.Asset == a.quoteCurrency {
 			availBalance = parseDecimal(asset.AvailableBalance)
 			break
 		}
@@ -896,7 +903,7 @@ func (a *Adapter) RefreshSymbolDetails(ctx context.Context) error {
 				}
 			}
 		}
-		symbols[strings.TrimSuffix(s.Symbol, "USDT")] = details
+		symbols[strings.TrimSuffix(s.Symbol, a.quoteCurrency)] = details
 	}
 
 	a.SetSymbolDetails(symbols)
@@ -1015,14 +1022,15 @@ func (a *Adapter) normalizePositionUpdate(p struct {
 
 func (a *Adapter) FormatSymbol(symbol string) string {
 	s := strings.ToUpper(symbol)
-	if !strings.HasSuffix(s, "USDT") {
-		s += "USDT"
+	q := strings.ToUpper(a.quoteCurrency)
+	if !strings.HasSuffix(s, q) {
+		s += q
 	}
 	return strings.ToLower(s)
 }
 
 func (a *Adapter) ExtractSymbol(symbol string) string {
-	return strings.ToUpper(strings.TrimSuffix(symbol, "USDT"))
+	return strings.ToUpper(strings.TrimSuffix(strings.ToUpper(symbol), strings.ToUpper(a.quoteCurrency)))
 }
 
 // GetLocalOrderBook get local orderbook

@@ -23,15 +23,21 @@ type SpotAdapter struct {
 	wsPrivate *okx.WsClient
 
 	// Symbol mapping: Token -> InstId (e.g. BTC -> BTC-USDT)
-	symbolMap   map[string]string         // BTC -> BTC-USDT
-	idMap       map[string]string         // BTC-USDT -> BTC
-	instruments map[string]okx.Instrument // InstId -> Instrument
+	symbolMap     map[string]string         // BTC -> BTC-USDT
+	idMap         map[string]string         // BTC-USDT -> BTC
+	instruments   map[string]okx.Instrument // InstId -> Instrument
+	quoteCurrency string                    // "USDT" or "USDC"
 
 	mu sync.RWMutex
 }
 
 // NewSpotAdapter creates a new OKX spot adapter
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+
 	client := okx.NewClient()
 	wsPublic := okx.NewWsClient(ctx)
 	wsPrivate := okx.NewWsClient(ctx)
@@ -42,13 +48,14 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	}
 
 	a := &SpotAdapter{
-		BaseAdapter: exchanges.NewBaseAdapter("OKX", exchanges.MarketTypeSpot, opts.logger()),
-		client:      client,
-		wsPublic:    wsPublic,
-		wsPrivate:   wsPrivate,
-		symbolMap:   make(map[string]string),
-		idMap:       make(map[string]string),
-		instruments: make(map[string]okx.Instrument),
+		BaseAdapter:   exchanges.NewBaseAdapter("OKX", exchanges.MarketTypeSpot, opts.logger()),
+		client:        client,
+		wsPublic:      wsPublic,
+		wsPrivate:     wsPrivate,
+		symbolMap:     make(map[string]string),
+		idMap:         make(map[string]string),
+		instruments:   make(map[string]okx.Instrument),
+		quoteCurrency: string(quote),
 	}
 
 	// Load Instruments
@@ -114,9 +121,10 @@ func (a *SpotAdapter) fetchInstruments(ctx context.Context) error {
 	a.idMap = make(map[string]string)
 	a.instruments = make(map[string]okx.Instrument)
 
+	quoteSuffix := "-" + a.quoteCurrency
 	for _, inst := range insts {
 		// For spot: BTC-USDT, ETH-USDT, etc.
-		if strings.Contains(inst.InstId, "-USDT") && inst.State == "live" {
+		if strings.Contains(inst.InstId, quoteSuffix) && inst.State == "live" {
 			// BaseCcy is the base currency (e.g., BTC in BTC-USDT)
 			a.symbolMap[inst.BaseCcy] = inst.InstId
 			a.idMap[inst.InstId] = inst.BaseCcy
@@ -140,7 +148,7 @@ func (a *SpotAdapter) FormatSymbol(symbol string) string {
 	if instId, ok := a.symbolMap[symbol]; ok {
 		return instId
 	}
-	return symbol + "-USDT"
+	return FormatSpotSymbolWithQuote(symbol, a.quoteCurrency)
 }
 
 // ExtractSymbol converts OKX InstId (e.g., BTC-USDT) to internal symbol (e.g., BTC)
@@ -300,7 +308,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		}
 	}
 
-	ccy := "USDT"
+	ccy := a.quoteCurrency
 	var tgtCcy *string
 	if ordType == "market" {
 		t := "base_ccy"

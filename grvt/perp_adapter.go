@@ -19,13 +19,14 @@ import (
 // Adapter GRVT 适配器
 type Adapter struct {
 	*exchanges.BaseAdapter
-	client       *grvt.Client
-	wsMarket     *grvt.WebsocketClient
-	wsAccount    *grvt.WebsocketClient
-	wsTradeRpc   *grvt.WebsocketClient
-	apiKey       string
-	privateKey   string
-	subAccountID uint64
+	client        *grvt.Client
+	wsMarket      *grvt.WebsocketClient
+	wsAccount     *grvt.WebsocketClient
+	wsTradeRpc    *grvt.WebsocketClient
+	apiKey        string
+	privateKey    string
+	subAccountID  uint64
+	quoteCurrency string // "USDT" (currently only supported)
 
 	isConnected bool
 
@@ -43,6 +44,11 @@ type Adapter struct {
 
 // NewAdapter creates a new GRVT adapter
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+
 	pk := strings.TrimPrefix(opts.PrivateKey, "0x")
 	client := grvt.NewClient()
 	var saId uint64
@@ -61,16 +67,17 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	tradeRpcWs := grvt.NewAccountRpcWebsocketClient(ctx, client)
 
 	a := &Adapter{
-		BaseAdapter:  exchanges.NewBaseAdapter("GRVT", exchanges.MarketTypePerp, opts.logger()),
-		client:       client,
-		wsMarket:     marketWs,
-		wsAccount:    accountWs,
-		wsTradeRpc:   tradeRpcWs,
-		apiKey:       opts.APIKey,
-		privateKey:   opts.PrivateKey,
-		subAccountID: saId,
-		instruments:  make(map[string]grvt.Instrument),
-		cancels:      make(map[string]context.CancelFunc),
+		BaseAdapter:   exchanges.NewBaseAdapter("GRVT", exchanges.MarketTypePerp, opts.logger()),
+		client:        client,
+		wsMarket:      marketWs,
+		wsAccount:     accountWs,
+		wsTradeRpc:    tradeRpcWs,
+		apiKey:        opts.APIKey,
+		privateKey:    opts.PrivateKey,
+		subAccountID:  saId,
+		quoteCurrency: string(quote),
+		instruments:   make(map[string]grvt.Instrument),
+		cancels:       make(map[string]context.CancelFunc),
 	}
 
 	// Load Instruments
@@ -749,7 +756,7 @@ func (a *Adapter) RefreshSymbolDetails(ctx context.Context) error {
 	a.instruments = make(map[string]grvt.Instrument)
 	symbols := make(map[string]*exchanges.SymbolDetails)
 	for _, instrument := range instruments {
-		if instrument.Quote != "USDT" || instrument.Kind != "PERPETUAL" {
+		if instrument.Quote != a.quoteCurrency || instrument.Kind != "PERPETUAL" {
 			continue
 		}
 		a.instruments[instrument.Instrument] = instrument
@@ -768,14 +775,15 @@ func (a *Adapter) RefreshSymbolDetails(ctx context.Context) error {
 }
 
 func (a *Adapter) FormatSymbol(symbol string) string {
-	if strings.HasSuffix(symbol, "_USDT_Perp") {
+	suffix := "_" + a.quoteCurrency + "_Perp"
+	if strings.HasSuffix(symbol, suffix) {
 		return symbol
 	}
-	return symbol + "_USDT_Perp"
+	return symbol + suffix
 }
 
 func (a *Adapter) ExtractSymbol(instrument string) string {
-	return strings.TrimSuffix(instrument, "_USDT_Perp")
+	return strings.TrimSuffix(instrument, "_"+a.quoteCurrency+"_Perp")
 }
 
 // Helpers

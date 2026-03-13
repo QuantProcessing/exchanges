@@ -106,6 +106,15 @@ const (
 	AccountTypeUnified AccountType = "UNIFIED" // Unified account
 )
 
+// QuoteCurrency represents the quote/settlement currency of a trading pair.
+type QuoteCurrency string
+
+const (
+	QuoteCurrencyUSDT QuoteCurrency = "USDT"
+	QuoteCurrencyUSDC QuoteCurrency = "USDC"
+	QuoteCurrencyDUSD QuoteCurrency = "DUSD"
+)
+
 // ============================================================================
 // Data Structs
 // ============================================================================

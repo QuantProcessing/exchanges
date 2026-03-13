@@ -17,17 +17,17 @@
 
 ## 支持的交易所
 
-| 交易所      | 永续 | 现货 | 杠杆 |
-|-------------|------|------|------|
-| Binance     | ✅    | ✅    | ✅    |
-| OKX         | ✅    | ✅    | —    |
-| Aster       | ✅    | ✅    | —    |
-| Nado        | ✅    | ✅    | —    |
-| Lighter     | ✅    | ✅    | —    |
-| Hyperliquid | ✅    | ✅    | —    |
-| StandX      | ✅    | —    | —    |
-| GRVT        | ✅    | —    | —    |
-| EdgeX       | ✅    | ✅    | —    |
+| 交易所      | 永续 | 现货 | 杠杆 | 报价币种          | 默认    |
+|-------------|------|------|------|------------------|---------|
+| Binance     | ✅    | ✅    | ✅    | USDT, USDC       | USDT    |
+| OKX         | ✅    | ✅    | —    | USDT, USDC       | USDT    |
+| Aster       | ✅    | ✅    | —    | USDT, USDC       | USDC    |
+| Nado        | ✅    | ✅    | —    | USDT             | USDT    |
+| Lighter     | ✅    | ✅    | —    | USDC             | USDC    |
+| Hyperliquid | ✅    | ✅    | —    | USDC             | USDC    |
+| StandX      | ✅    | —    | —    | DUSD             | DUSD    |
+| GRVT        | ✅    | —    | —    | USDT             | USDT    |
+| EdgeX       | ✅    | ✅    | —    | USDC             | USDC    |
 
 ## 安装
 
@@ -56,11 +56,11 @@ func getSpread(ctx context.Context, adp exchanges.Exchange, symbol string) (deci
 
 ### 2. 符号约定
 
-所有方法统一接受**基础货币符号**（如 `"BTC"`、`"ETH"`），适配器内部自动转换为交易所特定格式：
+所有方法统一接受**基础货币符号**（如 `"BTC"`、`"ETH"`），适配器内部根据配置的报价币种自动转换为交易所特定格式：
 
-| 你传入    | Binance 接收     | OKX 接收        | Hyperliquid 接收 | GRVT 接收         |
-|----------|-------------------|----------------|------------------|------------------|
-| `"BTC"`  | `"BTCUSDT"`       | `"BTC-USDT"`   | `"BTC"`          | `"BTC_USDT_Perp"` |
+| 你传入    | Binance (USDT)    | Binance (USDC)   | OKX (USDT)        | Hyperliquid      |
+|----------|-------------------|------------------|-------------------|------------------|
+| `"BTC"`  | `"BTCUSDT"`       | `"BTCUSDC"`      | `"BTC-USDT-SWAP"` | `"BTC"`          |
 
 ### 3. 双层架构
 
@@ -100,10 +100,11 @@ import (
 func main() {
     ctx := context.Background()
 
-    // 创建 Binance 永续适配器
+    // 创建 Binance 永续适配器（默认 USDT 市场）
     adp, err := binance.NewAdapter(ctx, binance.Options{
         APIKey:    "your-api-key",
         SecretKey: "your-secret-key",
+        // QuoteCurrency: exchanges.QuoteCurrencyUSDC, // 取消注释切换为 USDC 市场
     })
     if err != nil {
         panic(err)
@@ -240,24 +241,51 @@ go func() {
 ### 切换交易所
 
 ```go
-// Binance
+// Binance — USDT 市场（默认）
 adp, _ := binance.NewAdapter(ctx, binance.Options{
     APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
 })
 
+// Binance — USDC 市场
+adpUSDC, _ := binance.NewAdapter(ctx, binance.Options{
+    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
+    QuoteCurrency: exchanges.QuoteCurrencyUSDC,
+})
+
 // OKX — 相同接口，不同构造器
-adp := okx.NewAdapter(ctx, okx.Options{
+adp, _ := okx.NewAdapter(ctx, okx.Options{
     APIKey: os.Getenv("OKX_API_KEY"), SecretKey: os.Getenv("OKX_SECRET"),
     Passphrase: os.Getenv("OKX_PASSPHRASE"),
 })
 
-// Hyperliquid — 钱包签名认证
+// Hyperliquid — 钱包签名认证（仅支持 USDC）
 adp, _ := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
     PrivateKey: os.Getenv("HL_PRIVATE_KEY"), AccountAddr: os.Getenv("HL_ADDR"),
 })
 
 // 所有适配器暴露完全相同的 Exchange 接口
 ticker, _ := adp.FetchTicker(ctx, "BTC")
+```
+
+### 报价币种
+
+每个适配器支持 `QuoteCurrency` 选项，用于指定连接哪个报价币种市场。省略时使用交易所默认值（CEX → USDT，DEX → USDC）。
+
+```go
+// 可用报价币种
+exchanges.QuoteCurrencyUSDT // "USDT"
+exchanges.QuoteCurrencyUSDC // "USDC"
+exchanges.QuoteCurrencyDUSD // "DUSD"（仅 StandX）
+```
+
+传入不支持的报价币种会在构造时返回错误：
+
+```go
+// 失败：Hyperliquid 仅支持 USDC
+_, err := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
+    QuoteCurrency: exchanges.QuoteCurrencyUSDT, // 报错！
+})
+// err: "hyperliquid: unsupported quote currency "USDT", supported: [USDC]"
 ```
 
 ---
@@ -420,7 +448,7 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 ├── ratelimit/              声明式滑动窗口限流器
 ├── testsuite/              适配器一致性测试套件
 ├── binance/                Binance 适配器 + SDK
-│   ├── options.go          Options{APIKey, SecretKey, Logger}
+│   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}
 │   ├── perp_adapter.go     永续适配器 (Exchange + PerpExchange)
 │   ├── spot_adapter.go     现货适配器 (Exchange + SpotExchange)
 │   └── sdk/                底层 REST & WebSocket 客户端
@@ -445,6 +473,7 @@ cp .env.example .env
 ```bash
 go test ./ratelimit/ -v
 go test . -run TestBan -v
+go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -v  # 报价币种测试
 ```
 
 运行集成测试（需要 `.env` 中的 API Key）：
