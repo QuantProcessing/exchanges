@@ -757,22 +757,14 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 	if err := a.WsAccountConnected(ctx); err != nil {
 		return err
 	}
-	if err := a.wsClient.SubscribeOrderUpdates(a.accountAddr, func(updates []hyperliquid.WsOrderUpdate) {
+	// orderUpdates provides complete order state (status + origSz + remaining sz)
+	// for all lifecycle events: open, filled, partially filled, canceled, rejected, etc.
+	// userFills is NOT subscribed here — it's a trade execution event (individual fill),
+	// not an order status update. Each WsUserFill only has the fill sz for that specific trade
+	// with no origSz to determine if the order is fully filled.
+	return a.wsClient.SubscribeOrderUpdates(a.accountAddr, func(updates []hyperliquid.WsOrderUpdate) {
 		for _, u := range updates {
-			// WsOrderUpdate = { Order: WsOrder, Status: string, ... }
 			order := a.mapWsOrderUpdate(u)
-			callback(order)
-		}
-	}); err != nil {
-		return err
-	}
-
-	return a.wsClient.SubscribeUserFills(a.accountAddr, func(fills hyperliquid.WsUserFills) {
-		if fills.IsSnapshot {
-			return
-		}
-		for _, f := range fills.Fills {
-			order := a.mapWsUserFill(f)
 			callback(order)
 		}
 	})
@@ -780,26 +772,33 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 
 func (a *Adapter) mapWsOrderUpdate(u hyperliquid.WsOrderUpdate) *exchanges.Order {
 	o := u.Order
-	status := exchanges.OrderStatusNew
-	switch u.Status {
-	case "open":
-		status = exchanges.OrderStatusNew // Could be partial if sz < origSz
-	case "filled":
+	status := exchanges.OrderStatusUnknown
+	switch perp.OrderStatusValue(u.Status) {
+	case perp.StatusOpen:
+		status = exchanges.OrderStatusNew
+	case perp.StatusFilled:
 		status = exchanges.OrderStatusFilled
-	case "canceled", "marginCanceled":
+	case perp.StatusCanceled,
+		perp.StatusMarginCanceled,
+		perp.StatusVaultWithdrawalCanceled,
+		perp.StatusOpenInterestCapCanceled,
+		perp.StatusSelfTradeCanceled,
+		perp.StatusReduceOnlyCanceled,
+		perp.StatusSiblingFilledCanceled,
+		perp.StatusDelistedCanceled,
+		perp.StatusLiquidatedCanceled,
+		perp.StatusScheduledCancel:
 		status = exchanges.OrderStatusCancelled
-	case "rejected":
+	case perp.StatusTriggered:
+		status = exchanges.OrderStatusNew // triggered order becomes active
+	case perp.StatusRejected,
+		perp.StatusTickRejected,
+		perp.StatusMinTradeNtlRejected:
 		status = exchanges.OrderStatusRejected
-	case "triggered":
-		status = exchanges.OrderStatusNew // or Pending?
-	default:
-		status = exchanges.OrderStatusUnknown
 	}
 
 	side := exchanges.OrderSideBuy
-	if o.Side == "B" {
-		side = exchanges.OrderSideBuy
-	} else {
+	if o.Side != "B" {
 		side = exchanges.OrderSideSell
 	}
 
@@ -814,43 +813,14 @@ func (a *Adapter) mapWsOrderUpdate(u hyperliquid.WsOrderUpdate) *exchanges.Order
 
 	return &exchanges.Order{
 		OrderID:        fmt.Sprintf("%d", o.Oid),
+		ClientOrderID:  o.Cliod,
 		Symbol:         o.Coin,
 		Side:           side,
-		Type:           exchanges.OrderTypeLimit, // Hyperliquid WS doesn't explicitly say type in WsOrder but assume limit/market result
 		Status:         status,
 		Price:          price,
 		Quantity:       qty,
 		FilledQuantity: filled,
-		Timestamp:      o.Timestamp,
-	}
-}
-
-func (a *Adapter) mapWsUserFill(f hyperliquid.WsUserFill) *exchanges.Order {
-	side := exchanges.OrderSideBuy
-	if f.Side == "B" {
-		side = exchanges.OrderSideBuy
-	} else {
-		side = exchanges.OrderSideSell
-	}
-
-	price := parseHlFloat(f.Px)
-	qty := parseHlFloat(f.Sz) // This is filled quantity
-
-	return &exchanges.Order{
-		OrderID: fmt.Sprintf("%d", f.Oid),
-		Symbol:  f.Coin,
-		Side:    side,
-		Type:    exchanges.OrderTypeUnknown,  // Could be market or limit
-		Status:  exchanges.OrderStatusFilled, // A fill event implies at least partial fill, but here we treat as an update.
-		// Actually, if it's a fill event, it's a fill.
-		// If we want to track cumulative, we need to know if it's fully filled.
-		// But for Market Order test, receiving ANY Filled status for OID is enough?
-		// The test checks for `OrderStatusFilled`.
-		// WsUserFill is a trade execution.
-		Price:          price,
-		Quantity:       qty, // specific fill qty
-		FilledQuantity: qty,
-		Timestamp:      f.Time,
+		Timestamp:      u.StatusTimestamp,
 	}
 }
 
