@@ -1,4 +1,3 @@
-//go:build edgex
 
 /*
 Package rfc6979 is an implementation of RFC 6979's deterministic DSA.

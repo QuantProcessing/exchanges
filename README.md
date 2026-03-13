@@ -17,28 +17,22 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 
 ## Supported Exchanges
 
-| Exchange    | Perp | Spot | Margin | Build Tag |
-|-------------|------|------|--------|-----------|
-| Binance     | ✅    | ✅    | ✅      | —         |
-| OKX         | ✅    | ✅    | —      | —         |
-| Aster       | ✅    | ✅    | —      | —         |
-| Nado        | ✅    | ✅    | —      | —         |
-| Lighter     | ✅    | ✅    | —      | —         |
-| Hyperliquid | ✅    | ✅    | —      | —         |
-| StandX      | ✅    | —    | —      | —         |
-| GRVT        | ✅    | —    | —      | `grvt`    |
-| EdgeX       | ✅    | ✅    | —      | `edgex`   |
+| Exchange    | Perp | Spot | Margin |
+|-------------|------|------|--------|
+| Binance     | ✅    | ✅    | ✅      |
+| OKX         | ✅    | ✅    | —      |
+| Aster       | ✅    | ✅    | —      |
+| Nado        | ✅    | ✅    | —      |
+| Lighter     | ✅    | ✅    | —      |
+| Hyperliquid | ✅    | ✅    | —      |
+| StandX      | ✅    | —    | —      |
+| GRVT        | ✅    | —    | —      |
+| EdgeX       | ✅    | ✅    | —      |
 
 ## Installation
 
 ```bash
 go get github.com/QuantProcessing/exchanges
-```
-
-For exchanges with heavy dependencies (GRVT uses go-ethereum, EdgeX uses starkcurve), use build tags:
-```bash
-go build -tags grvt ./...
-go build -tags edgex ./...
 ```
 
 ---
@@ -459,8 +453,8 @@ go test . -run TestBan -v
 Run integration tests (requires API keys in `.env`):
 ```bash
 go test ./binance/ -v      # Tests skip automatically if keys are missing
-go test -tags grvt ./grvt/ -v
-go test -tags edgex ./edgex/ -v
+go test ./grvt/ -v
+go test ./edgex/ -v
 ```
 
 ## License

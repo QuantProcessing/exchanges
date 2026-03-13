@@ -1,4 +1,3 @@
-//go:build edgex
 
 package perp
 
@@ -10,8 +9,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-
 	"github.com/gorilla/websocket"
 )
 

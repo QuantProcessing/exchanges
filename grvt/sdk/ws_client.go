@@ -1,4 +1,3 @@
-//go:build grvt
 
 package grvt
 
@@ -14,8 +13,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-
 	"github.com/gorilla/websocket"
 )
 

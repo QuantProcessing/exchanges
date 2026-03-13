@@ -17,28 +17,22 @@
 
 ## 支持的交易所
 
-| 交易所      | 永续 | 现货 | 杠杆 | Build Tag |
-|-------------|------|------|------|-----------|
-| Binance     | ✅    | ✅    | ✅    | —         |
-| OKX         | ✅    | ✅    | —    | —         |
-| Aster       | ✅    | ✅    | —    | —         |
-| Nado        | ✅    | ✅    | —    | —         |
-| Lighter     | ✅    | ✅    | —    | —         |
-| Hyperliquid | ✅    | ✅    | —    | —         |
-| StandX      | ✅    | —    | —    | —         |
-| GRVT        | ✅    | —    | —    | `grvt`    |
-| EdgeX       | ✅    | ✅    | —    | `edgex`   |
+| 交易所      | 永续 | 现货 | 杠杆 |
+|-------------|------|------|------|
+| Binance     | ✅    | ✅    | ✅    |
+| OKX         | ✅    | ✅    | —    |
+| Aster       | ✅    | ✅    | —    |
+| Nado        | ✅    | ✅    | —    |
+| Lighter     | ✅    | ✅    | —    |
+| Hyperliquid | ✅    | ✅    | —    |
+| StandX      | ✅    | —    | —    |
+| GRVT        | ✅    | —    | —    |
+| EdgeX       | ✅    | ✅    | —    |
 
 ## 安装
 
 ```bash
 go get github.com/QuantProcessing/exchanges
-```
-
-GRVT 和 EdgeX 依赖较重（go-ethereum / starkcurve），需要 build tag：
-```bash
-go build -tags grvt ./...
-go build -tags edgex ./...
 ```
 
 ---
@@ -456,8 +450,8 @@ go test . -run TestBan -v
 运行集成测试（需要 `.env` 中的 API Key）：
 ```bash
 go test ./binance/ -v      # 若未配置 Key 会自动跳过
-go test -tags grvt ./grvt/ -v
-go test -tags edgex ./edgex/ -v
+go test ./grvt/ -v
+go test ./edgex/ -v
 ```
 
 ## 许可证

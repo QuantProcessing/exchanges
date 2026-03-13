@@ -1,4 +1,3 @@
-//go:build edgex
 
 package spot
 
@@ -13,8 +12,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-
 	"github.com/gorilla/websocket"
 )
 

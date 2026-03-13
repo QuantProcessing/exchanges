@@ -1,4 +1,3 @@
-//go:build edgex
 
 package spot
 
