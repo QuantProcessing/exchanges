@@ -1,12 +1,11 @@
 package perp
 
 import (
-	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
+	hyperliquid "github.com/QuantProcessing/exchanges/hyperliquid/sdk"
 )
 
 // --- Action Wire Types moved to hyperliquid/action_types.go ---
 // OrderStatusValue type and constants are in parent hyperliquid/sdk package (ws_types.go)
-
 
 // --- High Level Types (from order.go) ---
 
@@ -207,14 +206,14 @@ type UpdateIsolatedMarginResponse struct {
 type MetaAndAssetCtxsResponse []AssetContext
 
 type AssetContext struct {
-	Funding      string   `json:"funding"`      // Current funding rate (hourly)
-	MarkPx       string   `json:"markPx"`       // Mark price
-	OpenInterest string   `json:"openInterest"` 
-	PrevDayPx    string   `json:"prevDayPx"`    
-	DayNtlVlm    string   `json:"dayNtlVlm"`    // Daily notional volume
-	Premium      string   `json:"premium"`      
-	OraclePx     string   `json:"oraclePx"`     
-	MidPx        string   `json:"midPx"`        
+	Funding      string   `json:"funding"` // Current funding rate (hourly)
+	MarkPx       string   `json:"markPx"`  // Mark price
+	OpenInterest string   `json:"openInterest"`
+	PrevDayPx    string   `json:"prevDayPx"`
+	DayNtlVlm    string   `json:"dayNtlVlm"` // Daily notional volume
+	Premium      string   `json:"premium"`
+	OraclePx     string   `json:"oraclePx"`
+	MidPx        string   `json:"midPx"`
 	ImpactPxs    []string `json:"impactPxs,omitempty"`
 	DayBaseVlm   string   `json:"dayBaseVlm,omitempty"` // Daily base volume
 }
