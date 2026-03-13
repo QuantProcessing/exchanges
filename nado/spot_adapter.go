@@ -695,12 +695,12 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 	return a.wsAccount.SubscribeOrders(nil, func(d *nado.OrderUpdate) {
 		symbol := a.getSymbol(d.ProductId)
 		status := exchanges.OrderStatusUnknown
-		switch d.Reason {
-		case "filled":
+		switch nado.OrderUpdateReason(d.Reason) {
+		case nado.OrderReasonFilled:
 			status = exchanges.OrderStatusFilled
-		case "canceled":
+		case nado.OrderReasonCanceled:
 			status = exchanges.OrderStatusCancelled
-		case "placed":
+		case nado.OrderReasonPlaced:
 			status = exchanges.OrderStatusNew
 		}
 
@@ -708,7 +708,7 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 		remaining := parseX18(d.Amount)
 		var filled decimal.Decimal
 
-		if d.Reason == "placed" {
+		if nado.OrderUpdateReason(d.Reason) == nado.OrderReasonPlaced {
 			// Cache total amount
 			a.orderMap.Store(d.Digest, remaining)
 			filled = decimal.Zero
@@ -720,7 +720,7 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 					filled = decimal.Zero
 				}
 				// "filled" with remaining > 0 is actually partial fill
-				if d.Reason == "filled" && remaining.IsPositive() {
+				if nado.OrderUpdateReason(d.Reason) == nado.OrderReasonFilled && remaining.IsPositive() {
 					status = exchanges.OrderStatusPartiallyFilled
 				}
 				// Cleanup on terminal state

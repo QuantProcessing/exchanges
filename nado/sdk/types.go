@@ -47,6 +47,16 @@ const (
 	OrderSideSell OrderSide = "sell"
 )
 
+// OrderUpdateReason represents the WS order update reason string.
+// Nado uses event-based status via the "reason" field in order update messages.
+type OrderUpdateReason string
+
+const (
+	OrderReasonPlaced   OrderUpdateReason = "placed"
+	OrderReasonFilled   OrderUpdateReason = "filled"
+	OrderReasonCanceled OrderUpdateReason = "canceled"
+)
+
 // Data Structures
 
 type Ticker struct {

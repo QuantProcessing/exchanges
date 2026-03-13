@@ -6,6 +6,29 @@ import (
 
 // --- Action Wire Types moved to hyperliquid/action_types.go ---
 
+// OrderStatusValue represents the status string returned by the Hyperliquid API.
+// See: https://hyperliquid.gitbook.io/hyperliquid-docs
+type OrderStatusValue string
+
+const (
+	StatusOpen                    OrderStatusValue = "open"
+	StatusFilled                  OrderStatusValue = "filled"
+	StatusCanceled                OrderStatusValue = "canceled"
+	StatusTriggered               OrderStatusValue = "triggered"
+	StatusRejected                OrderStatusValue = "rejected"
+	StatusMarginCanceled          OrderStatusValue = "marginCanceled"
+	StatusVaultWithdrawalCanceled OrderStatusValue = "vaultWithdrawalCanceled"
+	StatusOpenInterestCapCanceled OrderStatusValue = "openInterestCapCanceled"
+	StatusSelfTradeCanceled       OrderStatusValue = "selfTradeCanceled"
+	StatusReduceOnlyCanceled      OrderStatusValue = "reduceOnlyCanceled"
+	StatusSiblingFilledCanceled   OrderStatusValue = "siblingFilledCanceled"
+	StatusDelistedCanceled        OrderStatusValue = "delistedCanceled"
+	StatusLiquidatedCanceled      OrderStatusValue = "liquidatedCanceled"
+	StatusScheduledCancel         OrderStatusValue = "scheduledCancel"
+	StatusTickRejected            OrderStatusValue = "tickRejected"
+	StatusMinTradeNtlRejected     OrderStatusValue = "minTradeNtlRejected"
+)
+
 // --- High Level Types (from order.go) ---
 
 type PlaceOrderRequest struct {

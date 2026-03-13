@@ -917,16 +917,16 @@ func (a *Adapter) mapSDKOrderToAdapterOrderPTR(o *standx.Order) *exchanges.Order
 
 func mapSDKStatus(s string) exchanges.OrderStatus {
 	switch strings.ToLower(s) {
-	case "open", "new":
+	case standx.OrderStatusOpen, standx.OrderStatusNew:
 		return exchanges.OrderStatusNew
-	case "filled":
+	case standx.OrderStatusFilled:
 		return exchanges.OrderStatusFilled
-	case "cancelled", "canceled":
+	case standx.OrderStatusCancelled, standx.OrderStatusCanceled:
 		return exchanges.OrderStatusCancelled
-	case "rejected":
+	case standx.OrderStatusRejected:
 		return exchanges.OrderStatusRejected
-	case "untriggered":
-		return exchanges.OrderStatusNew // or separate status if adapter supports it? Adapter usually New/Filled/Cancelled/Rejected. Untriggered is likely New.
+	case standx.OrderStatusUntriggered:
+		return exchanges.OrderStatusNew // untriggered conditional orders mapped as New
 	default:
 		return exchanges.OrderStatusUnknown
 	}

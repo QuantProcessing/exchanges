@@ -1045,13 +1045,28 @@ func (a *Adapter) normalizeOrderStatus(o *perp.OrderStatusInfo) (*exchanges.Orde
 	}
 
 	status := exchanges.OrderStatusUnknown
-	switch o.Status {
-	case "open":
+	switch perp.OrderStatusValue(o.Status) {
+	case perp.StatusOpen:
 		status = exchanges.OrderStatusNew
-	case "filled":
+	case perp.StatusFilled:
 		status = exchanges.OrderStatusFilled
-	case "canceled":
+	case perp.StatusCanceled,
+		perp.StatusMarginCanceled,
+		perp.StatusVaultWithdrawalCanceled,
+		perp.StatusOpenInterestCapCanceled,
+		perp.StatusSelfTradeCanceled,
+		perp.StatusReduceOnlyCanceled,
+		perp.StatusSiblingFilledCanceled,
+		perp.StatusDelistedCanceled,
+		perp.StatusLiquidatedCanceled,
+		perp.StatusScheduledCancel:
 		status = exchanges.OrderStatusCancelled
+	case perp.StatusTriggered:
+		status = exchanges.OrderStatusNew // triggered order becomes active
+	case perp.StatusRejected,
+		perp.StatusTickRejected,
+		perp.StatusMinTradeNtlRejected:
+		status = exchanges.OrderStatusRejected
 	}
 
 	order := &exchanges.Order{
