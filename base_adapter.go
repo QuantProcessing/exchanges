@@ -1,0 +1,356 @@
+package exchanges
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/QuantProcessing/exchanges/ratelimit"
+
+	"github.com/shopspring/decimal"
+)
+
+// BaseAdapter is designed to be embedded in specific exchange adapters.
+// It provides a unified implementation for common adapter requirements:
+// - Connection tracking (WS Market, WS Order, WS Account)
+// - Local OrderBook mapping and readiness waiting
+// - Symbol detail caching
+// - Local state management (Orders, Positions, Balance) via embedding LocalStateManager
+// - Automatic order validation and slippage handling
+type BaseAdapter struct {
+	*LocalStateManager // Embed state manager for Orders/Positions/Balance
+
+	Name       string
+	MarketType MarketType
+	orderMode  OrderMode // WS (default) or REST
+	Logger     Logger    // Logger for this adapter
+
+	// Connection tracking
+	marketConnected  bool
+	accountConnected bool
+	orderConnected   bool
+	connMu           sync.RWMutex
+
+	// Symbol Details
+	symbolDetails map[string]*SymbolDetails
+	symbolMu      sync.RWMutex
+
+	// Local Orderbooks
+	orderBooks map[string]LocalOrderBook
+	obMu       sync.RWMutex
+
+	// Rate Limiter (nil = no limiting)
+	rateLimiter *ratelimit.RateLimiter
+	rlWeights   map[string][]ratelimit.CategoryWeight // method name → weights
+
+	// Ban State (IP ban detection & auto-recovery)
+	banState BanState
+}
+
+// NewBaseAdapter creates a new initialized BaseAdapter
+func NewBaseAdapter(name string, marketType MarketType, logger Logger) *BaseAdapter {
+	if logger == nil {
+		logger = NopLogger
+	}
+	return &BaseAdapter{
+		LocalStateManager: NewLocalStateManager(logger),
+		Name:              name,
+		MarketType:        marketType,
+		Logger:            logger,
+		symbolDetails:     make(map[string]*SymbolDetails),
+		orderBooks:        make(map[string]LocalOrderBook),
+	}
+}
+
+// GetExchange returns the exchange name
+func (b *BaseAdapter) GetExchange() string {
+	return b.Name
+}
+
+// GetMarketType returns the market type
+func (b *BaseAdapter) GetMarketType() MarketType {
+	return b.MarketType
+}
+
+// SetOrderMode sets whether order operations use WS or REST transport.
+func (b *BaseAdapter) SetOrderMode(mode OrderMode) {
+	b.orderMode = mode
+}
+
+// GetOrderMode returns the current order mode (defaults to WS).
+func (b *BaseAdapter) GetOrderMode() OrderMode {
+	if b.orderMode == "" {
+		return OrderModeWS
+	}
+	return b.orderMode
+}
+
+// IsRESTMode returns true if orders should use REST/HTTP transport.
+func (b *BaseAdapter) IsRESTMode() bool {
+	return b.GetOrderMode() == OrderModeREST
+}
+
+// ================= Connection Tracking =================
+
+// MarkMarketConnected marks the market websocket as connected
+func (b *BaseAdapter) MarkMarketConnected() {
+	b.connMu.Lock()
+	defer b.connMu.Unlock()
+	b.marketConnected = true
+}
+
+// IsMarketConnected checks if market WS is connected
+func (b *BaseAdapter) IsMarketConnected() bool {
+	b.connMu.RLock()
+	defer b.connMu.RUnlock()
+	return b.marketConnected
+}
+
+// MarkAccountConnected marks the account websocket as connected
+func (b *BaseAdapter) MarkAccountConnected() {
+	b.connMu.Lock()
+	defer b.connMu.Unlock()
+	b.accountConnected = true
+}
+
+// IsAccountConnected checks if account WS is connected
+func (b *BaseAdapter) IsAccountConnected() bool {
+	b.connMu.RLock()
+	defer b.connMu.RUnlock()
+	return b.accountConnected
+}
+
+// MarkOrderConnected marks the order websocket as connected
+func (b *BaseAdapter) MarkOrderConnected() {
+	b.connMu.Lock()
+	defer b.connMu.Unlock()
+	b.orderConnected = true
+}
+
+// IsOrderConnected checks if order WS is connected
+func (b *BaseAdapter) IsOrderConnected() bool {
+	b.connMu.RLock()
+	defer b.connMu.RUnlock()
+	return b.orderConnected
+}
+
+// ================= Symbol Details Management =================
+
+// SetSymbolDetails replaces the entire symbol details cache
+func (b *BaseAdapter) SetSymbolDetails(details map[string]*SymbolDetails) {
+	b.symbolMu.Lock()
+	defer b.symbolMu.Unlock()
+	b.symbolDetails = details
+}
+
+// GetSymbolDetail returns the cached detail for a symbol
+func (b *BaseAdapter) GetSymbolDetail(symbol string) (*SymbolDetails, error) {
+	b.symbolMu.RLock()
+	defer b.symbolMu.RUnlock()
+	d, ok := b.symbolDetails[symbol]
+	if !ok {
+		return nil, fmt.Errorf("symbol details not found in cache for %s", symbol)
+	}
+	// Return a copy to prevent accidental modifications
+	copyDetail := *d
+	return &copyDetail, nil
+}
+
+// ListSymbols returns all symbols in the symbol details cache.
+// These are base currency symbols (e.g. "BTC", "ETH") loaded at adapter init.
+func (b *BaseAdapter) ListSymbols() []string {
+	b.symbolMu.RLock()
+	defer b.symbolMu.RUnlock()
+	symbols := make([]string, 0, len(b.symbolDetails))
+	for s := range b.symbolDetails {
+		symbols = append(symbols, s)
+	}
+	return symbols
+}
+
+// ================= OrderBook Management =================
+
+// SetLocalOrderBook registers an instantiated LocalOrderBook implementation
+func (b *BaseAdapter) SetLocalOrderBook(symbol string, ob LocalOrderBook) {
+	b.obMu.Lock()
+	defer b.obMu.Unlock()
+	b.orderBooks[symbol] = ob
+}
+
+// RemoveLocalOrderBook removes a local orderbook
+func (b *BaseAdapter) RemoveLocalOrderBook(symbol string) {
+	b.obMu.Lock()
+	defer b.obMu.Unlock()
+	delete(b.orderBooks, symbol)
+}
+
+// GetLocalOrderBookImplementation returns the underlying LocalOrderBook implementation
+func (b *BaseAdapter) GetLocalOrderBookImplementation(symbol string) (LocalOrderBook, bool) {
+	b.obMu.RLock()
+	defer b.obMu.RUnlock()
+	ob, ok := b.orderBooks[symbol]
+	return ob, ok
+}
+
+// WaitOrderBookReady waits for a specific subscribed orderbook to be ready.
+func (b *BaseAdapter) WaitOrderBookReady(ctx context.Context, symbol string) error {
+	ob, ok := b.GetLocalOrderBookImplementation(symbol)
+	if !ok {
+		return fmt.Errorf("orderbook not subscribed for %s", symbol)
+	}
+	if !ob.WaitReady(ctx, 30*time.Second) {
+		return fmt.Errorf("timeout waiting for orderbook ready for %s", symbol)
+	}
+	return nil
+}
+
+// GetLocalOrderBook returns the standard OrderBook struct from the local WS-maintained orderbook.
+// This satisfies the Exchange interface requirement.
+func (b *BaseAdapter) GetLocalOrderBook(symbol string, depth int) *OrderBook {
+	ob, ok := b.GetLocalOrderBookImplementation(symbol)
+	if !ok {
+		b.Logger.Debugw("GetLocalOrderBook called but book not found", "symbol", symbol)
+		return nil
+	}
+
+	bids, asks := ob.GetDepth(depth)
+	ts := ob.Timestamp()
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Timestamp: ts,
+		Bids:      bids,
+		Asks:      asks,
+	}
+}
+
+// ================= Order Validation =================
+
+// ValidateOrder validates and auto-formats order params using cached symbol details.
+// Call this at the start of PlaceOrder in every adapter.
+func (b *BaseAdapter) ValidateOrder(params *OrderParams) error {
+	detail, err := b.GetSymbolDetail(params.Symbol)
+	if err != nil {
+		return nil // No cached details, skip validation
+	}
+	return ValidateAndFormatParams(params, detail)
+}
+
+// ================= Slippage Logic =================
+
+// ApplySlippage converts a MARKET order with Slippage>0 into a LIMIT IOC order.
+// The fetchTicker function is injected by the concrete adapter.
+func (b *BaseAdapter) ApplySlippage(
+	ctx context.Context,
+	params *OrderParams,
+	fetchTicker func(ctx context.Context, symbol string) (*Ticker, error),
+) error {
+	if params.Slippage.IsZero() || params.Slippage.IsNegative() {
+		return nil
+	}
+	if params.Type != OrderTypeMarket {
+		return nil
+	}
+
+	ticker, err := fetchTicker(ctx, params.Symbol)
+	if err != nil {
+		return fmt.Errorf("slippage requires ticker: %w", err)
+	}
+
+	one := decimal.NewFromInt(1)
+
+	if params.Side == OrderSideBuy {
+		refPrice := ticker.Ask
+		if refPrice.IsZero() {
+			refPrice = ticker.LastPrice
+		}
+		params.Price = refPrice.Mul(one.Add(params.Slippage))
+	} else {
+		refPrice := ticker.Bid
+		if refPrice.IsZero() {
+			refPrice = ticker.LastPrice
+		}
+		params.Price = refPrice.Mul(one.Sub(params.Slippage))
+	}
+
+	// Round price to symbol precision if available
+	if d, err := b.GetSymbolDetail(params.Symbol); err == nil {
+		params.Price = RoundToPrecision(params.Price, d.PricePrecision)
+	}
+
+	params.Type = OrderTypeLimit
+	if params.TimeInForce == "" {
+		params.TimeInForce = TimeInForceIOC
+	}
+	return nil
+}
+
+// ================= Rate Limiting =================
+
+// WithRateLimiter configures rate limiting for this adapter.
+// Called by each exchange's constructor with exchange-specific rules and weights.
+func (b *BaseAdapter) WithRateLimiter(rules []ratelimit.RateLimitRule, weights map[string][]ratelimit.CategoryWeight) {
+	b.rateLimiter = ratelimit.NewRateLimiter(rules, b.Name)
+	b.rlWeights = weights
+}
+
+// AcquireRate blocks until the rate limit allows this method to proceed.
+// Checks ban status first — if banned, blocks until ban expires or ctx is cancelled.
+// If no rateLimiter is configured, still checks ban status.
+// Concrete adapters call this at the start of each REST method.
+func (b *BaseAdapter) AcquireRate(ctx context.Context, method string) error {
+	// 1. Check ban status — block until ban expires or ctx cancelled
+	if banned, expiry := b.banState.IsBanned(); banned {
+		wait := time.Until(expiry)
+		b.Logger.Warnw("[ratelimit] IP banned, waiting for recovery",
+			"exchange", b.Name, "until", expiry.Format("15:04:05"), "wait", wait.Truncate(time.Second))
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("banned until %s: %w", expiry.Format("15:04:05"), ctx.Err())
+		case <-timer.C:
+			b.Logger.Infow("[ratelimit] ban expired, resuming", "exchange", b.Name)
+		}
+	}
+
+	// 2. Check rate limit
+	if b.rateLimiter == nil {
+		return nil
+	}
+	w, ok := b.rlWeights[method]
+	if !ok {
+		return nil
+	}
+	return b.rateLimiter.Acquire(ctx, w)
+}
+
+// RecordBan checks if an error indicates an IP ban and records it.
+// Call this after any REST method that returns an error.
+// Returns true if a ban was detected.
+func (b *BaseAdapter) RecordBan(err error) bool {
+	if b.banState.ParseAndSetBan(err) {
+		_, expiry := b.banState.IsBanned()
+		b.Logger.Errorw("[ratelimit] IP ban detected",
+			"exchange", b.Name,
+			"until", expiry.Format("2006-01-02 15:04:05"),
+			"remaining", b.banState.BannedFor().Truncate(time.Second))
+		return true
+	}
+	return false
+}
+
+// BanStatus returns current ban status for monitoring.
+func (b *BaseAdapter) BanStatus() (banned bool, until time.Time) {
+	return b.banState.IsBanned()
+}
+
+// RateLimitStats returns current rate limit usage for monitoring.
+// Returns nil if no rate limiter is configured.
+func (b *BaseAdapter) RateLimitStats() []ratelimit.BucketStats {
+	if b.rateLimiter == nil {
+		return nil
+	}
+	return b.rateLimiter.Stats()
+}
