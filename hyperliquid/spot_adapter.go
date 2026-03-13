@@ -681,33 +681,43 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 		return err
 	}
 
-	if err := a.wsClient.SubscribeOrderUpdates(a.accountAddr, func(updates []hyperliquid.WsOrderUpdate) {
+	// orderUpdates provides complete order state (status + origSz + remaining sz)
+	// for all lifecycle events: open, filled, partially filled, canceled, rejected, etc.
+	// userFills is NOT subscribed here — it's a trade execution event (individual fill),
+	// not an order status update. Each WsUserFill only has the fill sz for that specific trade
+	// with no origSz to determine if the order is fully filled.
+	return a.wsClient.SubscribeOrderUpdates(a.accountAddr, func(updates []hyperliquid.WsOrderUpdate) {
 		for _, u := range updates {
 			symbol := a.ExtractSymbol(u.Order.Coin)
 
 			_, err := a.GetSymbolDetail(symbol)
 			if err != nil {
-				// TODO: logger.Debug("Skipping order update for unknown symbol", zap.String("coin", u.Order.Coin), zap.String("symbol", symbol))
 				continue
 			}
 
-			// Map status
+			// Map status using SDK enums
 			status := exchanges.OrderStatusUnknown
 			switch u.Status {
-			case "open":
+			case hyperliquid.StatusOpen:
 				status = exchanges.OrderStatusNew
-				// If filled quantity > 0, it's partially filled
-				filled := parseHlFloat(u.Order.OrigSz).Sub(parseHlFloat(u.Order.Sz))
-				if filled.IsPositive() {
-					status = exchanges.OrderStatusPartiallyFilled
-				}
-			case "filled":
+			case hyperliquid.StatusFilled:
 				status = exchanges.OrderStatusFilled
-			case "canceled", "marginCanceled":
+			case hyperliquid.StatusCanceled,
+				hyperliquid.StatusMarginCanceled,
+				hyperliquid.StatusVaultWithdrawalCanceled,
+				hyperliquid.StatusOpenInterestCapCanceled,
+				hyperliquid.StatusSelfTradeCanceled,
+				hyperliquid.StatusReduceOnlyCanceled,
+				hyperliquid.StatusSiblingFilledCanceled,
+				hyperliquid.StatusDelistedCanceled,
+				hyperliquid.StatusLiquidatedCanceled,
+				hyperliquid.StatusScheduledCancel:
 				status = exchanges.OrderStatusCancelled
-			case "triggered":
+			case hyperliquid.StatusTriggered:
 				status = exchanges.OrderStatusNew
-			case "rejected":
+			case hyperliquid.StatusRejected,
+				hyperliquid.StatusTickRejected,
+				hyperliquid.StatusMinTradeNtlRejected:
 				status = exchanges.OrderStatusRejected
 			}
 
@@ -721,45 +731,20 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 			sz := parseHlFloat(u.Order.Sz)
 			filledQty := origSz.Sub(sz)
 
+			if status == exchanges.OrderStatusNew && filledQty.IsPositive() {
+				status = exchanges.OrderStatusPartiallyFilled
+			}
+
 			callback(&exchanges.Order{
 				OrderID:        fmt.Sprintf("%d", u.Order.Oid),
+				ClientOrderID:  u.Order.Cliod,
 				Symbol:         symbol,
 				Side:           side,
 				Price:          parseHlFloat(u.Order.LimitPx),
 				Quantity:       origSz,
 				FilledQuantity: filledQty,
 				Status:         status,
-				Timestamp:      u.Order.Timestamp,
-			})
-		}
-	}); err != nil {
-		return err
-	}
-
-	// Also subscribe to userFills — IOC orders that fill instantly may only
-	// generate fill events, not orderUpdate events
-	return a.wsClient.SubscribeUserFills(a.accountAddr, func(fills hyperliquid.WsUserFills) {
-		if fills.IsSnapshot {
-			return
-		}
-		for _, f := range fills.Fills {
-			side := exchanges.OrderSideBuy
-			if f.Side != "B" {
-				side = exchanges.OrderSideSell
-			}
-			price := parseHlFloat(f.Px)
-			qty := parseHlFloat(f.Sz)
-
-			callback(&exchanges.Order{
-				OrderID:        fmt.Sprintf("%d", f.Oid),
-				Symbol:         a.ExtractSymbol(f.Coin),
-				Side:           side,
-				Type:           exchanges.OrderTypeUnknown,
-				Status:         exchanges.OrderStatusFilled,
-				Price:          price,
-				Quantity:       qty,
-				FilledQuantity: qty,
-				Timestamp:      f.Time,
+				Timestamp:      u.StatusTimestamp,
 			})
 		}
 	})

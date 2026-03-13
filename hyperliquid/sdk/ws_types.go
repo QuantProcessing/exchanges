@@ -97,10 +97,34 @@ type WsOrder struct {
 }
 
 type WsOrderUpdate struct {
-	Order           WsOrder `json:"order"`
-	Status          string  `json:"status"`
-	StatusTimestamp int64   `json:"statusTimestamp"`
+	Order           WsOrder          `json:"order"`
+	Status          OrderStatusValue `json:"status"`
+	StatusTimestamp int64            `json:"statusTimestamp"`
 }
+
+// OrderStatusValue represents the status string returned by the Hyperliquid API.
+// Used in both REST and WS order responses for perp and spot markets.
+// See: https://hyperliquid.gitbook.io/hyperliquid-docs
+type OrderStatusValue string
+
+const (
+	StatusOpen                    OrderStatusValue = "open"
+	StatusFilled                  OrderStatusValue = "filled"
+	StatusCanceled                OrderStatusValue = "canceled"
+	StatusTriggered               OrderStatusValue = "triggered"
+	StatusRejected                OrderStatusValue = "rejected"
+	StatusMarginCanceled          OrderStatusValue = "marginCanceled"
+	StatusVaultWithdrawalCanceled OrderStatusValue = "vaultWithdrawalCanceled"
+	StatusOpenInterestCapCanceled OrderStatusValue = "openInterestCapCanceled"
+	StatusSelfTradeCanceled       OrderStatusValue = "selfTradeCanceled"
+	StatusReduceOnlyCanceled      OrderStatusValue = "reduceOnlyCanceled"
+	StatusSiblingFilledCanceled   OrderStatusValue = "siblingFilledCanceled"
+	StatusDelistedCanceled        OrderStatusValue = "delistedCanceled"
+	StatusLiquidatedCanceled      OrderStatusValue = "liquidatedCanceled"
+	StatusScheduledCancel         OrderStatusValue = "scheduledCancel"
+	StatusTickRejected            OrderStatusValue = "tickRejected"
+	StatusMinTradeNtlRejected     OrderStatusValue = "minTradeNtlRejected"
+)
 
 type WsUserFunding struct {
 	Time        int64  `json:"time"`

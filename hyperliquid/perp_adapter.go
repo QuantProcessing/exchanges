@@ -10,7 +10,7 @@ import (
 	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
-	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
+	hyperliquid "github.com/QuantProcessing/exchanges/hyperliquid/sdk"
 	"github.com/QuantProcessing/exchanges/hyperliquid/sdk/perp"
 
 	"github.com/shopspring/decimal"
@@ -773,27 +773,27 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 func (a *Adapter) mapWsOrderUpdate(u hyperliquid.WsOrderUpdate) *exchanges.Order {
 	o := u.Order
 	status := exchanges.OrderStatusUnknown
-	switch perp.OrderStatusValue(u.Status) {
-	case perp.StatusOpen:
+	switch u.Status {
+	case hyperliquid.StatusOpen:
 		status = exchanges.OrderStatusNew
-	case perp.StatusFilled:
+	case hyperliquid.StatusFilled:
 		status = exchanges.OrderStatusFilled
-	case perp.StatusCanceled,
-		perp.StatusMarginCanceled,
-		perp.StatusVaultWithdrawalCanceled,
-		perp.StatusOpenInterestCapCanceled,
-		perp.StatusSelfTradeCanceled,
-		perp.StatusReduceOnlyCanceled,
-		perp.StatusSiblingFilledCanceled,
-		perp.StatusDelistedCanceled,
-		perp.StatusLiquidatedCanceled,
-		perp.StatusScheduledCancel:
+	case hyperliquid.StatusCanceled,
+		hyperliquid.StatusMarginCanceled,
+		hyperliquid.StatusVaultWithdrawalCanceled,
+		hyperliquid.StatusOpenInterestCapCanceled,
+		hyperliquid.StatusSelfTradeCanceled,
+		hyperliquid.StatusReduceOnlyCanceled,
+		hyperliquid.StatusSiblingFilledCanceled,
+		hyperliquid.StatusDelistedCanceled,
+		hyperliquid.StatusLiquidatedCanceled,
+		hyperliquid.StatusScheduledCancel:
 		status = exchanges.OrderStatusCancelled
-	case perp.StatusTriggered:
+	case hyperliquid.StatusTriggered:
 		status = exchanges.OrderStatusNew // triggered order becomes active
-	case perp.StatusRejected,
-		perp.StatusTickRejected,
-		perp.StatusMinTradeNtlRejected:
+	case hyperliquid.StatusRejected,
+		hyperliquid.StatusTickRejected,
+		hyperliquid.StatusMinTradeNtlRejected:
 		status = exchanges.OrderStatusRejected
 	}
 
@@ -1015,27 +1015,27 @@ func (a *Adapter) normalizeOrderStatus(o *perp.OrderStatusInfo) (*exchanges.Orde
 	}
 
 	status := exchanges.OrderStatusUnknown
-	switch perp.OrderStatusValue(o.Status) {
-	case perp.StatusOpen:
+	switch hyperliquid.OrderStatusValue(o.Status) {
+	case hyperliquid.StatusOpen:
 		status = exchanges.OrderStatusNew
-	case perp.StatusFilled:
+	case hyperliquid.StatusFilled:
 		status = exchanges.OrderStatusFilled
-	case perp.StatusCanceled,
-		perp.StatusMarginCanceled,
-		perp.StatusVaultWithdrawalCanceled,
-		perp.StatusOpenInterestCapCanceled,
-		perp.StatusSelfTradeCanceled,
-		perp.StatusReduceOnlyCanceled,
-		perp.StatusSiblingFilledCanceled,
-		perp.StatusDelistedCanceled,
-		perp.StatusLiquidatedCanceled,
-		perp.StatusScheduledCancel:
+	case hyperliquid.StatusCanceled,
+		hyperliquid.StatusMarginCanceled,
+		hyperliquid.StatusVaultWithdrawalCanceled,
+		hyperliquid.StatusOpenInterestCapCanceled,
+		hyperliquid.StatusSelfTradeCanceled,
+		hyperliquid.StatusReduceOnlyCanceled,
+		hyperliquid.StatusSiblingFilledCanceled,
+		hyperliquid.StatusDelistedCanceled,
+		hyperliquid.StatusLiquidatedCanceled,
+		hyperliquid.StatusScheduledCancel:
 		status = exchanges.OrderStatusCancelled
-	case perp.StatusTriggered:
+	case hyperliquid.StatusTriggered:
 		status = exchanges.OrderStatusNew // triggered order becomes active
-	case perp.StatusRejected,
-		perp.StatusTickRejected,
-		perp.StatusMinTradeNtlRejected:
+	case hyperliquid.StatusRejected,
+		hyperliquid.StatusTickRejected,
+		hyperliquid.StatusMinTradeNtlRejected:
 		status = exchanges.OrderStatusRejected
 	}
 
