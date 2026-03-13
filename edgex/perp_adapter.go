@@ -876,7 +876,7 @@ func (a *Adapter) mapOrder(o *perp.Order) *exchanges.Order {
 		filledQty = matchSize
 	}
 
-	return &exchanges.Order{
+	order := &exchanges.Order{
 		OrderID:        o.Id,
 		Symbol:         a.contractToSymbol[o.ContractId],
 		Side:           side,
@@ -887,6 +887,8 @@ func (a *Adapter) mapOrder(o *perp.Order) *exchanges.Order {
 		Status:         status,
 		Timestamp:      ts,
 	}
+	exchanges.DerivePartialFillStatus(order)
+	return order
 }
 
 func (a *Adapter) mapOrderType(t exchanges.OrderType) string {

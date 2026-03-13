@@ -719,6 +719,10 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 				if filled.IsNegative() {
 					filled = decimal.Zero
 				}
+				// "filled" with remaining > 0 is actually partial fill
+				if d.Reason == "filled" && remaining.IsPositive() {
+					status = exchanges.OrderStatusPartiallyFilled
+				}
 				// Cleanup on terminal state
 				if status == exchanges.OrderStatusFilled || status == exchanges.OrderStatusCancelled {
 					a.orderMap.Delete(d.Digest)
@@ -959,15 +963,17 @@ func (a *SpotAdapter) mapOrder(o *nado.Order) *exchanges.Order {
 		amount = amount.Abs()
 	}
 
-	return &exchanges.Order{
+	order := &exchanges.Order{
 		OrderID:   o.Digest,
 		Symbol:    a.idMap[o.ProductID],
 		Side:      side,
 		Quantity:  amount,
 		Price:     price,
-		Status:    exchanges.OrderStatusUnknown,
+		Status:    exchanges.OrderStatusNew, // Nado REST open orders are active
 		Timestamp: o.PlacedAt,
 	}
+	exchanges.DerivePartialFillStatus(order)
+	return order
 }
 
 // WaitOrderBookReady waits for orderbook to be ready

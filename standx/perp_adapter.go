@@ -892,7 +892,7 @@ func (a *Adapter) mapSDKOrderToAdapterOrder(o standx.Order) exchanges.Order {
 		orderID = o.ClOrdID
 	}
 
-	return exchanges.Order{
+	order := exchanges.Order{
 		OrderID:        orderID,
 		Symbol:         a.toAdapterSymbol(o.Symbol),
 		Side:           side,
@@ -906,6 +906,8 @@ func (a *Adapter) mapSDKOrderToAdapterOrder(o standx.Order) exchanges.Order {
 		ClientOrderID:  o.ClOrdID,
 		Timestamp:      0,
 	}
+	exchanges.DerivePartialFillStatus(&order)
+	return order
 }
 
 func (a *Adapter) mapSDKOrderToAdapterOrderPTR(o *standx.Order) *exchanges.Order {

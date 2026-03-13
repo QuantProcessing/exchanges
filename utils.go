@@ -135,3 +135,17 @@ func ValidateAndFormatParams(params *OrderParams, details *SymbolDetails) error 
 
 	return nil
 }
+
+// ============================================================================
+// Order Status Utilities
+// ============================================================================
+
+// DerivePartialFillStatus adjusts order status to PARTIALLY_FILLED when the
+// exchange reports status as NEW but FilledQuantity > 0.
+// Exchanges like Binance, OKX, and Lighter natively report PARTIALLY_FILLED;
+// this helper is for exchanges that don't (Hyperliquid, Nado, StandX, GRVT, EdgeX).
+func DerivePartialFillStatus(order *Order) {
+	if order.Status == OrderStatusNew && order.FilledQuantity.IsPositive() {
+		order.Status = OrderStatusPartiallyFilled
+	}
+}

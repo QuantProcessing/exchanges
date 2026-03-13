@@ -1054,7 +1054,7 @@ func (a *Adapter) normalizeOrderStatus(o *perp.OrderStatusInfo) (*exchanges.Orde
 		status = exchanges.OrderStatusCancelled
 	}
 
-	return &exchanges.Order{
+	order := &exchanges.Order{
 		OrderID:        fmt.Sprintf("%d", o.Oid),
 		Symbol:         o.Coin,
 		Side:           side,
@@ -1063,7 +1063,9 @@ func (a *Adapter) normalizeOrderStatus(o *perp.OrderStatusInfo) (*exchanges.Orde
 		Status:         status,
 		FilledQuantity: filled,
 		Timestamp:      o.Timestamp,
-	}, nil
+	}
+	exchanges.DerivePartialFillStatus(order)
+	return order, nil
 }
 
 func parseDecimal(s string) decimal.Decimal {

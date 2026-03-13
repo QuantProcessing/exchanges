@@ -828,7 +828,7 @@ func (a *Adapter) mapGrvtOrder(o *grvt.Order) *exchanges.Order {
 		status = exchanges.OrderStatusRejected
 	}
 
-	return &exchanges.Order{
+	order := &exchanges.Order{
 		OrderID:        o.OrderID,
 		ClientOrderID:  o.Metadata.ClientOrderID,
 		Symbol:         a.ExtractSymbol(instrument),
@@ -839,6 +839,8 @@ func (a *Adapter) mapGrvtOrder(o *grvt.Order) *exchanges.Order {
 		Status:         status,
 		Timestamp:      parseGrvtTimestamp(o.Metadata.CreatedTime),
 	}
+	exchanges.DerivePartialFillStatus(order)
+	return order
 }
 
 func (a *Adapter) mapOpenOrder(o *grvt.Order) *exchanges.Order {
