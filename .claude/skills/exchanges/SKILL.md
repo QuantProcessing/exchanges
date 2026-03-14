@@ -52,8 +52,6 @@ Module: `github.com/QuantProcessing/exchanges`
    handles connection management, reconnection, and dispatching.
 5. **Registry Pattern**: Adapters self-register via `init()` + `exchanges.Register()`.
    Application code uses `exchanges.LookupConstructor()` and blank imports.
-6. **Build Tags**: Some adapters (EdgeX, GRVT) use build tags to avoid pulling
-   heavy crypto dependencies unless explicitly needed.
 
 ---
 
@@ -75,8 +73,6 @@ import (
     _ "github.com/QuantProcessing/exchanges/binance"
     _ "github.com/QuantProcessing/exchanges/hyperliquid"
     _ "github.com/QuantProcessing/exchanges/okx"
-
-    // Build-tag gated adapters (use: go build -tags edgex,grvt)
     _ "github.com/QuantProcessing/exchanges/edgex"
     _ "github.com/QuantProcessing/exchanges/grvt"
 )
@@ -954,27 +950,17 @@ func TestCompliance(t *testing.T) {
 
 ## Supported Exchanges
 
-| Exchange | Package | Perp | Spot | Build Tag | Order Mode |
-|----------|---------|------|------|-----------|------------|
-| Binance | `binance/` | ✅ | ✅ | — | WS / REST |
-| OKX | `okx/` | ✅ | ✅ | — | WS / REST |
-| Hyperliquid | `hyperliquid/` | ✅ | ✅ | — | REST |
-| GRVT | `grvt/` | ✅ | — | `grvt` | WS |
-| EdgeX | `edgex/` | ✅ | — | `edgex` | WS |
-| Lighter | `lighter/` | ✅ | — | — | WS |
-| Nado | `nado/` | ✅ | — | — | WS |
-| StandX | `standx/` | ✅ | — | — | WS |
-| Aster | `aster/` | ✅ | — | — | REST |
-
-### Build Tags
-
-```bash
-# Include EdgeX and GRVT adapters
-go build -tags "edgex,grvt" ./...
-
-# Run tests with all adapters
-go test -tags "edgex,grvt" ./...
-```
+| Exchange | Package | Perp | Spot | Order Mode |
+|----------|---------|------|------|------------|
+| Binance | `binance/` | ✅ | ✅ | WS / REST |
+| OKX | `okx/` | ✅ | ✅ | WS / REST |
+| Hyperliquid | `hyperliquid/` | ✅ | ✅ | REST |
+| GRVT | `grvt/` | ✅ | — | WS |
+| EdgeX | `edgex/` | ✅ | — | WS |
+| Lighter | `lighter/` | ✅ | ✅ | WS |
+| Nado | `nado/` | ✅ | ✅ | WS |
+| StandX | `standx/` | ✅ | — | WS |
+| Aster | `aster/` | ✅ | ✅ | REST |
 
 ---
 
