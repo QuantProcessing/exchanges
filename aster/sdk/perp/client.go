@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/QuantProcessing/exchanges/internal/mbx"
 )
 
 const (
@@ -24,6 +25,9 @@ type Client struct {
 	HTTPClient *http.Client
 	Logger     *zap.SugaredLogger
 	Debug      bool
+
+	UsedWeight mbx.UsedWeight
+	OrderCount mbx.OrderCount
 }
 
 func NewClient() *Client {
@@ -110,6 +114,9 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	}
 	defer resp.Body.Close()
 
+	c.UsedWeight.UpdateByHeader(resp.Header)
+	c.OrderCount.UpdateByHeader(resp.Header)
+
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -120,6 +127,15 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	}
 
 	if resp.StatusCode >= 400 {
+		if rlErr := mbx.MapAPIError("ASTER", resp.StatusCode, data, func(d []byte) (int, string, error) {
+			var apiErr APIError
+			if err := json.Unmarshal(d, &apiErr); err != nil {
+				return 0, "", err
+			}
+			return apiErr.Code, apiErr.Message, nil
+		}); rlErr != nil {
+			return rlErr
+		}
 		var apiErr APIError
 		if err := json.Unmarshal(data, &apiErr); err != nil {
 			return fmt.Errorf("http error %d: %s", resp.StatusCode, string(data))

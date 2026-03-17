@@ -9,11 +9,13 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/QuantProcessing/exchanges/lighter/sdk/common"
 )
 
@@ -111,6 +113,9 @@ func (c *Client) Post(ctx context.Context, path string, payload any, auth bool) 
 	c.Logger.Debugw("Response", "status", resp.Status, "body", string(data))
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, exchanges.NewExchangeError("LIGHTER", "429", strings.TrimSpace(string(data)), exchanges.ErrRateLimited)
+		}
 		var apiErr APIError
 		if err := json.Unmarshal(data, &apiErr); err == nil {
 			return nil, &apiErr

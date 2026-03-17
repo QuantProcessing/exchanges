@@ -9,7 +9,6 @@ import (
 
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/QuantProcessing/exchanges/edgex/sdk/perp"
-	"github.com/QuantProcessing/exchanges/edgex/sdk/spot"
 
 	"github.com/shopspring/decimal"
 )
@@ -43,65 +42,6 @@ func NewOrderBook(symbol string) *OrderBook {
 
 // ProcessPerpUpdate processes perp depth event
 func (ob *OrderBook) ProcessPerpUpdate(e *perp.WsDepthEvent) {
-	if len(e.Content.Data) == 0 {
-		return
-	}
-	d := e.Content.Data[0]
-
-	ob.Lock()
-	defer ob.Unlock()
-
-	ob.timestamp = time.Now().UnixMilli()
-
-	switch d.DepthType {
-	case "SNAPSHOT":
-		ob.bids = make(map[string]decimal.Decimal)
-		ob.asks = make(map[string]decimal.Decimal)
-		for _, b := range d.Bids {
-			p := parseEdgexFloat(b.Price)
-			s := parseEdgexFloat(b.Size)
-			if s.IsPositive() {
-				ob.bids[p.String()] = s
-			}
-		}
-		for _, as := range d.Asks {
-			p := parseEdgexFloat(as.Price)
-			s := parseEdgexFloat(as.Size)
-			if s.IsPositive() {
-				ob.asks[p.String()] = s
-			}
-		}
-		ob.initialized = true
-		ob.readyOnce.Do(func() {
-			close(ob.readyChan)
-		})
-	case "CHANGED":
-		if !ob.initialized {
-			return
-		}
-		for _, b := range d.Bids {
-			p := parseEdgexFloat(b.Price)
-			s := parseEdgexFloat(b.Size)
-			if s.IsZero() {
-				delete(ob.bids, p.String())
-			} else {
-				ob.bids[p.String()] = s
-			}
-		}
-		for _, as := range d.Asks {
-			p := parseEdgexFloat(as.Price)
-			s := parseEdgexFloat(as.Size)
-			if s.IsZero() {
-				delete(ob.asks, p.String())
-			} else {
-				ob.asks[p.String()] = s
-			}
-		}
-	}
-}
-
-// ProcessSpotUpdate processes spot depth event
-func (ob *OrderBook) ProcessSpotUpdate(e *spot.WsDepthEvent) {
 	if len(e.Content.Data) == 0 {
 		return
 	}

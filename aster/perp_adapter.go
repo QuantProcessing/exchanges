@@ -44,7 +44,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	wsAccount := perp.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 
 	base := exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypePerp, opts.logger())
-	base.WithRateLimiter(rateLimitRules, rateLimitWeights)
 
 	a := &Adapter{
 		BaseAdapter:   base,
@@ -100,10 +99,6 @@ func (a *Adapter) Close() error {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (_ *exchanges.Account, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchAccount"); err != nil {
-		return nil, err
-	}
 	res, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("aster get account failed: %w", err)
@@ -177,10 +172,6 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (_ *exchanges.Order, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "PlaceOrder"); err != nil {
-		return nil, err
-	}
 	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
@@ -281,10 +272,6 @@ func (a *Adapter) mapTimeInForce(params *exchanges.OrderParams) perp.TimeInForce
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "CancelOrder"); err != nil {
-		return err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	p := perp.CancelOrderParams{
 		Symbol:  formattedSymbol,
@@ -296,10 +283,6 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retE
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (_ *exchanges.Order, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "ModifyOrder"); err != nil {
-		return nil, err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, _ := strconv.ParseInt(orderID, 10, 64)
 	p := perp.ModifyOrderParams{
@@ -318,10 +301,6 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 }
 
 func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchOrder"); err != nil {
-		return nil, err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -337,10 +316,6 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (_ *ex
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) (_ []exchanges.Order, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchOpenOrders"); err != nil {
-		return nil, err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	res, err := a.client.GetOpenOrders(ctx, formattedSymbol)
 	if err != nil {
@@ -360,10 +335,6 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) (_ []excha
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "CancelAllOrders"); err != nil {
-		return err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	p := perp.CancelAllOrdersParams{
 		Symbol: formattedSymbol,
@@ -372,20 +343,12 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr er
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) (retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "SetLeverage"); err != nil {
-		return err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	_, err := a.client.ChangeLeverage(ctx, formattedSymbol, leverage)
 	return err
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (_ *exchanges.FeeRate, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchFeeRate"); err != nil {
-		return nil, err
-	}
 	if v, ok := a.feeCache.Load(symbol); ok {
 		return v.(*exchanges.FeeRate), nil
 	}
@@ -405,10 +368,6 @@ func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (_ *exchanges
 // ================= Market Data =================
 
 func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (_ *exchanges.Ticker, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchTicker"); err != nil {
-		return nil, err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	t, err := a.client.Ticker(ctx, formattedSymbol)
 	if err != nil {
@@ -441,10 +400,6 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (_ *exchanges.
 }
 
 func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (_ *exchanges.OrderBook, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchOrderBook"); err != nil {
-		return nil, err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	res, err := a.client.Depth(ctx, formattedSymbol, limit)
 	if err != nil {
@@ -469,10 +424,6 @@ func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) 
 }
 
 func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) (_ []exchanges.Kline, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchKlines"); err != nil {
-		return nil, err
-	}
 	var start, end *time.Time
 	var limit int
 	if opts != nil {
@@ -521,10 +472,6 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 }
 
 func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) (_ []exchanges.Trade, retErr error) {
-	defer func() { a.RecordBan(retErr) }()
-	if err := a.AcquireRate(ctx, "FetchTrades"); err != nil {
-		return nil, err
-	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	res, err := a.client.GetAggTrades(ctx, formattedSymbol, limit)
 	if err != nil {
@@ -667,12 +614,8 @@ func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string,
 				// TODO: logger.Info("Fetching orderbook snapshot", "symbol", symbol)
 				// 获取1000档深度快照
 				// limit=1000 compliant with explicit instruction "Step 3"
-				if err := a.AcquireRate(ctxCancel, "FetchOrderBook"); err != nil {
-					return // context cancelled
-				}
 				snapshotDepth, err := a.client.Depth(ctxCancel, formattedSymbol, 1000)
 				if err != nil {
-					a.RecordBan(err) // detect IP ban from direct SDK call
 					// TODO: logger.Error("Failed to fetch snapshot", "symbol", symbol, "error", err, "retryIn", retryDelay)
 					// 失败后指数退避重试
 					select {

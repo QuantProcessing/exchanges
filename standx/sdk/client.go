@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 const (
@@ -308,6 +310,9 @@ func (c *Client) do(ctx context.Context, baseURL, method, endpoint string, paylo
 	}
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, exchanges.NewExchangeError("STANDX", "429", strings.TrimSpace(string(respBytes)), exchanges.ErrRateLimited)
+		}
 		return nil, fmt.Errorf("API error: status=%d body=%s", resp.StatusCode, string(respBytes))
 	}
 

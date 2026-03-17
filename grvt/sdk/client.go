@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 type Client struct {
@@ -73,6 +75,9 @@ func (c *Client) Login(ctx context.Context) error {
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return exchanges.NewExchangeError("GRVT", "429", string(body), exchanges.ErrRateLimited)
+		}
 		return fmt.Errorf("login failed: %s %s", resp.Status, string(body))
 	}
 
@@ -151,7 +156,13 @@ func (c *Client) Post(ctx context.Context, url string, payload interface{}, sign
 	if resp.StatusCode != 200 {
 		var grvtErr GrvtError
 		if err := json.Unmarshal(body, &grvtErr); err == nil && grvtErr.Code != 0 {
+			if resp.StatusCode == http.StatusTooManyRequests || grvtErr.Code == 1006 {
+				return nil, exchanges.NewExchangeError("GRVT", fmt.Sprintf("%d", grvtErr.Code), grvtErr.Message, exchanges.ErrRateLimited)
+			}
 			return nil, &grvtErr
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, exchanges.NewExchangeError("GRVT", "429", string(body), exchanges.ErrRateLimited)
 		}
 		return nil, fmt.Errorf("request failed: %s %s", resp.Status, string(body))
 	}

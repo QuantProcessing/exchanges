@@ -66,7 +66,6 @@ func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
 	wsApi := standx.NewWsApiClient(aCtx, client)
 
 	base := exchanges.NewBaseAdapter("STANDX", exchanges.MarketTypePerp, opts.logger())
-	base.WithRateLimiter(rateLimitRules, rateLimitWeights)
 
 	a := &Adapter{
 		BaseAdapter:  base,
@@ -127,9 +126,6 @@ func (a *Adapter) WsOrderConnected(ctx context.Context) error {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
-	if err := a.AcquireRate(ctx, "FetchAccount"); err != nil {
-		return nil, err
-	}
 	// Balance and Positions are separate calls in Standx SDK
 	// We run them sequentially for simplicity.
 	balance, err := a.client.QueryBalances(ctx)
@@ -233,9 +229,6 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "PlaceOrder"); err != nil {
-		return nil, err
-	}
 	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
@@ -314,9 +307,6 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	if err := a.AcquireRate(ctx, "CancelOrder"); err != nil {
-		return err
-	}
 	if err := a.ensureAPIReady(ctx); err != nil {
 		return err
 	}
@@ -355,9 +345,6 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	if err := a.AcquireRate(ctx, "CancelAllOrders"); err != nil {
-		return err
-	}
 	if err := a.ensureAPIReady(ctx); err != nil {
 		return err
 	}
@@ -391,9 +378,6 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 }
 
 func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "FetchOrder"); err != nil {
-		return nil, err
-	}
 	// Standx QueryUserOrders filters by symbol.
 	// There isn't a direct "GetOrder(ID)" endpoint easily exposed in client?
 	// We can QueryUserOrders(symbol) and search locally or check if ID filter exists.
@@ -418,9 +402,6 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exch
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "FetchOpenOrders"); err != nil {
-		return nil, err
-	}
 	orders, err := a.client.QueryUserOrders(ctx, a.toExchangeSymbol(symbol))
 	if err != nil {
 		return nil, err
@@ -433,9 +414,6 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
-	if err := a.AcquireRate(ctx, "SetLeverage"); err != nil {
-		return err
-	}
 	// ChangeLeverage uses HTTP client, so no ensureAPIReady needed for wsApi
 	req := standx.ChangeLeverageRequest{
 		Symbol:   a.toExchangeSymbol(symbol),
@@ -446,9 +424,6 @@ func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) 
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
-	if err := a.AcquireRate(ctx, "FetchFeeRate"); err != nil {
-		return nil, err
-	}
 	if v, ok := a.feeCache.Load(symbol); ok {
 		return v.(*exchanges.FeeRate), nil
 	}
@@ -474,9 +449,6 @@ func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.F
 // ================= Market Data =================
 
 func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
-	if err := a.AcquireRate(ctx, "FetchTicker"); err != nil {
-		return nil, err
-	}
 	t, err := a.client.QuerySymbolMarket(ctx, a.toExchangeSymbol(symbol))
 	if err != nil {
 		return nil, err
@@ -495,9 +467,6 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ti
 }
 
 func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	if err := a.AcquireRate(ctx, "FetchOrderBook"); err != nil {
-		return nil, err
-	}
 	res, err := a.client.QueryDepthBook(ctx, a.toExchangeSymbol(symbol), limit)
 	if err != nil {
 		return nil, err
@@ -537,9 +506,6 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 }
 
 func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
-	if err := a.AcquireRate(ctx, "FetchTrades"); err != nil {
-		return nil, err
-	}
 	trades, err := a.client.QueryRecentTrades(ctx, a.toExchangeSymbol(symbol), limit)
 	if err != nil {
 		return nil, err

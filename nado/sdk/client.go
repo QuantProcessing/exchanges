@@ -8,7 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 const (
@@ -88,6 +91,9 @@ func (c *Client) Execute(ctx context.Context, reqBody interface{}) ([]byte, erro
 	}
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, exchanges.NewExchangeError("NADO", "429", strings.TrimSpace(string(respBytes)), exchanges.ErrRateLimited)
+		}
 		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(respBytes))
 	}
 
@@ -134,6 +140,9 @@ func (c *Client) QueryGateWayV1(ctx context.Context, method string, req map[stri
 			return nil, err
 		}
 		if resp.StatusCode >= 400 {
+			if resp.StatusCode == http.StatusTooManyRequests {
+				return nil, exchanges.NewExchangeError("NADO", "429", strings.TrimSpace(string(data)), exchanges.ErrRateLimited)
+			}
 			return nil, fmt.Errorf("api v1 error (status %d): %s", resp.StatusCode, string(data))
 		}
 	case http.MethodPost:
@@ -157,6 +166,9 @@ func (c *Client) QueryGateWayV1(ctx context.Context, method string, req map[stri
 			return nil, err
 		}
 		if resp.StatusCode >= 400 {
+			if resp.StatusCode == http.StatusTooManyRequests {
+				return nil, exchanges.NewExchangeError("NADO", "429", strings.TrimSpace(string(data)), exchanges.ErrRateLimited)
+			}
 			return nil, fmt.Errorf("api v1 error (status %d): %s", resp.StatusCode, string(data))
 		}
 	default:
@@ -202,6 +214,9 @@ func (c *Client) QueryGatewayV2(ctx context.Context, path string, params url.Val
 	}
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("rate limited: %w", exchanges.NewExchangeError("NADO", "429", strings.TrimSpace(string(respBytes)), exchanges.ErrRateLimited))
+		}
 		return fmt.Errorf("api v2 error (status %d): %s", resp.StatusCode, string(respBytes))
 	}
 
@@ -232,6 +247,9 @@ func (c *Client) QueryArchiveV1(ctx context.Context, params interface{}) (data [
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, exchanges.NewExchangeError("NADO", "429", strings.TrimSpace(string(data)), exchanges.ErrRateLimited)
+		}
 		return nil, fmt.Errorf("api v1 error (status %d): %s", resp.StatusCode, string(data))
 	}
 	return data, nil
@@ -264,6 +282,9 @@ func (c *Client) QueryArchiveV2(ctx context.Context, path string, params url.Val
 	}
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("rate limited: %w", exchanges.NewExchangeError("NADO", "429", strings.TrimSpace(string(respBytes)), exchanges.ErrRateLimited))
+		}
 		return fmt.Errorf("api v2 error (status %d): %s", resp.StatusCode, string(respBytes))
 	}
 

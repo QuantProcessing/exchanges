@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 const (
@@ -95,6 +98,9 @@ func (c *Client) Do(ctx context.Context, method Method, path string, payload int
 	}
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, exchanges.NewExchangeError("OKX", "429", strings.TrimSpace(string(data)), exchanges.ErrRateLimited)
+		}
 		return nil, fmt.Errorf("http error %d: %s", resp.StatusCode, string(data))
 	}
 
@@ -114,6 +120,9 @@ func Request[T any](c *Client, ctx context.Context, method Method, path string, 
 	}
 
 	if baseResp.Code != "0" {
+		if baseResp.Code == "50011" || baseResp.Code == "50061" {
+			return nil, exchanges.NewExchangeError("OKX", baseResp.Code, baseResp.Message, exchanges.ErrRateLimited)
+		}
 		return nil, &APIError{
 			Code:    baseResp.Code,
 			Message: baseResp.Message,

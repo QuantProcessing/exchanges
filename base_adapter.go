@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuantProcessing/exchanges/ratelimit"
-
 	"github.com/shopspring/decimal"
 )
 
@@ -40,12 +38,6 @@ type BaseAdapter struct {
 	orderBooks map[string]LocalOrderBook
 	obMu       sync.RWMutex
 
-	// Rate Limiter (nil = no limiting)
-	rateLimiter *ratelimit.RateLimiter
-	rlWeights   map[string][]ratelimit.CategoryWeight // method name → weights
-
-	// Ban State (IP ban detection & auto-recovery)
-	banState BanState
 }
 
 // NewBaseAdapter creates a new initialized BaseAdapter
@@ -284,73 +276,4 @@ func (b *BaseAdapter) ApplySlippage(
 		params.TimeInForce = TimeInForceIOC
 	}
 	return nil
-}
-
-// ================= Rate Limiting =================
-
-// WithRateLimiter configures rate limiting for this adapter.
-// Called by each exchange's constructor with exchange-specific rules and weights.
-func (b *BaseAdapter) WithRateLimiter(rules []ratelimit.RateLimitRule, weights map[string][]ratelimit.CategoryWeight) {
-	b.rateLimiter = ratelimit.NewRateLimiter(rules, b.Name)
-	b.rlWeights = weights
-}
-
-// AcquireRate blocks until the rate limit allows this method to proceed.
-// Checks ban status first — if banned, blocks until ban expires or ctx is cancelled.
-// If no rateLimiter is configured, still checks ban status.
-// Concrete adapters call this at the start of each REST method.
-func (b *BaseAdapter) AcquireRate(ctx context.Context, method string) error {
-	// 1. Check ban status — block until ban expires or ctx cancelled
-	if banned, expiry := b.banState.IsBanned(); banned {
-		wait := time.Until(expiry)
-		b.Logger.Warnw("[ratelimit] IP banned, waiting for recovery",
-			"exchange", b.Name, "until", expiry.Format("15:04:05"), "wait", wait.Truncate(time.Second))
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("banned until %s: %w", expiry.Format("15:04:05"), ctx.Err())
-		case <-timer.C:
-			b.Logger.Infow("[ratelimit] ban expired, resuming", "exchange", b.Name)
-		}
-	}
-
-	// 2. Check rate limit
-	if b.rateLimiter == nil {
-		return nil
-	}
-	w, ok := b.rlWeights[method]
-	if !ok {
-		return nil
-	}
-	return b.rateLimiter.Acquire(ctx, w)
-}
-
-// RecordBan checks if an error indicates an IP ban and records it.
-// Call this after any REST method that returns an error.
-// Returns true if a ban was detected.
-func (b *BaseAdapter) RecordBan(err error) bool {
-	if b.banState.ParseAndSetBan(err) {
-		_, expiry := b.banState.IsBanned()
-		b.Logger.Errorw("[ratelimit] IP ban detected",
-			"exchange", b.Name,
-			"until", expiry.Format("2006-01-02 15:04:05"),
-			"remaining", b.banState.BannedFor().Truncate(time.Second))
-		return true
-	}
-	return false
-}
-
-// BanStatus returns current ban status for monitoring.
-func (b *BaseAdapter) BanStatus() (banned bool, until time.Time) {
-	return b.banState.IsBanned()
-}
-
-// RateLimitStats returns current rate limit usage for monitoring.
-// Returns nil if no rate limiter is configured.
-func (b *BaseAdapter) RateLimitStats() []ratelimit.BucketStats {
-	if b.rateLimiter == nil {
-		return nil
-	}
-	return b.rateLimiter.Stats()
 }

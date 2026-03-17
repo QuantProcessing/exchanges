@@ -14,6 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 const (
@@ -126,6 +127,9 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	c.Logger.Debugw("Response", "body", string(data))
 
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return exchanges.NewExchangeError("EDGEX", "429", strings.TrimSpace(string(data)), exchanges.ErrRateLimited)
+		}
 		return fmt.Errorf("http error %d: %s", resp.StatusCode, string(data))
 	}
 
@@ -140,6 +144,9 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 		}
 
 		if apiResp.Code != "0" && apiResp.Code != "SUCCESS" && apiResp.Code != "" {
+			if isRateLimitResponse(apiResp.Code, apiResp.Message) {
+				return exchanges.NewExchangeError("EDGEX", apiResp.Code, apiResp.Message, exchanges.ErrRateLimited)
+			}
 			return fmt.Errorf("api error %s: %s", apiResp.Code, apiResp.Message)
 		}
 
@@ -154,4 +161,12 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	}
 
 	return nil
+}
+
+func isRateLimitResponse(code, message string) bool {
+	upperCode := strings.ToUpper(code)
+	lowerMessage := strings.ToLower(message)
+	return strings.Contains(upperCode, "RATE_LIMIT") ||
+		strings.Contains(lowerMessage, "rate limit") ||
+		strings.Contains(lowerMessage, "too many requests")
 }

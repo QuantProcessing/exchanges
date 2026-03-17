@@ -11,7 +11,7 @@
 - **统一接口** — 一套 API 对接所有交易所，切换交易所只需改一行代码
 - **全市场覆盖** — 支持永续合约、现货、杠杆交易
 - **双通道传输** — REST 用于查询，WebSocket 用于实时推送和低延迟下单
-- **内置安全机制** — 声明式限流、IP 封禁自动检测/恢复、订单参数校验、滑点保护
+- **内置安全机制** — 交易所特定的请求保护、限流错误映射、订单参数校验、滑点保护
 - **本地状态管理** — WebSocket 维护的深度簿、仓位/订单追踪、余额同步
 - **生产可用** — 已在量化交易系统中经过实战验证，日处理数千笔订单
 
@@ -27,7 +27,7 @@
 | Hyperliquid | ✅    | ✅    | —    | USDC             | USDC    |
 | StandX      | ✅    | —    | —    | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —    | USDT             | USDT    |
-| EdgeX       | ✅    | ✅    | —    | USDC             | USDC    |
+| EdgeX       | ✅    | —    | —    | USDC             | USDC    |
 
 ## 安装
 
@@ -76,7 +76,7 @@ func getSpread(ctx context.Context, adp exchanges.Exchange, symbol string) (deci
 └─────────────────────────────────────────────────────┘
 ```
 
-- **适配器层**：实现 `exchanges.Exchange` 接口。处理符号映射、订单校验、滑点逻辑、限流和状态管理。
+- **适配器层**：实现 `exchanges.Exchange` 接口。处理符号映射、订单校验、滑点逻辑和状态管理。
 - **SDK 层**：轻量 REST/WebSocket 客户端，与交易所 API 端点一一对应。可以直接使用以获得最大灵活性。
 
 ---
@@ -371,6 +371,9 @@ if err != nil {
     if errors.Is(err, exchanges.ErrMinQuantity) {
         // 低于最小数量
     }
+    if errors.Is(err, exchanges.ErrRateLimited) {
+        // 触发限流 — 按自己的策略重试/退避
+    }
 
     // 获取交易所原始错误信息
     var exErr *exchanges.ExchangeError
@@ -382,23 +385,89 @@ if err != nil {
 
 可用哨兵错误：`ErrInsufficientBalance`、`ErrRateLimited`、`ErrInvalidPrecision`、`ErrOrderNotFound`、`ErrSymbolNotFound`、`ErrMinNotional`、`ErrMinQuantity`、`ErrAuthFailed`、`ErrNetworkTimeout`、`ErrNotSupported`。
 
+### 限流错误处理
+
+当交易所返回限流错误时，SDK 会将其包装为结构化 `ExchangeError`，以 `ErrRateLimited` 作为底层错误。该错误会透传整个调用链：
+
+```
+你的代码 (caller)
+  → adapter.PlaceOrder()     // 透明传递 (return nil, err)
+    → client.Post()          // 返回 exchanges.NewExchangeError(..., ErrRateLimited)
+```
+
+**基本检测** — 使用 `errors.Is()` 判断是否限流：
+
+```go
+order, err := adp.PlaceOrder(ctx, params)
+if errors.Is(err, exchanges.ErrRateLimited) {
+    log.Warn("触发限流，等待重试...")
+    time.Sleep(5 * time.Second)
+}
+```
+
+**提取交易所信息** — 使用 `errors.As()` 获取完整错误上下文：
+
+```go
+var exErr *exchanges.ExchangeError
+if errors.As(err, &exErr) && errors.Is(err, exchanges.ErrRateLimited) {
+    fmt.Printf("交易所: %s\n", exErr.Exchange) // "BINANCE", "GRVT", "LIGHTER" 等
+    fmt.Printf("错误码: %s\n", exErr.Code)     // "-1003", "1006", "429"
+    fmt.Printf("消息:   %s\n", exErr.Message)  // 原始错误消息
+}
+```
+
+**推荐重试模式** — 指数退避：
+
+```go
+func placeOrderWithRetry(ctx context.Context, adp exchanges.Exchange, params *exchanges.OrderParams) (*exchanges.Order, error) {
+    maxRetries := 3
+    for i := 0; i < maxRetries; i++ {
+        order, err := adp.PlaceOrder(ctx, params)
+        if err == nil {
+            return order, nil
+        }
+        if !errors.Is(err, exchanges.ErrRateLimited) {
+            return nil, err // 非限流错误，直接失败
+        }
+        backoff := time.Duration(1<<uint(i)) * time.Second // 1s, 2s, 4s
+        log.Warnf("触发限流 (第 %d/%d 次)，%v 后重试", i+1, maxRetries, backoff)
+        select {
+        case <-time.After(backoff):
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        }
+    }
+    return nil, fmt.Errorf("限流重试 %d 次后仍失败", maxRetries)
+}
+```
+
+> **设计说明**：本库不实现自动重试或退避。限流处理策略（固定延迟、指数退避、熔断器等）属于业务层决策，应由调用方自行控制。
+
 ---
 
 ## 内置安全机制
 
 ### 限流
 
-每个适配器预配置了交易所特定的限流规则。滑动窗口限流器支持：
-- 多时间窗口（如 1200 次/分 + 10 次/秒）
-- 分类权重（不同端点消耗不同配额）
-- 自动阻塞直到配额可用
+限流检测已在 SDK 层为所有支持的交易所逐一实现：
+
+| 交易所 | 检测信号 | 错误码 | 说明 |
+|--------|---------|--------|------|
+| **Binance** | HTTP 429/418, code -1003/-1015, `X-Mbx-Used-Weight` 头 | `-1003`, `-1015` | 权重追踪 + 订单计数 |
+| **Aster** | 同 Binance（Binance 系分叉） | `-1003`, `-1015` | 同样支持 X-Mbx-* 头 |
+| **OKX** | HTTP 429, code `50011`/`50061` | `50011`, `50061` | 按端点独立限流 |
+| **Hyperliquid** | HTTP 429, 消息文本匹配 | `429` | 响应消息关键词检测 |
+| **EdgeX** | HTTP 429, code/消息匹配 | `429` | 自定义错误码/消息 |
+| **GRVT** | HTTP 429, 错误码 `1006` | `1006` | 按交易对独立追踪 |
+| **Lighter** | HTTP 429 | `429` | 权重限制（标准 60 req/min） |
+| **Nado** | HTTP 429 | `429` | 1200 req/min per IP |
+| **StandX** | HTTP 429 | `429` | 支持 Retry-After 头 |
+
+所有限流错误均被包装为 `ExchangeError`，底层错误为 `ErrRateLimited`。使用 `errors.Is(err, exchanges.ErrRateLimited)` 即可统一检测 — 详细用法见 [限流错误处理](#限流错误处理)。
 
 ### IP 封禁检测与自动恢复
 
-当交易所返回封禁错误（HTTP 418/429 + retry-after）时，适配器会：
-1. 自动解析封禁时长
-2. 阻塞所有后续请求直到封禁到期
-3. 自动恢复正常运行 — 无需人工干预
+当交易所返回明确的封禁或限流错误（例如 HTTP 418/429）时，SDK 会把它们包装成结构化错误，由调用方决定是否重试、退避或暂停。
 
 ### 订单校验
 
@@ -442,10 +511,9 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 ├── exchange.go             核心 Exchange / PerpExchange / SpotExchange 接口
 ├── models.go               统一数据类型（Order, Position, Ticker 等）
 ├── errors.go               哨兵错误 + ExchangeError 类型
-├── base_adapter.go         共享适配器逻辑（限流、封禁、深度簿、校验）
+├── base_adapter.go         共享适配器逻辑（深度簿、校验、通用辅助）
 ├── local_state.go          LocalOrderBook 接口 + AccountManager
 ├── log.go                  Logger 接口 + NopLogger
-├── ratelimit/              声明式滑动窗口限流器
 ├── testsuite/              适配器一致性测试套件
 ├── binance/                Binance 适配器 + SDK
 │   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}
@@ -471,8 +539,6 @@ cp .env.example .env
 
 运行单元测试（无需 API Key）：
 ```bash
-go test ./ratelimit/ -v
-go test . -run TestBan -v
 go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -v  # 报价币种测试
 ```
 

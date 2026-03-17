@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/QuantProcessing/exchanges/internal/mbx"
 )
 
 const (
@@ -23,6 +24,9 @@ type Client struct {
 	SecretKey  string
 	HTTPClient *http.Client
 	Logger     *zap.SugaredLogger
+
+	UsedWeight mbx.UsedWeight
+	OrderCount mbx.OrderCount
 }
 
 func NewClient() *Client {
@@ -94,6 +98,9 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	}
 	defer resp.Body.Close()
 
+	c.UsedWeight.UpdateByHeader(resp.Header)
+	c.OrderCount.UpdateByHeader(resp.Header)
+
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -102,6 +109,16 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	c.Logger.Debugw("Response", "body", string(data))
 
 	if resp.StatusCode >= 400 {
+		if rlErr := mbx.MapAPIError("BINANCE", resp.StatusCode, data, func(d []byte) (int, string, error) {
+			var apiErr APIError
+			if err := json.Unmarshal(d, &apiErr); err != nil {
+				return 0, "", err
+			}
+			return apiErr.Code, apiErr.Message, nil
+		}); rlErr != nil {
+			return rlErr
+		}
+		// Not a rate-limit error — return as generic APIError
 		var apiErr APIError
 		if err := json.Unmarshal(data, &apiErr); err != nil {
 			return fmt.Errorf("http error %d: %s", resp.StatusCode, string(data))
@@ -133,3 +150,4 @@ func (c *Client) Delete(ctx context.Context, endpoint string, params map[string]
 func (c *Client) Put(ctx context.Context, endpoint string, params map[string]interface{}, signed bool, result interface{}) error {
 	return c.call(ctx, http.MethodPut, endpoint, params, signed, result)
 }
+

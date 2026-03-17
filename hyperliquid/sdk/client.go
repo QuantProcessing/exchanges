@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
 
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -153,10 +155,20 @@ func (c *Client) Post(ctx context.Context, path string, payload any) ([]byte, er
 		if err := json.Unmarshal(data, &apiErr); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal error response: %w", err)
 		}
+		if isRateLimitError(apiErr) {
+			return nil, exchanges.NewExchangeError("HYPERLIQUID", fmt.Sprintf("%d", apiErr.Code), apiErr.Message, exchanges.ErrRateLimited)
+		}
 		return nil, &apiErr
 	}
 
 	return data, nil
+}
+
+func isRateLimitError(err APIError) bool {
+	if err.Code == http.StatusTooManyRequests {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Message), "rate limit")
 }
 
 func (c *Client) GetUserFees(ctx context.Context) (*UserFees, error) {

@@ -11,7 +11,7 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 - **Unified Interface** — One API to rule them all. Switch exchanges by changing one line.
 - **Full Market Coverage** — Perpetual Futures, Spot, and Margin trading support.
 - **Dual Transport** — REST for queries; WebSocket for real-time streaming and low-latency order placement.
-- **Built-in Safety** — Declarative rate limiting, automatic IP ban detection/recovery, order validation, and slippage protection.
+- **Built-in Safety** — Exchange-specific request protection, rate-limit error mapping, order validation, and slippage protection.
 - **Local State Management** — WebSocket-maintained orderbooks, position/order tracking, and balance sync.
 - **Production-Ready** — Battle-tested in quantitative trading systems handling thousands of orders daily.
 
@@ -27,7 +27,7 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 | Hyperliquid | ✅    | ✅    | —      | USDC             | USDC    |
 | StandX      | ✅    | —    | —      | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —      | USDT             | USDT    |
-| EdgeX       | ✅    | ✅    | —      | USDC             | USDC    |
+| EdgeX       | ✅    | —    | —      | USDC             | USDC    |
 
 ## Installation
 
@@ -76,7 +76,7 @@ All methods accept a **base currency symbol** (e.g. `"BTC"`, `"ETH"`). The adapt
 └─────────────────────────────────────────────────────┘
 ```
 
-- **Adapter Layer**: Implements `exchanges.Exchange`. Handles symbol mapping, order validation, slippage logic, rate limiting, and state management.
+- **Adapter Layer**: Implements `exchanges.Exchange`. Handles symbol mapping, order validation, slippage logic, and state management.
 - **SDK Layer**: Thin REST/WebSocket clients that map 1:1 to exchange API endpoints. You can use these directly for maximum flexibility.
 
 ---
@@ -372,7 +372,7 @@ if err != nil {
         // Handle below minimum quantity
     }
     if errors.Is(err, exchanges.ErrRateLimited) {
-        // Handle rate limit (auto-handled by built-in limiter)
+        // Handle rate limit according to your own retry/backoff policy
     }
 
     // Access exchange-specific details
@@ -385,23 +385,89 @@ if err != nil {
 
 Available sentinel errors: `ErrInsufficientBalance`, `ErrRateLimited`, `ErrInvalidPrecision`, `ErrOrderNotFound`, `ErrSymbolNotFound`, `ErrMinNotional`, `ErrMinQuantity`, `ErrAuthFailed`, `ErrNetworkTimeout`, `ErrNotSupported`.
 
+### Rate Limit Error Handling
+
+When an exchange returns a rate-limit error, the SDK wraps it as a structured `ExchangeError` with `ErrRateLimited` as the cause. The error flows through the entire call chain:
+
+```
+Your Code (caller)
+  → adapter.PlaceOrder()     // transparent pass-through (return nil, err)
+    → client.Post()          // returns exchanges.NewExchangeError(..., ErrRateLimited)
+```
+
+**Basic detection** — use `errors.Is()` to check for rate limiting:
+
+```go
+order, err := adp.PlaceOrder(ctx, params)
+if errors.Is(err, exchanges.ErrRateLimited) {
+    log.Warn("rate limited, backing off...")
+    time.Sleep(5 * time.Second)
+}
+```
+
+**Extract exchange-specific details** — use `errors.As()` for the full error context:
+
+```go
+var exErr *exchanges.ExchangeError
+if errors.As(err, &exErr) && errors.Is(err, exchanges.ErrRateLimited) {
+    fmt.Printf("Exchange: %s\n", exErr.Exchange) // "BINANCE", "GRVT", "LIGHTER", etc.
+    fmt.Printf("Code:     %s\n", exErr.Code)     // "-1003", "1006", "429"
+    fmt.Printf("Message:  %s\n", exErr.Message)  // Original error message
+}
+```
+
+**Recommended retry pattern** — exponential backoff:
+
+```go
+func placeOrderWithRetry(ctx context.Context, adp exchanges.Exchange, params *exchanges.OrderParams) (*exchanges.Order, error) {
+    maxRetries := 3
+    for i := 0; i < maxRetries; i++ {
+        order, err := adp.PlaceOrder(ctx, params)
+        if err == nil {
+            return order, nil
+        }
+        if !errors.Is(err, exchanges.ErrRateLimited) {
+            return nil, err // Non-rate-limit error, fail immediately
+        }
+        backoff := time.Duration(1<<uint(i)) * time.Second // 1s, 2s, 4s
+        log.Warnf("rate limited (attempt %d/%d), retrying in %v", i+1, maxRetries, backoff)
+        select {
+        case <-time.After(backoff):
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        }
+    }
+    return nil, fmt.Errorf("rate limited after %d retries", maxRetries)
+}
+```
+
+> **Design note**: The library deliberately does not implement automatic retry or backoff. Rate-limit handling strategy (fixed delay, exponential backoff, circuit breaker, etc.) is a business-level decision that callers should own.
+
 ---
 
 ## Built-in Safety Features
 
 ### Rate Limiting
 
-Each adapter comes with exchange-specific rate limiters pre-configured. The sliding-window rate limiter supports:
-- Multiple time windows (e.g., 1200 req/min + 10 req/sec)
-- Category-based weights (different endpoints consume different quotas)
-- Automatic blocking until quota is available
+Rate-limit detection is implemented at the SDK layer for every supported exchange:
+
+| Exchange | Detection Signal | Error Code | Details |
+|----------|-----------------|------------|---------- |
+| **Binance** | HTTP 429/418, code -1003/-1015, header `X-Mbx-Used-Weight` | `-1003`, `-1015` | Weight-based + order count tracking |
+| **Aster** | Same as Binance (Binance-family fork) | `-1003`, `-1015` | Same X-Mbx-* header support |
+| **OKX** | HTTP 429, code `50011`/`50061` | `50011`, `50061` | Per-endpoint rate limits |
+| **Hyperliquid** | HTTP 429, message-based detection | `429` | Message content matching |
+| **EdgeX** | HTTP 429, code/message-based detection | `429` | Custom error code/message |
+| **GRVT** | HTTP 429, error code `1006` | `1006` | Per-instrument tracking |
+| **Lighter** | HTTP 429 | `429` | Weight-based (60 req/min standard) |
+| **Nado** | HTTP 429 | `429` | 1200 req/min per IP |
+| **StandX** | HTTP 429 | `429` | Retry-After header support |
+
+All rate-limit errors are wrapped as `ExchangeError` with `ErrRateLimited` as the unwrappable cause. Use `errors.Is(err, exchanges.ErrRateLimited)` for detection — see [Rate Limit Error Handling](#rate-limit-error-handling) for detailed usage.
 
 ### IP Ban Detection & Recovery
 
-If an exchange returns a ban error (HTTP 418/429 with retry-after), the adapter:
-1. Automatically parses the ban duration
-2. Blocks all subsequent requests until the ban expires
-3. Resumes normal operation — no manual intervention needed
+If an exchange returns explicit ban or throttle errors (for example HTTP 418/429), the SDK surfaces them as structured exchange errors so callers can decide whether to retry, back off, or pause.
 
 ### Order Validation
 
@@ -445,10 +511,9 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── exchange.go             Core Exchange / PerpExchange / SpotExchange interfaces
 ├── models.go               Unified data types (Order, Position, Ticker, etc.)
 ├── errors.go               Sentinel errors + ExchangeError type
-├── base_adapter.go         Shared adapter logic (rate limit, ban, orderbook, validation)
+├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
 ├── local_state.go          LocalOrderBook interface + AccountManager
 ├── log.go                  Logger interface + NopLogger
-├── ratelimit/              Declarative sliding-window rate limiter
 ├── testsuite/              Adapter compliance test suite
 ├── binance/                Binance adapter + SDK
 │   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}
@@ -474,8 +539,6 @@ cp .env.example .env
 
 Run unit tests (no API keys needed):
 ```bash
-go test ./ratelimit/ -v
-go test . -run TestBan -v
 go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -v  # QuoteCurrency tests
 ```
 

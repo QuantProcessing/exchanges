@@ -21,7 +21,6 @@
 //
 //   - Root package (exchanges): Unified interfaces, models, errors, and utilities
 //   - Exchange packages (binance/, okx/, ...): Exchange-specific adapters and SDK clients
-//   - Ratelimit package: Declarative sliding-window rate limiter
 //   - Testsuite package: Adapter compliance test suite
 //
 // # Logger

@@ -80,7 +80,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	}
 
 	base := exchanges.NewBaseAdapter("NADO", exchanges.MarketTypePerp, opts.logger())
-	base.WithRateLimiter(rateLimitRules, rateLimitWeights)
 
 	a := &Adapter{
 		BaseAdapter: base,
@@ -203,9 +202,6 @@ func (a *Adapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
-	if err := a.AcquireRate(ctx, "FetchAccount"); err != nil {
-		return nil, err
-	}
 	// Use subaccount_info API from Gateway to get balances and positions
 	resp, err := a.httpClient.GetAccount(ctx)
 	if err != nil {
@@ -327,9 +323,6 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "PlaceOrder"); err != nil {
-		return nil, err
-	}
 	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
@@ -445,9 +438,6 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	if err := a.AcquireRate(ctx, "CancelOrder"); err != nil {
-		return err
-	}
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return err
@@ -477,9 +467,6 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 }
 
 func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "FetchOrder"); err != nil {
-		return nil, err
-	}
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return nil, err
@@ -493,9 +480,6 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exch
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "FetchOpenOrders"); err != nil {
-		return nil, err
-	}
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return nil, err
@@ -515,9 +499,6 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	if err := a.AcquireRate(ctx, "CancelAllOrders"); err != nil {
-		return err
-	}
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return err
@@ -548,9 +529,6 @@ func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) 
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
-	if err := a.AcquireRate(ctx, "FetchFeeRate"); err != nil {
-		return nil, err
-	}
 	a.feeOnce.Do(func() {
 		fees, err := a.httpClient.GetFeeRates(ctx)
 		if err != nil {
@@ -582,9 +560,6 @@ func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.F
 // ================= Market Data =================
 
 func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
-	if err := a.AcquireRate(ctx, "FetchTicker"); err != nil {
-		return nil, err
-	}
 	tickers, err := a.httpClient.GetTickers(ctx, nado.MarketTypePerp, nil)
 	if err != nil {
 		return nil, err
@@ -608,9 +583,6 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ti
 }
 
 func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	if err := a.AcquireRate(ctx, "FetchOrderBook"); err != nil {
-		return nil, err
-	}
 	tickerID := a.FormatSymbol(symbol)
 	res, err := a.httpClient.GetOrderBook(ctx, tickerID, limit)
 	if err != nil {
@@ -638,9 +610,6 @@ func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) 
 }
 
 func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) ([]exchanges.Kline, error) {
-	if err := a.AcquireRate(ctx, "FetchKlines"); err != nil {
-		return nil, err
-	}
 	var start, end *time.Time
 	var limit int
 	if opts != nil {
@@ -712,9 +681,6 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 }
 
 func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
-	if err := a.AcquireRate(ctx, "FetchTrades"); err != nil {
-		return nil, err
-	}
 	tickerID := a.FormatSymbol(symbol)
 	res, err := a.httpClient.GetTrades(ctx, tickerID, &limit, nil)
 	if err != nil {

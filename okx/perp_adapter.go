@@ -56,7 +56,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	}
 
 	base := exchanges.NewBaseAdapter("OKX", exchanges.MarketTypePerp, opts.logger())
-	base.WithRateLimiter(rateLimitRules, rateLimitWeights)
 
 	a := &Adapter{
 		BaseAdapter:   base,
@@ -213,9 +212,6 @@ func (a *Adapter) getCtVal(ctx context.Context, symbol string) decimal.Decimal {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
-	if err := a.AcquireRate(ctx, "FetchAccount"); err != nil {
-		return nil, err
-	}
 	bals, err := a.client.GetAccountBalance(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -262,9 +258,6 @@ func (a *Adapter) FetchBalance(ctx context.Context) (decimal.Decimal, error) {
 }
 
 func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, error) {
-	if err := a.AcquireRate(ctx, "FetchPositions"); err != nil {
-		return nil, err
-	}
 	instType := "SWAP"
 	ps, err := a.client.GetPositions(ctx, &instType, nil)
 	if err != nil {
@@ -307,9 +300,6 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "PlaceOrder"); err != nil {
-		return nil, err
-	}
 	// OKX supports native market orders — skip slippage conversion entirely.
 	// OKX's ~1% price band limit rejects LIMIT+IOC with large slippage.
 	// 1. Validation & Formatting
@@ -487,9 +477,6 @@ func (a *Adapter) mapOrderType(params *exchanges.OrderParams) string {
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	if err := a.AcquireRate(ctx, "CancelOrder"); err != nil {
-		return err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	// REST mode
@@ -507,9 +494,6 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "ModifyOrder"); err != nil {
-		return nil, err
-	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return nil, err
 	}
@@ -544,9 +528,6 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 }
 
 func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "FetchOrder"); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	res, err := a.client.GetOrder(ctx, instId, orderID, "")
@@ -561,9 +542,6 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exch
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	if err := a.AcquireRate(ctx, "FetchOpenOrders"); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	var ids *string
@@ -583,9 +561,6 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	if err := a.AcquireRate(ctx, "CancelAllOrders"); err != nil {
-		return err
-	}
 	orders, err := a.FetchOpenOrders(ctx, symbol)
 	if err != nil {
 		return err
@@ -636,9 +611,6 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
-	if err := a.AcquireRate(ctx, "SetLeverage"); err != nil {
-		return err
-	}
 	instId := a.FormatSymbol(symbol)
 	_, err := a.client.SetLeverage(ctx, okx.SetLeverage{
 		InstId:  instId,
@@ -649,9 +621,6 @@ func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) 
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
-	if err := a.AcquireRate(ctx, "FetchFeeRate"); err != nil {
-		return nil, err
-	}
 	a.feeOnce.Do(func() {
 		// OKX GetTradeFee with instType only (no instId) to avoid mismatch error
 		res, err := a.client.GetTradeFee(ctx, "SWAP", nil)
@@ -688,9 +657,6 @@ func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.F
 // ================= Market Data =================
 
 func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
-	if err := a.AcquireRate(ctx, "FetchTicker"); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	res, err := a.client.GetTicker(ctx, instId)
@@ -715,9 +681,6 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ti
 }
 
 func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	if err := a.AcquireRate(ctx, "FetchOrderBook"); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	sz := 400
@@ -754,9 +717,6 @@ func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) 
 }
 
 func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) ([]exchanges.Kline, error) {
-	if err := a.AcquireRate(ctx, "FetchKlines"); err != nil {
-		return nil, err
-	}
 	var start, end *time.Time
 	var limit int
 	if opts != nil {
@@ -814,9 +774,6 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 }
 
 func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
-	if err := a.AcquireRate(ctx, "FetchTrades"); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	params := url.Values{}
