@@ -13,11 +13,11 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_STANDX_PRIVATE_KEY") == "" {
+	if os.Getenv("STANDX_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: STANDX keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		PrivateKey: os.Getenv("EXCHANGES_STANDX_PRIVATE_KEY"),
+		PrivateKey: os.Getenv("STANDX_PRIVATE_KEY"),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create adapter: %v", err)

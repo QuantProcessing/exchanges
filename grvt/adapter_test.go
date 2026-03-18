@@ -14,13 +14,13 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_GRVT_API_KEY") == "" {
+	if os.Getenv("GRVT_API_KEY") == "" {
 		t.Skip("Skipping: GRVT keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		APIKey:       os.Getenv("EXCHANGES_GRVT_API_KEY"),
-		SubAccountID: os.Getenv("EXCHANGES_GRVT_SUB_ACCOUNT_ID"),
-		PrivateKey:   os.Getenv("EXCHANGES_GRVT_PRIVATE_KEY"),
+		APIKey:       os.Getenv("GRVT_API_KEY"),
+		SubAccountID: os.Getenv("GRVT_SUB_ACCOUNT_ID"),
+		PrivateKey:   os.Getenv("GRVT_PRIVATE_KEY"),
 	})
 	if err != nil {
 		t.Fatalf("NewAdapter failed: %v", err)

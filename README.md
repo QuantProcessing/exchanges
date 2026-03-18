@@ -243,24 +243,24 @@ go func() {
 ```go
 // Binance — USDT market (default)
 adp, _ := binance.NewAdapter(ctx, binance.Options{
-    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
+    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET_KEY"),
 })
 
 // Binance — USDC market
 adpUSDC, _ := binance.NewAdapter(ctx, binance.Options{
-    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
+    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET_KEY"),
     QuoteCurrency: exchanges.QuoteCurrencyUSDC,
 })
 
 // OKX — same interface, different constructor
 adp, _ := okx.NewAdapter(ctx, okx.Options{
-    APIKey: os.Getenv("OKX_API_KEY"), SecretKey: os.Getenv("OKX_SECRET"),
+    APIKey: os.Getenv("OKX_API_KEY"), SecretKey: os.Getenv("OKX_SECRET_KEY"),
     Passphrase: os.Getenv("OKX_PASSPHRASE"),
 })
 
 // Hyperliquid — wallet-based auth (USDC only)
 adp, _ := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
-    PrivateKey: os.Getenv("HL_PRIVATE_KEY"), AccountAddr: os.Getenv("HL_ADDR"),
+    PrivateKey: os.Getenv("HYPERLIQUID_PRIVATE_KEY"), AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
 })
 
 // All adapters expose the exact same Exchange interface

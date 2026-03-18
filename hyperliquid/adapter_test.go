@@ -13,12 +13,12 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_HYPERLIQUID_PRIVATE_KEY") == "" {
+	if os.Getenv("HYPERLIQUID_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: HYPERLIQUID keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		PrivateKey:  os.Getenv("EXCHANGES_HYPERLIQUID_PRIVATE_KEY"),
-		AccountAddr: os.Getenv("EXCHANGES_HYPERLIQUID_ACCOUNT_ADDR"),
+		PrivateKey:  os.Getenv("HYPERLIQUID_PRIVATE_KEY"),
+		AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
 	})
 	if err != nil {
 		t.Fatalf("NewAdapter failed: %v", err)
@@ -29,12 +29,12 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_HYPERLIQUID_PRIVATE_KEY") == "" {
+	if os.Getenv("HYPERLIQUID_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: HYPERLIQUID keys not set")
 	}
 	adp, err := NewSpotAdapter(context.Background(), Options{
-		PrivateKey:  os.Getenv("EXCHANGES_HYPERLIQUID_PRIVATE_KEY"),
-		AccountAddr: os.Getenv("EXCHANGES_HYPERLIQUID_ACCOUNT_ADDR"),
+		PrivateKey:  os.Getenv("HYPERLIQUID_PRIVATE_KEY"),
+		AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
 	})
 	if err != nil {
 		t.Fatalf("NewSpotAdapter failed: %v", err)

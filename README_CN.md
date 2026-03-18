@@ -243,24 +243,24 @@ go func() {
 ```go
 // Binance — USDT 市场（默认）
 adp, _ := binance.NewAdapter(ctx, binance.Options{
-    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
+    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET_KEY"),
 })
 
 // Binance — USDC 市场
 adpUSDC, _ := binance.NewAdapter(ctx, binance.Options{
-    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET"),
+    APIKey: os.Getenv("BINANCE_API_KEY"), SecretKey: os.Getenv("BINANCE_SECRET_KEY"),
     QuoteCurrency: exchanges.QuoteCurrencyUSDC,
 })
 
 // OKX — 相同接口，不同构造器
 adp, _ := okx.NewAdapter(ctx, okx.Options{
-    APIKey: os.Getenv("OKX_API_KEY"), SecretKey: os.Getenv("OKX_SECRET"),
+    APIKey: os.Getenv("OKX_API_KEY"), SecretKey: os.Getenv("OKX_SECRET_KEY"),
     Passphrase: os.Getenv("OKX_PASSPHRASE"),
 })
 
 // Hyperliquid — 钱包签名认证（仅支持 USDC）
 adp, _ := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
-    PrivateKey: os.Getenv("HL_PRIVATE_KEY"), AccountAddr: os.Getenv("HL_ADDR"),
+    PrivateKey: os.Getenv("HYPERLIQUID_PRIVATE_KEY"), AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
 })
 
 // 所有适配器暴露完全相同的 Exchange 接口

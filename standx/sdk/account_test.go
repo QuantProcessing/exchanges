@@ -15,7 +15,7 @@ import (
 
 func TestAccountIntegration(t *testing.T) {
 	_ = godotenv.Load("../../../.env")
-	privateKey := os.Getenv("EXCHANGES_STANDX_PRIVATE_KEY")
+	privateKey := os.Getenv("STANDX_PRIVATE_KEY")
 	if privateKey == "" {
 		t.Skip("Standx private key not set")
 	}

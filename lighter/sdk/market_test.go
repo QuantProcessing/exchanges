@@ -11,9 +11,9 @@ import (
 
 func GetEnv() (string, int64, uint64) {
 	godotenv.Load("../../../.env")
-	privateKey := os.Getenv("EXCHANGES_LIGHTER_PRIVATE_KEY")
-	accountIndex, _ := strconv.ParseInt(os.Getenv("EXCHANGES_LIGHTER_ACCOUNT_INDEX"), 10, 64)
-	keyIndex, _ := strconv.ParseUint(os.Getenv("EXCHANGES_LIGHTER_KEY_INDEX"), 10, 8)
+	privateKey := os.Getenv("LIGHTER_PRIVATE_KEY")
+	accountIndex, _ := strconv.ParseInt(os.Getenv("LIGHTER_ACCOUNT_INDEX"), 10, 64)
+	keyIndex, _ := strconv.ParseUint(os.Getenv("LIGHTER_KEY_INDEX"), 10, 8)
 	return privateKey, accountIndex, keyIndex
 }
 

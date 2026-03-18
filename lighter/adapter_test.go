@@ -13,14 +13,14 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_LIGHTER_PRIVATE_KEY") == "" {
+	if os.Getenv("LIGHTER_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: LIGHTER keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		PrivateKey:   os.Getenv("EXCHANGES_LIGHTER_PRIVATE_KEY"),
-		AccountIndex: os.Getenv("EXCHANGES_LIGHTER_ACCOUNT_INDEX"),
-		KeyIndex:     os.Getenv("EXCHANGES_LIGHTER_KEY_INDEX"),
-		RoToken:      os.Getenv("EXCHANGES_LIGHTER_RO_TOKEN"),
+		PrivateKey:   os.Getenv("LIGHTER_PRIVATE_KEY"),
+		AccountIndex: os.Getenv("LIGHTER_ACCOUNT_INDEX"),
+		KeyIndex:     os.Getenv("LIGHTER_KEY_INDEX"),
+		RoToken:      os.Getenv("LIGHTER_RO_TOKEN"),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create adapter: %v", err)
@@ -31,14 +31,14 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_LIGHTER_PRIVATE_KEY") == "" {
+	if os.Getenv("LIGHTER_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: LIGHTER keys not set")
 	}
 	adp, err := NewSpotAdapter(context.Background(), Options{
-		PrivateKey:   os.Getenv("EXCHANGES_LIGHTER_PRIVATE_KEY"),
-		AccountIndex: os.Getenv("EXCHANGES_LIGHTER_ACCOUNT_INDEX"),
-		KeyIndex:     os.Getenv("EXCHANGES_LIGHTER_KEY_INDEX"),
-		RoToken:      os.Getenv("EXCHANGES_LIGHTER_RO_TOKEN"),
+		PrivateKey:   os.Getenv("LIGHTER_PRIVATE_KEY"),
+		AccountIndex: os.Getenv("LIGHTER_ACCOUNT_INDEX"),
+		KeyIndex:     os.Getenv("LIGHTER_KEY_INDEX"),
+		RoToken:      os.Getenv("LIGHTER_RO_TOKEN"),
 	})
 	if err != nil {
 		t.Fatalf("NewSpotAdapter failed: %v", err)

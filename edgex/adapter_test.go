@@ -14,12 +14,12 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_EDGEX_PRIVATE_KEY") == "" {
+	if os.Getenv("EDGEX_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: EDGEX keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		PrivateKey: os.Getenv("EXCHANGES_EDGEX_PRIVATE_KEY"),
-		AccountID:  os.Getenv("EXCHANGES_EDGEX_ACCOUNT_ID"),
+		PrivateKey: os.Getenv("EDGEX_PRIVATE_KEY"),
+		AccountID:  os.Getenv("EDGEX_ACCOUNT_ID"),
 	})
 	if err != nil {
 		t.Fatalf("NewAdapter failed: %v", err)

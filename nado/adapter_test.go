@@ -13,12 +13,12 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_NADO_PRIVATE_KEY") == "" {
+	if os.Getenv("NADO_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: NADO keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		PrivateKey:     os.Getenv("EXCHANGES_NADO_PRIVATE_KEY"),
-		SubAccountName: os.Getenv("EXCHANGES_NADO_SUB_ACCOUNT_NAME"),
+		PrivateKey:     os.Getenv("NADO_PRIVATE_KEY"),
+		SubAccountName: os.Getenv("NADO_SUB_ACCOUNT_NAME"),
 	})
 	if err != nil {
 		t.Fatalf("NewAdapter failed: %v", err)
@@ -29,12 +29,12 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_NADO_PRIVATE_KEY") == "" {
+	if os.Getenv("NADO_PRIVATE_KEY") == "" {
 		t.Skip("Skipping: NADO keys not set")
 	}
 	adp, err := NewSpotAdapter(context.Background(), Options{
-		PrivateKey:     os.Getenv("EXCHANGES_NADO_PRIVATE_KEY"),
-		SubAccountName: os.Getenv("EXCHANGES_NADO_SUB_ACCOUNT_NAME"),
+		PrivateKey:     os.Getenv("NADO_PRIVATE_KEY"),
+		SubAccountName: os.Getenv("NADO_SUB_ACCOUNT_NAME"),
 	})
 	if err != nil {
 		t.Fatalf("NewSpotAdapter failed: %v", err)

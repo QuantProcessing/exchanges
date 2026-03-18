@@ -13,13 +13,13 @@ import (
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_OKX_API_KEY") == "" {
+	if os.Getenv("OKX_API_KEY") == "" {
 		t.Skip("Skipping: OKX keys not set")
 	}
 	adp, err := NewAdapter(context.Background(), Options{
-		APIKey:     os.Getenv("EXCHANGES_OKX_API_KEY"),
-		SecretKey:  os.Getenv("EXCHANGES_OKX_SECRET_KEY"),
-		Passphrase: os.Getenv("EXCHANGES_OKX_PASSPHRASE"),
+		APIKey:     os.Getenv("OKX_API_KEY"),
+		SecretKey:  os.Getenv("OKX_SECRET_KEY"),
+		Passphrase: os.Getenv("OKX_PASSPHRASE"),
 	})
 	if err != nil {
 		t.Fatalf("NewAdapter failed: %v", err)
@@ -30,13 +30,13 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
-	if os.Getenv("EXCHANGES_OKX_API_KEY") == "" {
+	if os.Getenv("OKX_API_KEY") == "" {
 		t.Skip("Skipping: OKX keys not set")
 	}
 	adp, err := NewSpotAdapter(context.Background(), Options{
-		APIKey:     os.Getenv("EXCHANGES_OKX_API_KEY"),
-		SecretKey:  os.Getenv("EXCHANGES_OKX_SECRET_KEY"),
-		Passphrase: os.Getenv("EXCHANGES_OKX_PASSPHRASE"),
+		APIKey:     os.Getenv("OKX_API_KEY"),
+		SecretKey:  os.Getenv("OKX_SECRET_KEY"),
+		Passphrase: os.Getenv("OKX_PASSPHRASE"),
 	})
 	if err != nil {
 		t.Fatalf("NewSpotAdapter failed: %v", err)

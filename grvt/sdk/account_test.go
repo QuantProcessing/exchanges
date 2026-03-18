@@ -12,9 +12,9 @@ import (
 
 func GetEnv() (string, string, string) {
 	godotenv.Load("../../../.env")
-	apiKey := os.Getenv("EXCHANGES_GRVT_API_KEY")
-	subaccount := os.Getenv("EXCHANGES_GRVT_SUB_ACCOUNT_ID")
-	privateKey := os.Getenv("EXCHANGES_GRVT_PRIVATE_KEY")
+	apiKey := os.Getenv("GRVT_API_KEY")
+	subaccount := os.Getenv("GRVT_SUB_ACCOUNT_ID")
+	privateKey := os.Getenv("GRVT_PRIVATE_KEY")
 	return apiKey, subaccount, privateKey
 }
 

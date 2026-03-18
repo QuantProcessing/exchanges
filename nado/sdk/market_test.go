@@ -11,8 +11,8 @@ import (
 
 func GetEnv() (string, string) {
 	godotenv.Load("../../../.env")
-	pk := os.Getenv("EXCHANGES_NADO_PRIVATE_KEY")
-	subaccount := os.Getenv("EXCHANGES_NADO_SUBACCOUNT_NAME")
+	pk := os.Getenv("NADO_PRIVATE_KEY")
+	subaccount := os.Getenv("NADO_SUBACCOUNT_NAME")
 	return pk, subaccount
 }
 
