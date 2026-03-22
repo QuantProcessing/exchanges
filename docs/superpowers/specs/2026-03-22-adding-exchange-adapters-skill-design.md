@@ -100,10 +100,11 @@ This section should stay short and act as an adapter-specific gate, not a second
 It should tell the agent to:
 
 - load `exchanges` first for shared contracts and invariants
-- then read one closest peer package plus the specific `testsuite` files that match the target adapter shape
-- write down the target adapter's market coverage, auth model, and whether private streams are expected before choosing file layout
+- then choose one closest peer package by market coverage and auth model
+- identify the exact `testsuite` surfaces the new adapter is expected to pass
+- write down whether the adapter is public-data-only, trading-capable, lifecycle-capable, or local-state-capable before choosing file layout
 
-The point is to force early architectural decisions, not to restate every root-package file in the repository.
+The point is to force early capability and architecture decisions, not to restate root-package routing already owned by `exchanges`.
 
 ### Architecture Decisions
 
@@ -130,21 +131,22 @@ It should not hard-code one `sdk/` layout. Instead, it should tell the agent to 
 - `sdk/perp` and `sdk/spot` when market-specific low-level APIs diverge materially
 - `sdk/common` or shared helpers only when there is real reuse that would otherwise be duplicated
 
-The decision rule should be based on low-level API shape and reuse, not personal preference.
+The decision rule should be based on low-level API shape and reuse, not personal preference, and the skill should tell the agent to mirror the nearest peer layout rather than inventing a canonical SDK file tree.
 
 ### Order Contract Checklist
 
-This section should state that order interfaces are separate contracts, not interchangeable helpers.
+This section should state that the current repository order interfaces are separate contracts, not interchangeable helpers.
 
 The skill should explicitly route to `references/order-semantics.md` before implementing:
 
 - single-order lookup
 - open-order listing
-- historical order listing
 
 The main skill should also forbid a common anti-pattern:
 
 - implementing single-order lookup by scanning only open orders
+
+It should explicitly say that the skill must not invent adapter-level history-order APIs that do not exist in `exchange.go`. If the shared interface changes in the future, the skill can evolve later.
 
 ### Private API Readiness
 
@@ -154,16 +156,18 @@ This section should define what an adapter must account for before claiming acco
 - whether private WebSocket exists and what it is required for
 - which account/order/position state comes from REST snapshots
 - which state is maintained by stream deltas
-- which unsupported shared-interface methods must return explicit not-supported errors
+- which unsupported shared-interface methods must return `exchanges.ErrNotSupported`
 
 This section also needs an explicit support matrix so future agents know when `ErrNotSupported` is acceptable and when it means the adapter is not done.
 
 The matrix should say:
 
 - `WatchOrders` is required if the adapter claims production-ready private trading support or intends to pass `RunLifecycleSuite` or `RunLocalStateSuite`
-- `WatchPositions` is optional for spot adapters and may be optional for perp adapters only when the exchange lacks a usable position stream; in that case the adapter must return an explicit not-supported error and the skill must treat position-stream support as incomplete rather than silently successful
+- `WatchOrders` failure is fatal for `LocalState` readiness because `LocalState.Start` depends on it as a hard prerequisite
+- `WatchPositions` is optional for spot adapters and may be optional for perp adapters when the exchange lacks a usable position stream; in that case the adapter must return `exchanges.ErrNotSupported`
+- `WatchPositions` failure is not fatal for `LocalState` readiness in the current repository; it is additive coverage rather than a universal gate
 - `RunLifecycleSuite` is mandatory for adapters that implement private order streams and claim lifecycle correctness
-- `RunLocalStateSuite` is mandatory for adapters intended to support unified local state, and its minimum prerequisites are `FetchAccount` plus a real `WatchOrders`; `WatchPositions` remains additive rather than universally required
+- `RunLocalStateSuite` is mandatory for adapters intended to support unified local state, and its minimum prerequisites are `FetchAccount` plus a real `WatchOrders`
 
 ### Live Test Readiness
 
@@ -179,6 +183,7 @@ It should require:
 It should also choose a repository convention for `.env` lookup in new adapters:
 
 - prefer a small helper in `adapter_test.go` that searches the worktree-local `.env` first and then parent directories up to the repository root
+- explicitly prefer the resilient Backpack-style helper pattern over older hard-coded `../../.env` paths
 
 This avoids hard-coded relative paths that break when tests run from worktrees.
 
@@ -204,7 +209,7 @@ It should cover:
 - what belongs in `sdk/`
 - what belongs in adapter files
 - the decision tree for choosing flat `sdk/`, `sdk/perp` plus `sdk/spot`, or mixed shared subpackages
-- representative file layouts already present in this repository, such as flat `sdk/` packages and market-scoped SDK subpackages
+- representative repository patterns without prescribing one canonical file list
 - how mapping helpers should avoid leaking wire types into the unified layer
 - when spot and perp should share SDK code versus split
 
@@ -216,18 +221,17 @@ It should include concrete anti-patterns:
 
 ### references/order-semantics.md
 
-This reference should define the intended meaning of each order-query surface for future adapter work.
+This reference should define the intended meaning of the current adapter order-query surfaces for future adapter work.
 
 It should cover:
 
 - single-order lookup by order ID
 - open-order list semantics
-- history-order list semantics
 - symbol filtering expectations
-- acceptable fallback behavior when an exchange lacks a direct history endpoint
-- when to return `ErrOrderNotFound`
+- acceptable implementation strategies for `FetchOrder` when an exchange lacks a clean dedicated order-detail endpoint
+- when to return `exchanges.ErrOrderNotFound`
 
-It should include a warning that terminal-order lookup is part of the contract for single-order queries and that scanning open orders alone is not a valid implementation.
+It should include a warning that terminal-order lookup is part of the current `FetchOrder` contract and that scanning open orders alone is not a valid implementation.
 
 ### references/private-streams-and-localstate.md
 
@@ -247,7 +251,7 @@ It should then explain the common repository pattern:
 - stream-to-model mapping
 - state fan-out to callbacks or local managers
 
-It should also say that if a stream surface is unsupported, the adapter must return an explicit not-supported error instead of a no-op success.
+It should also say that if a stream surface is unsupported, the adapter must return `exchanges.ErrNotSupported` instead of a no-op success.
 
 ### references/live-test-wiring.md
 
@@ -257,7 +261,7 @@ It should cover:
 
 - `.env.example` additions
 - expected environment-variable naming
-- the preferred `.env` lookup helper pattern inside `adapter_test.go`
+- the preferred Backpack-style `.env` lookup helper pattern inside `adapter_test.go`
 - which `testsuite` entries to wire for spot and perp
 - when to use skip flags like slippage-related skips
 - how to choose stable test symbols and quote defaults
