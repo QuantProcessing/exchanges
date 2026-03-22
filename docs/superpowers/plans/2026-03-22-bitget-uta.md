@@ -75,6 +75,8 @@
 - Create: `bitget/options.go`
 - Create: `bitget/register.go`
 - Create: `bitget/common.go`
+- Create: `bitget/perp_adapter.go`
+- Create: `bitget/spot_adapter.go`
 - Create: `bitget/sdk/client.go`
 - Create: `bitget/sdk/auth.go`
 - Create: `bitget/sdk/types.go`
@@ -84,9 +86,9 @@
 - Create: `bitget/sdk/private_ws.go`
 - Test: `go test ./bitget/... -run TestDoesNotExist`
 
-- [ ] **Step 1: Create the package and SDK skeleton files**
+- [ ] **Step 1: Create the package, adapter, and SDK skeleton files**
 
-Add the new files with package declarations, placeholder structs, and the minimum exported types needed for the later tasks to compile.
+Add the new files with package declarations, placeholder structs, placeholder constructors, and the minimum exported types needed for the later tasks to compile.
 
 - [ ] **Step 2: Implement `Options` and registry wiring**
 
@@ -100,6 +102,8 @@ Requirements:
 - `register.go` must register `BITGET`
 - `MarketTypePerp` dispatches to `NewAdapter`
 - `MarketTypeSpot` dispatches to `NewSpotAdapter`
+- `perp_adapter.go` and `spot_adapter.go` must exist in this task with placeholder `NewAdapter` / `NewSpotAdapter`
+- include enough placeholder `Exchange` / `Streamable` methods, including `Close()` and stop methods, to let the package compile before real behavior exists
 
 - [ ] **Step 3: Define SDK client and auth helpers**
 
@@ -239,6 +243,7 @@ git commit -m "feat: add bitget public orderbook streaming"
 - Modify: `bitget/sdk/private_rest.go`
 - Modify: `bitget/perp_adapter.go`
 - Modify: `bitget/spot_adapter.go`
+- Create: `bitget/private_init_test.go`
 - Test: `go test ./bitget/... -run TestDoesNotExist`
 
 - [ ] **Step 1: Add credential completeness helper**
@@ -259,7 +264,17 @@ When complete credentials are provided, constructors must validate:
 
 If validation fails, constructor returns an error.
 
-- [ ] **Step 3: Define one auth-gated error path**
+- [ ] **Step 3: Add constructor-behavior tests before implementation**
+
+Add focused tests covering:
+
+- no credentials: public constructor path is allowed
+- partial credentials: constructor fails before any private network use
+- auth-gated helper methods return an `ExchangeError` wrapping `exchanges.ErrAuthFailed`
+
+If non-UTA rejection cannot be unit tested without live credentials, document it as a live-only validation path in `bitget/adapter_test.go` and structure the constructor validation logic so partial-credential behavior is still unit tested.
+
+- [ ] **Step 4: Define one auth-gated error path**
 
 Implement a shared helper that returns an `exchanges.ExchangeError` wrapping `exchanges.ErrAuthFailed` for auth-gated methods invoked without usable credentials.
 
@@ -272,11 +287,11 @@ Apply this consistently to private surfaces such as:
 - `WatchOrders`
 - `WatchPositions`
 
-- [ ] **Step 4: Verify compile**
+- [ ] **Step 5: Verify compile**
 
 Run: `GOCACHE=/tmp/gocache-bitget go test ./bitget/... -run TestDoesNotExist`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add bitget
@@ -336,6 +351,9 @@ Implement:
 - `FetchSpotBalances`
 - `FetchFeeRate` if directly supported, else `exchanges.ErrNotSupported`
 - `TransferAsset` returning `exchanges.ErrNotSupported`
+- decide the spot slippage strategy now:
+  - either support market-with-slippage through `BaseAdapter.ApplySlippage`
+  - or plan to set `SkipSlippage: true` in the spot `RunOrderSuite`
 
 - [ ] **Step 4: Implement perp private adapter methods**
 
@@ -346,6 +364,9 @@ Implement:
 - `ModifyOrder`
 - `SetLeverage`
 - `FetchFundingRate` and `FetchAllFundingRates` only if directly supportable in v1; otherwise return `exchanges.ErrNotSupported`
+- decide the perp slippage strategy now:
+  - either support market-with-slippage through `BaseAdapter.ApplySlippage`
+  - or plan to set `SkipSlippage: true` in the perp `RunOrderSuite`
 
 - [ ] **Step 5: Enforce order-query semantics**
 
@@ -399,15 +420,23 @@ Implement:
 
 - `WatchOrders`
 - `StopWatchOrders`
+- `Close`
 - `StopWatchTicker`
 - `StopWatchTrades`
 - `StopWatchKlines`
 
 `WatchPositions` and `StopWatchPositions` should return `exchanges.ErrNotSupported` for spot if no meaningful position stream applies.
 
-- [ ] **Step 4: Implement perp `WatchOrders`**
+- [ ] **Step 4: Implement perp `WatchOrders`, `Close`, and stop methods**
 
 Perp must have a real private order stream to satisfy lifecycle and local-state readiness.
+
+Implement at minimum:
+
+- `WatchOrders`
+- `StopWatchOrders`
+- `StopWatchPositions`
+- `Close`
 
 - [ ] **Step 5: Implement perp `WatchPositions` only if the stream is clean enough**
 
@@ -459,7 +488,15 @@ Follow the Backpack pattern and load:
 - `../../.env`
 - `../../../.env`
 
-- [ ] **Step 3: Wire shared suites for spot**
+- [ ] **Step 3: Add targeted constructor/live init checks**
+
+Add focused tests or subtests for:
+
+- no-credential public construction
+- partial credential rejection
+- non-UTA private credential rejection when a live validation path is available
+
+- [ ] **Step 4: Wire shared suites for spot**
 
 Wire:
 
@@ -469,13 +506,18 @@ Wire:
 - `RunLifecycleSuite`
 - `RunLocalStateSuite`
 
+Decide slippage explicitly:
+
+- if spot `PlaceOrder` supports `BaseAdapter.ApplySlippage`, keep the default slippage subtest
+- otherwise set `SkipSlippage: true`
+
 Set order-query config:
 
 - `SupportsOpenOrders: true`
 - `SupportsTerminalLookup: true`
 - `SupportsOrderHistory: false`
 
-- [ ] **Step 4: Wire shared suites for perp**
+- [ ] **Step 5: Wire shared suites for perp**
 
 Wire the same shared suites with:
 
@@ -483,15 +525,20 @@ Wire the same shared suites with:
 - `SupportsTerminalLookup: true`
 - `SupportsOrderHistory: false`
 
-- [ ] **Step 5: Document any honest v1 limitations in README files**
+Decide slippage explicitly for perp as well:
+
+- keep default slippage test only if implementation supports it
+- otherwise set `SkipSlippage: true`
+
+- [ ] **Step 6: Document any honest v1 limitations in README files**
 
 If funding or position streaming is deferred, document it briefly and precisely.
 
-- [ ] **Step 6: Verify compile**
+- [ ] **Step 7: Verify compile**
 
 Run: `GOCACHE=/tmp/gocache-bitget go test ./bitget/... -run TestDoesNotExist`
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add .env.example README.md README_CN.md bitget/adapter_test.go
@@ -593,4 +640,3 @@ Expected: no whitespace or patch-format issues.
 git add .
 git commit -m "chore: finish bitget UTA adapter"
 ```
-
