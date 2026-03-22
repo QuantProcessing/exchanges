@@ -369,6 +369,27 @@ type OrderParams struct {
 }
 ```
 
+### Backpack ClientID Note
+
+Backpack requires a numeric `clientId` in the valid `uint32` range. If you want to set `OrderParams.ClientID` yourself, do not pass UUIDs, timestamps, or any value larger than `4294967295`.
+
+Use the package helper instead:
+
+```go
+import "github.com/QuantProcessing/exchanges/backpack"
+
+params := &exchanges.OrderParams{
+    Symbol:   "BTC",
+    Side:     exchanges.OrderSideBuy,
+    Type:     exchanges.OrderTypeLimit,
+    Quantity: qty,
+    Price:    price,
+    ClientID: backpack.GenerateClientID(),
+}
+```
+
+If `ClientID` is left empty, the Backpack adapter generates a safe one automatically.
+
 ### Error Handling
 
 ```go

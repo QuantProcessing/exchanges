@@ -369,6 +369,27 @@ type OrderParams struct {
 }
 ```
 
+### Backpack 的 ClientID 说明
+
+Backpack 要求 `clientId` 必须是 `uint32` 范围内的数字。若你要自己传 `OrderParams.ClientID`，不要传 UUID、毫秒时间戳，或任何大于 `4294967295` 的值。
+
+建议直接用包内 helper：
+
+```go
+import "github.com/QuantProcessing/exchanges/backpack"
+
+params := &exchanges.OrderParams{
+    Symbol:   "BTC",
+    Side:     exchanges.OrderSideBuy,
+    Type:     exchanges.OrderTypeLimit,
+    Quantity: qty,
+    Price:    price,
+    ClientID: backpack.GenerateClientID(),
+}
+```
+
+如果不传 `ClientID`，Backpack adapter 也会自动生成一个安全可用的值。
+
 ### 错误处理
 
 ```go
