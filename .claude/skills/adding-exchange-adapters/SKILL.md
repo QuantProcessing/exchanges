@@ -1,127 +1,113 @@
 ---
 name: adding-exchange-adapters
-description: Use when adding a new exchange package or wiring a new exchange into the QuantProcessing exchanges Go repository, especially when deciding package skeleton, registry behavior, market-type support, and the minimum tests required before considering the adapter complete.
+description: Use when adding a new exchange package or wiring a new exchange into the QuantProcessing exchanges Go repository, especially when deciding package structure, support level, private-stream readiness, and shared testsuite coverage.
 ---
 
 # Adding Exchange Adapters
 
 ## Overview
 
-Use this skill for brand-new exchange packages. It complements `exchanges`: use `exchanges` for repo-wide interfaces and invariants, then use this skill for the package skeleton, registry wiring, and done criteria of a new adapter.
+This skill complements `exchanges`; it does not replace it. Load `exchanges` first for the shared contracts and invariants, then use this skill for adapter-specific routing: peer selection, capability classification, `sdk/` boundaries, private-support claims, and completion gates.
 
-The common failure modes are predictable:
+Keep mechanics in the reference files. Do not turn this entrypoint into a second copy of repo-wide interface docs.
 
-- missing or incorrect `register.go` market routing
-- inventing constructor names instead of matching repo conventions
-- forgetting `options.go` quote validation and defaults
-- shipping an adapter without `testsuite` coverage
-- guessing package layout from README text instead of peer packages
+## Before You Write Code
 
-## Pick the Right Template
+1. Read `exchanges`, then choose the nearest peer for each concern with market coverage first and auth model second.
+2. One package may be the best match for `options.go` and `register.go`, while another is a better match for orderbook sync, private streams, or `adapter_test.go`. Borrow per concern; do not cargo-cult one package wholesale.
+3. Classify the target before choosing file layout:
+   - `public-data-only`
+   - `trading-capable`
+   - `lifecycle-capable`
+   - `local-state-capable`
+4. Load only the references needed for that capability level.
 
-Choose a peer package by market shape and auth style, then read that package's `options.go`, `register.go`, `adapter_test.go`, and orderbook file before adding code.
+If you skip peer selection or capability classification, stop. You are guessing.
 
-| Need | Start from |
-|------|------------|
-| Perp + spot with API key / secret | `binance`, `okx`, `aster` |
-| Perp + spot with private-key auth | `nado`, `lighter`, `hyperliquid` |
-| Perp only | `standx`, `grvt`, `edgex` |
+## Capability Routing
 
-Prefer a template with the same market coverage first, then the same auth pattern.
+| Capability | Shared suites to wire in `adapter_test.go` | Minimum support claim | Load these references |
+|------------|--------------------------------------------|-----------------------|-----------------------|
+| `public-data-only` | `RunAdapterComplianceTests` | Private/account/trading surfaces return `exchanges.ErrNotSupported` | `references/live-test-wiring.md` |
+| `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` | `references/order-semantics.md`, `references/live-test-wiring.md` |
+| `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it | `references/order-semantics.md`, `references/private-streams-and-localstate.md`, `references/live-test-wiring.md` |
+| `local-state-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunLocalStateSuite`; also `RunLifecycleSuite` if lifecycle correctness is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate | `references/order-semantics.md`, `references/private-streams-and-localstate.md`, `references/live-test-wiring.md` |
 
-## Minimum File Set
+`FetchOrder` and open-order listing are separate contracts. Read `references/order-semantics.md` before implementing either one. Do not invent adapter-level history-order APIs or other order-query surfaces that do not exist on the current shared interface; if the shared interface cannot express a behavior yet, stop at the shared boundary and evolve the skill later.
 
-Most new exchange packages should include:
+## Architecture Decisions
 
-```text
-<exchange>/
-  options.go
-  register.go
-  common.go
-  perp_adapter.go
-  spot_adapter.go        # only if supported
-  funding.go             # perp only
-  orderbook.go or *_orderbook.go
-  adapter_test.go
-  sdk/                   # only when this repo owns the low-level client
-```
+Create a dedicated `sdk/` layer when any of these are true:
 
-Interpret the files like this:
+- the exchange needs request signing or auth token management
+- low-level REST APIs split across multiple surface groups
+- low-level WebSocket handling needs multiple connections or non-trivial session logic
+- exchange-native wire structs would otherwise leak into adapter files
+- spot and perp adapters will share reusable low-level clients or mappers
 
-- `options.go`: auth fields, logger fallback, supported quote currencies, default quote
-- `register.go`: registry key, runtime market-type dispatch, options-map key names
-- `common.go`: symbol conversion and exchange-specific shared helpers
-- `perp_adapter.go` / `spot_adapter.go`: unified interface implementation and constructors
-- `funding.go`: `PerpExchange` funding methods
-- `orderbook.go` or `*_orderbook.go`: snapshot + delta sync for local books
-- `adapter_test.go`: live integration entrypoints into `testsuite`
+Choose the `sdk/` shape from the nearest peer:
 
-## Non-Negotiable Wiring
+- flat `sdk/` when one compact client shape covers the exchange
+- `sdk/perp` plus `sdk/spot` when low-level APIs diverge materially by market
+- shared helpers only when there is real reuse
 
-1. `register.go` must call `exchanges.Register("<NAME>", ...)` from `init()`.
-2. The registry constructor must switch on `exchanges.MarketType` and reject unsupported markets with a clear error.
-3. Direct constructors should match repository conventions: perp is usually `NewAdapter`, spot is usually `NewSpotAdapter`.
-4. `options.go` is the source of truth for required auth keys and quote-currency defaults. The same option names must be used in `register.go`.
-5. New adapter code must implement the root `exchanges.Exchange` contract before adding exchange-specific conveniences.
-6. Perp-only behavior belongs behind `exchanges.PerpExchange`; do not add perp methods to spot adapters.
-7. Symbols at the adapter layer stay in base form like `"BTC"`; exchange-specific symbol formatting belongs inside the adapter.
+Forbidden adapter-layer responsibilities:
 
-## Source-of-Truth Routing
+- raw REST path building
+- signing logic
+- wire-format request or response structs
+- WebSocket connection lifecycle internals
 
-| Task | Read first | Then inspect |
-|------|------------|--------------|
-| Confirm unified methods to implement | `exchange.go` | `models.go`, `errors.go`, `utils.go` |
-| Mirror registry behavior | `registry.go` | peer `<exchange>/register.go` |
-| Define auth fields and quote rules | peer `<exchange>/options.go` | target `register.go` |
-| Implement order behavior | `testsuite/order_suite.go` | peer adapter `PlaceOrder`, `FetchOrder`, `WatchOrders` |
-| Implement order lifecycle correctness | `testsuite/lifecycle_suite.go` | peer `WatchOrders`, `FetchAccount`, position handling |
-| Implement local state / subscriptions | `testsuite/localstate_suite.go` | `local_state.go`, peer orderbook file |
-| Decide package skeleton | peer package tree | `testsuite/compliance.go` |
+Use `references/sdk-boundaries.md` for the concrete split. Borrow the nearest peer's layout for the concern you are solving; do not invent a canonical layout or mirror one package wholesale.
 
-## Definition of Done
+## Private Support Matrix
 
-Do not consider a new adapter complete until all of these are true:
+| Claim | Required | Optional / additive | If unsupported |
+|-------|----------|---------------------|----------------|
+| Public data only | No private surfaces | None | Return `exchanges.ErrNotSupported` on every shared private surface |
+| Trading capable | Real private REST/account or order surfaces needed for the claim | Private streams may still be unsupported | Unsupported shared stream surfaces return `exchanges.ErrNotSupported` |
+| Lifecycle capable | `WatchOrders` is required | `WatchPositions` may still be unsupported | Use `exchanges.ErrNotSupported` for any shared private surface the exchange truly does not support |
+| Local-state capable | `FetchAccount` and `WatchOrders` are hard prerequisites | `WatchPositions` adds position coverage but is not required for current local-state readiness | `WatchPositions` may return `exchanges.ErrNotSupported` if the exchange lacks a usable position stream |
 
-1. Direct construction works with the package's real constructor names.
-2. Registry-based construction works through `LookupConstructor`.
-3. Unsupported market types fail explicitly in `register.go`.
-4. `Options` validates quote currency and applies the intended default.
-5. The adapter passes the relevant `testsuite` entrypoints in `adapter_test.go`.
-6. Symbol formatting round-trips correctly through `FormatSymbol` and `ExtractSymbol`.
-7. Local orderbook subscription returns a non-`nil` book after `WatchOrderBook`.
+Hard rules:
 
-## Test Matrix
+- Before claiming account or trading support, account for all three explicitly:
+  - how private REST authentication works
+  - whether a private WebSocket exists and which claims depend on it
+  - which balances, orders, and positions come from REST snapshots versus stream deltas
+- `WatchOrders` is a hard prerequisite for local state. Without it, do not claim `local-state-capable`.
+- `WatchPositions` is additive. It improves position coverage but is not the universal gate for local state.
+- If a shared surface is unsupported, return `exchanges.ErrNotSupported`; never return success while doing nothing.
 
-`adapter_test.go` should wire the shared suites instead of inventing custom coverage first.
+Use `references/private-streams-and-localstate.md` for stream, snapshot, and local-state mechanics.
 
-| Adapter shape | Minimum suites |
-|---------------|----------------|
-| Any adapter | `RunAdapterComplianceTests` |
-| Trading-capable adapter | `RunOrderSuite` |
-| Adapter with order-stream correctness expectations | `RunLifecycleSuite` |
-| Adapter intended to support unified local state | `RunLocalStateSuite` |
+## Live Test Readiness
 
-Use peer exchange tests to choose symbols and skip flags. Spot adapters may need `SkipSlippage`; perp-only exchanges should not expose spot tests at all.
+A new adapter is not integrated until `adapter_test.go` wires the intended shared suites and the live test inputs are documented.
 
-## Common Mistakes
+Minimum live-test expectations:
 
-- Copying README examples instead of peer package code when choosing constructors or option keys.
-- Returning support for a market in docs or registry while omitting `spot_adapter.go` or `perp_adapter.go`.
-- Using exchange-native symbols like `"BTCUSDT"` at the unified adapter layer.
-- Skipping `WatchOrders`-driven validation and assuming REST-only order state is enough.
-- Adding a package without `adapter_test.go`, which leaves `testsuite` contracts unexercised.
-- Forgetting that `GetLocalOrderBook` only makes sense after `WatchOrderBook`.
+- update `.env.example` with exchange-specific credentials and test symbols
+- use stable symbols and quote defaults that match the adapter's real options
+- add resilient `.env` lookup in `adapter_test.go`; follow `backpack/adapter_test.go` and try `.env`, `../.env`, `../../.env`, then `../../../.env` instead of hard-coding one relative path
+- use clear skips when credentials, symbols, or unsupported capabilities are missing
 
-## Fast Start
+Use `references/live-test-wiring.md` for the exact env-var and `testsuite` wiring pattern.
 
-When adding a new exchange package, read files in this order:
+## Do Not Ship If
 
-1. `exchange.go`
-2. `registry.go`
-3. one peer package: `options.go`, `register.go`, `adapter_test.go`
-4. `testsuite/compliance.go`
-5. `testsuite/order_suite.go`
-6. `testsuite/lifecycle_suite.go`
-7. `testsuite/localstate_suite.go`
+Stop immediately if any of these are true:
 
-Then create the new package by copying the closest peer shape and changing behavior one surface at a time.
+- you did not choose peers by market coverage first and auth model second, or you copied one package wholesale without re-evaluating each concern
+- the adapter capability level is undefined or the wired `testsuite` coverage does not match it
+- the registry advertises a market with no real adapter behind it
+- `WatchOrders` is missing but lifecycle or local-state support is claimed
+- `WatchPositions` is treated as required everywhere instead of additive where unsupported
+- unsupported shared surfaces return no-op success instead of `exchanges.ErrNotSupported`
+- `FetchOrder` is implemented by scanning only open orders
+- adapter files own signing, raw REST construction, wire structs, or WebSocket lifecycle internals that belong in `sdk/`
+- stream methods report success while doing nothing
+- local orderbook is claimed as supported but never reaches a non-`nil` synced state
+- live test prerequisites are undocumented, or `adapter_test.go` is missing
+
+If you hit one of these gates, stop and fix the design before adding more code.
