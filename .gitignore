@@ -28,3 +28,6 @@ vendor/
 
 # Debug
 __debug_bin*
+
+# Local git worktrees
+.worktrees/
