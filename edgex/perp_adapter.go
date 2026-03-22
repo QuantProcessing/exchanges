@@ -1,4 +1,3 @@
-
 package edgex
 
 import (
@@ -357,15 +356,23 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	return nil, fmt.Errorf("modify order not supported by edgex sdk")
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	orders, err := a.client.GetOrdersByIds(ctx, []string{orderID})
 	if err != nil {
 		return nil, err
 	}
 	if len(orders) > 0 {
-		return a.mapOrder(&orders[0]), nil
+		order := a.mapOrder(&orders[0])
+		if symbol != "" && order.Symbol != symbol {
+			return nil, exchanges.ErrOrderNotFound
+		}
+		return order, nil
 	}
-	return nil, fmt.Errorf("order not found")
+	return nil, exchanges.ErrOrderNotFound
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

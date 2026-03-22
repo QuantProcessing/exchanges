@@ -439,7 +439,7 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	// Fetch existing order to get side
-	existing, err := a.FetchOrder(ctx, orderID, symbol)
+	existing, err := a.FetchOrderByID(ctx, orderID, symbol)
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +458,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	return a.PlaceOrder(ctx, orderParams)
 }
 
-func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	a.metaMu.RLock()
 	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
 	a.metaMu.RUnlock()
@@ -472,14 +472,58 @@ func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*
 	}
 
 	res, err := a.client.GetAccountActiveOrders(ctx, mid)
-	if err == nil {
-		for _, o := range res.Orders {
-			if o.OrderIndex == oid {
-				return a.mapOrder(o), nil
-			}
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range res.Orders {
+		if o.OrderIndex == oid {
+			return a.mapOrder(o), nil
 		}
 	}
-	return nil, fmt.Errorf("order not found")
+
+	inactive, err := a.client.GetInactiveOrders(ctx, &mid, 100)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range inactive.Orders {
+		if o != nil && o.OrderIndex == oid {
+			return a.mapOrder(o), nil
+		}
+	}
+	return nil, exchanges.ErrOrderNotFound
+}
+
+func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("unknown symbol: %s", symbol)
+	}
+
+	active, err := a.client.GetAccountActiveOrders(ctx, mid)
+	if err != nil {
+		return nil, err
+	}
+	inactive, err := a.client.GetInactiveOrders(ctx, &mid, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	orders := make([]exchanges.Order, 0, len(active.Orders)+len(inactive.Orders))
+	for _, o := range active.Orders {
+		if o == nil {
+			continue
+		}
+		orders = append(orders, *a.mapOrder(o))
+	}
+	for _, o := range inactive.Orders {
+		if o == nil {
+			continue
+		}
+		orders = append(orders, *a.mapOrder(o))
+	}
+	return orders, nil
 }
 
 func (a *SpotAdapter) mapOrder(o *lighter.Order) *exchanges.Order {

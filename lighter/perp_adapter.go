@@ -509,7 +509,7 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	}, nil
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	a.metaMu.RLock()
 	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
 	a.metaMu.RUnlock()
@@ -523,14 +523,58 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exch
 	}
 
 	res, err := a.client.GetAccountActiveOrders(ctx, mid)
-	if err == nil {
-		for _, o := range res.Orders {
-			if o.OrderIndex == oid {
-				return a.mapOrder(o), nil
-			}
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range res.Orders {
+		if o.OrderIndex == oid {
+			return a.mapOrder(o), nil
 		}
 	}
-	return nil, fmt.Errorf("order not found")
+
+	inactive, err := a.client.GetInactiveOrders(ctx, &mid, 100)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range inactive.Orders {
+		if o != nil && o.OrderIndex == oid {
+			return a.mapOrder(o), nil
+		}
+	}
+	return nil, exchanges.ErrOrderNotFound
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("unknown symbol: %s", symbol)
+	}
+
+	active, err := a.client.GetAccountActiveOrders(ctx, mid)
+	if err != nil {
+		return nil, err
+	}
+	inactive, err := a.client.GetInactiveOrders(ctx, &mid, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	orders := make([]exchanges.Order, 0, len(active.Orders)+len(inactive.Orders))
+	for _, o := range active.Orders {
+		if o == nil {
+			continue
+		}
+		orders = append(orders, *a.mapOrder(o))
+	}
+	for _, o := range inactive.Orders {
+		if o == nil {
+			continue
+		}
+		orders = append(orders, *a.mapOrder(o))
+	}
+	return orders, nil
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

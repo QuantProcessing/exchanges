@@ -175,17 +175,12 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	return a.client.CancelOpenOrders(ctx, a.FormatSymbol(symbol), "PERP")
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	orders, err := a.FetchOpenOrders(ctx, symbol)
-	if err != nil {
-		return nil, err
-	}
-	for i := range orders {
-		if orders[i].OrderID == orderID {
-			return &orders[i], nil
-		}
-	}
-	return nil, exchanges.ErrOrderNotFound
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

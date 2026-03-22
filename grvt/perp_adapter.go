@@ -1,4 +1,3 @@
-
 package grvt
 
 import (
@@ -310,17 +309,12 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	return nil, fmt.Errorf("modify order not supported by grvt")
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	orders, err := a.FetchOpenOrders(ctx, symbol)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range orders {
-		if o.OrderID == orderID {
-			return &o, nil
-		}
-	}
-	return nil, fmt.Errorf("order not found")
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

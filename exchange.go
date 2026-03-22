@@ -57,7 +57,8 @@ type Exchange interface {
 	PlaceOrder(ctx context.Context, params *OrderParams) (*Order, error)
 	CancelOrder(ctx context.Context, orderID, symbol string) error
 	CancelAllOrders(ctx context.Context, symbol string) error
-	FetchOrder(ctx context.Context, orderID, symbol string) (*Order, error)
+	FetchOrderByID(ctx context.Context, orderID, symbol string) (*Order, error)
+	FetchOrders(ctx context.Context, symbol string) ([]Order, error)
 	FetchOpenOrders(ctx context.Context, symbol string) ([]Order, error)
 
 	// === Account ===

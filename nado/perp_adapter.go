@@ -247,14 +247,14 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 		sender := nado.BuildSender(a.apiClient.Signer.GetAddress(), a.subaccount)
 		matchesResp, err = a.httpClient.GetMatches(ctx, sender, activeProductIds, 100)
 		if err != nil {
-// 			// TODO: logger.Warn("Failed to fetch matches for entry price calculation", zap.Error(err))
+			// 			// TODO: logger.Warn("Failed to fetch matches for entry price calculation", zap.Error(err))
 		}
 	}
 
 	// Fetch Tickers for Mark Price to compute unrealized PnL
 	tickers, err := a.httpClient.GetTickers(ctx, nado.MarketTypePerp, nil)
 	if err != nil {
-// 		// TODO: logger.Warn("Failed to fetch tickers for mark price", zap.Error(err))
+		// 		// TODO: logger.Warn("Failed to fetch tickers for mark price", zap.Error(err))
 	}
 
 	// Process Perp Balances as Positions
@@ -277,14 +277,14 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 		// Calculate Entry Price from Matches using net execution price
 		entryPrice, realizedPnL, err := a.GetNetEntryPriceAndRealizedPnL(b.ProductID, quantity.InexactFloat64(), side, matchesResp)
 		if err != nil {
-// 			// TODO: logger.Warn("Failed to calculate entry price", zap.Error(err))
+			// 			// TODO: logger.Warn("Failed to calculate entry price", zap.Error(err))
 			return nil, err
 		}
 
 		// Calculate Unrealized PnL from Mark Price
 		ticker, ok := tickers[a.FormatSymbol(symbol)]
 		if !ok {
-// 			// TODO: logger.Warn("Ticker not found for symbol", zap.String("symbol", symbol))
+			// 			// TODO: logger.Warn("Ticker not found for symbol", zap.String("symbol", symbol))
 			return nil, fmt.Errorf("ticker not found for symbol %s", symbol)
 		}
 		unrealizedPnl = decimal.NewFromFloat(ticker.LastPrice - entryPrice).Mul(quantity)
@@ -466,7 +466,7 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	return nil, fmt.Errorf("modify order not supported by nado")
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return nil, err
@@ -474,9 +474,19 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exch
 
 	resp, err := a.httpClient.GetOrder(ctx, productID, orderID)
 	if err != nil {
+		if isNadoOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
+	if resp == nil || resp.Digest == "" {
+		return nil, exchanges.ErrOrderNotFound
+	}
 	return a.mapOrder(resp), nil
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
@@ -496,6 +506,16 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchang
 		orders = append(orders, *a.mapOrder(&o))
 	}
 	return orders, nil
+}
+
+func isNadoOrderLookupMiss(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "order") &&
+		(strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist"))
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
@@ -848,8 +868,8 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 		if err != nil {
 			// Gap detected, need to resync
 			// TODO: logger.Warn("Orderbook gap detected, triggering resync",
-// 				// zap.String("symbol", symbol),
-// 				// zap.Error(err))
+			// 				// zap.String("symbol", symbol),
+			// 				// zap.Error(err))
 
 			state.mu.Lock()
 			if !state.fetching {
@@ -861,7 +881,7 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 
 					snap, err := a.httpClient.GetMarketLiquidity(ctx, id, 100)
 					if err != nil {
-// 						// TODO: logger.Error("Failed to fetch Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
+						// 						// TODO: logger.Error("Failed to fetch Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
 						state.mu.Lock()
 						state.fetching = false
 						state.mu.Unlock()
@@ -870,7 +890,7 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 
 					// Apply snapshot and check for errors
 					if err := ob.ApplySnapshot(snap); err != nil {
-// 						// TODO: logger.Error("Failed to apply Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
+						// 						// TODO: logger.Error("Failed to apply Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
 						state.mu.Lock()
 						state.fetching = false
 						state.mu.Unlock()
@@ -880,7 +900,7 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 					state.mu.Lock()
 					state.fetching = false
 					state.mu.Unlock()
-// 					// TODO: logger.Info("Nado OrderBook Snapshot initialized", zap.String("symbol", symbol))
+					// 					// TODO: logger.Info("Nado OrderBook Snapshot initialized", zap.String("symbol", symbol))
 
 					if depth != nil && callback != nil {
 						callback(ob.ToAdapterOrderBook(*depth))
@@ -902,7 +922,7 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 
 					snap, err := a.httpClient.GetMarketLiquidity(ctx, id, 100)
 					if err != nil {
-// 						// TODO: logger.Error("Failed to fetch Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
+						// 						// TODO: logger.Error("Failed to fetch Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
 						state.mu.Lock()
 						state.fetching = false
 						state.mu.Unlock()
@@ -911,7 +931,7 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 
 					// Apply snapshot and check for errors
 					if err := ob.ApplySnapshot(snap); err != nil {
-// 						// TODO: logger.Error("Failed to apply Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
+						// 						// TODO: logger.Error("Failed to apply Nado orderbook snapshot", zap.String("symbol", symbol), zap.Error(err))
 						state.mu.Lock()
 						state.fetching = false
 						state.mu.Unlock()
@@ -921,7 +941,7 @@ func (a *Adapter) SubscribeOrderBookInternal(ctx context.Context, symbol string,
 					state.mu.Lock()
 					state.fetching = false
 					state.mu.Unlock()
-// 					// TODO: logger.Info("Nado OrderBook Snapshot initialized", zap.String("symbol", symbol))
+					// 					// TODO: logger.Info("Nado OrderBook Snapshot initialized", zap.String("symbol", symbol))
 
 					if depth != nil && callback != nil {
 						callback(ob.ToAdapterOrderBook(*depth))

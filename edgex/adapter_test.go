@@ -1,4 +1,3 @@
-
 package edgex
 
 import (
@@ -37,12 +36,22 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{Symbol: "DOGE"})
 }
 
+func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "DOGE",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: true,
+		SupportsOrderHistory:   false,
+	})
+}
+
 func TestPerpAdapter_Lifecycle(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "DOGE"})
 }
 
 func TestPerpAdapter_LocalState(t *testing.T) {
-adp := setupPerpAdapter(t)
-testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
+	adp := setupPerpAdapter(t)
+	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
 }

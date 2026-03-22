@@ -450,7 +450,7 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 		return nil, fmt.Errorf("invalid order id: %s", orderID)
 	}
 
-	origOrder, err := a.FetchOrder(ctx, orderID, symbol)
+	origOrder, err := a.FetchOrderByID(ctx, orderID, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch original order: %w", err)
 	}
@@ -491,7 +491,7 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	}, nil
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid order id: %s", orderID)
@@ -500,7 +500,20 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exch
 	if err != nil {
 		return nil, err
 	}
-	return a.normalizeOrderStatus(status)
+	order, err := a.normalizeOrderStatus(status)
+	if err != nil {
+		return nil, err
+	}
+	if symbol != "" && a.FormatSymbol(order.Symbol) != a.FormatSymbol(symbol) {
+		return nil, exchanges.ErrOrderNotFound
+	}
+	return order, nil
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	_ = ctx
+	_ = symbol
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

@@ -130,10 +130,10 @@ func (a *SpotAdapter) FetchPositions(ctx context.Context) ([]exchanges.Position,
 }
 
 func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
-// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
-if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
-return nil, err
-}
+	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return nil, err
+	}
 	// 1. Validation & Formatting
 	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
 	if err != nil {
@@ -184,7 +184,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	return nil, fmt.Errorf("modify order not supported by aster spot")
 }
 
-func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -192,9 +192,16 @@ func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*
 	}
 	resp, err := a.client.GetOrder(ctx, formattedSymbol, oid, "")
 	if err != nil {
+		if isAsterOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
 	return a.normalizeOrderResponse(resp)
+}
+
+func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
@@ -311,9 +318,9 @@ func (a *SpotAdapter) FetchKlines(ctx context.Context, symbol string, interval e
 		end = opts.End
 		limit = opts.Limit
 	}
-_ = start
-_ = end
-_ = limit
+	_ = start
+	_ = end
+	_ = limit
 	formattedSymbol := a.FormatSymbol(symbol)
 	var startTime, endTime int64
 	if start != nil {
@@ -485,8 +492,6 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 
 	return a.wsMarket.SubscribeBookTicker(a.ExtractSymbol(symbol), handler)
 }
-
-
 
 func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)

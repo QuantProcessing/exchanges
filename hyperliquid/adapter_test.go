@@ -52,6 +52,16 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{Symbol: "HYPE"})
 }
 
+func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "HYPE",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: true,
+		SupportsOrderHistory:   false,
+	})
+}
+
 func TestSpotAdapter_Compliance(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, "BTC")
@@ -67,6 +77,16 @@ func TestSpotAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
 		Symbol:       "HYPE",
 		SkipSlippage: true,
+	})
+}
+
+func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupSpotAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "HYPE",
+		SupportsOpenOrders:     false,
+		SupportsTerminalLookup: false,
+		SupportsOrderHistory:   false,
 	})
 }
 

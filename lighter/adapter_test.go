@@ -56,6 +56,16 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{Symbol: "ETH"})
 }
 
+func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "ETH",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: true,
+		SupportsOrderHistory:   true,
+	})
+}
+
 func TestPerpAdapter_Lifecycle(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "ETH"})
@@ -71,12 +81,22 @@ func TestSpotAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{Symbol: "ETH"})
 }
 
+func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupSpotAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "ETH",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: true,
+		SupportsOrderHistory:   true,
+	})
+}
+
 func TestSpotAdapter_Lifecycle(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "ETH"})
 }
 
 func TestPerpAdapter_LocalState(t *testing.T) {
-adp := setupPerpAdapter(t)
-testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "ETH"})
+	adp := setupPerpAdapter(t)
+	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "ETH"})
 }
