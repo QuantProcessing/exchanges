@@ -235,7 +235,8 @@ If these checks fail, initialization returns an error.
 If no credentials are provided:
 
 - constructor succeeds
-- private methods fail with `exchanges.ErrNotSupported` or a credentials-required error path from the adapter boundary
+- auth-gated private methods must fail with a Bitget-scoped auth error path, ideally an `exchanges.ExchangeError` wrapping `exchanges.ErrAuthFailed`
+- do not return `exchanges.ErrNotSupported` for auth-gated methods that the adapter can support once valid credentials are present
 
 This preserves public-market-data usability while preventing a half-broken private adapter instance.
 
@@ -299,6 +300,12 @@ Implement:
 - `FetchFeeRate`
 - `WatchOrderBook`
 - `WatchOrders`
+- `StopWatchOrderBook`
+- `StopWatchOrders`
+- `StopWatchPositions`
+- `StopWatchTicker`
+- `StopWatchTrades`
+- `StopWatchKlines`
 
 Unsupported in v1:
 
@@ -316,7 +323,7 @@ Implement:
 - `FetchPositions`
 - `ModifyOrder`
 - `SetLeverage`
-- `WatchPositions`
+- `WatchPositions` if the UTA private position stream is stable enough; otherwise return `exchanges.ErrNotSupported` honestly in v1 while keeping local-state readiness anchored on `FetchAccount` plus `WatchOrders`
 
 Potentially defer:
 
@@ -334,12 +341,24 @@ Bitget must follow the repository’s current order-query split:
   - return terminal orders when available
   - return `exchanges.ErrOrderNotFound` for true misses
 - `FetchOrders`
-  - return all visible orders for the requested symbol if Bitget UTA exposes that capability directly enough
-  - otherwise return `exchanges.ErrNotSupported`
+  - in the first implementation pass, default to `exchanges.ErrNotSupported` unless implementation confirms a direct Bitget UTA history surface that is broad enough to satisfy the repository contract
 - `FetchOpenOrders`
   - return only open orders
 
 Bitget must not implement `FetchOrderByID` by scanning only open orders.
+
+Planned `RunOrderQuerySemanticsSuite` capability flags for v1:
+
+- spot:
+  - `SupportsOpenOrders: true`
+  - `SupportsTerminalLookup: true`
+  - `SupportsOrderHistory: false`
+- perp:
+  - `SupportsOpenOrders: true`
+  - `SupportsTerminalLookup: true`
+  - `SupportsOrderHistory: false`
+
+Only raise `SupportsOrderHistory` to `true` after implementation proves Bitget UTA has a sufficiently broad symbol-scoped order-history path for the shared contract.
 
 ## Private Streams And Local State
 
@@ -348,11 +367,9 @@ To meet `local-state-capable`, Bitget must provide:
 - `FetchAccount`
 - `WatchOrders`
 
-Perp should additionally provide:
+Perp should additionally provide `WatchPositions` if Bitget’s private stream is usable, but this is an additive improvement rather than a hard gate for current shared local-state readiness.
 
-- `WatchPositions`
-
-Spot may legitimately return `exchanges.ErrNotSupported` from `WatchPositions`.
+Spot may legitimately return `exchanges.ErrNotSupported` from `WatchPositions`, and perp may also return `exchanges.ErrNotSupported` in v1 if the position stream is too weak to support clean shared semantics.
 
 The intended local-state pattern is:
 
@@ -383,6 +400,11 @@ Implementation should mirror the nearest reliable peer in this repository rather
 - `RunOrderQuerySemanticsSuite`
 - `RunLifecycleSuite`
 - `RunLocalStateSuite`
+
+The first implementation should wire `RunOrderQuerySemanticsSuite` with:
+
+- spot: `SupportsOpenOrders=true`, `SupportsTerminalLookup=true`, `SupportsOrderHistory=false`
+- perp: `SupportsOpenOrders=true`, `SupportsTerminalLookup=true`, `SupportsOrderHistory=false`
 
 Environment handling should follow the Backpack pattern:
 
@@ -468,4 +490,3 @@ This design is successful when implementation yields:
 - support for spot plus USDT/USDC futures only
 - shared `testsuite` live wiring
 - honest `ErrNotSupported` behavior for any deferred surface
-
