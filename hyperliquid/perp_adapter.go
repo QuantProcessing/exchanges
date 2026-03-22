@@ -498,6 +498,9 @@ func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*
 	}
 	status, err := a.client.OrderStatus(ctx, a.accountAddr, oid)
 	if err != nil {
+		if isHyperliquidOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
 	order, err := a.normalizeOrderStatus(status)
@@ -508,6 +511,18 @@ func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*
 		return nil, exchanges.ErrOrderNotFound
 	}
 	return order, nil
+}
+
+func isHyperliquidOrderLookupMiss(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "order") &&
+		(strings.Contains(msg, "not found") ||
+			strings.Contains(msg, "unknown") ||
+			strings.Contains(msg, "never placed"))
 }
 
 func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

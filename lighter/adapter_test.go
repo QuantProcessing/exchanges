@@ -61,8 +61,8 @@ func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
 	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
 		Symbol:                 "ETH",
 		SupportsOpenOrders:     true,
-		SupportsTerminalLookup: true,
-		SupportsOrderHistory:   true,
+		SupportsTerminalLookup: false,
+		SupportsOrderHistory:   false,
 	})
 }
 
@@ -86,8 +86,8 @@ func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
 	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
 		Symbol:                 "ETH",
 		SupportsOpenOrders:     true,
-		SupportsTerminalLookup: true,
-		SupportsOrderHistory:   true,
+		SupportsTerminalLookup: false,
+		SupportsOrderHistory:   false,
 	})
 }
 

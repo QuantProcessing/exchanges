@@ -3,6 +3,7 @@ package testsuite
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -71,6 +72,11 @@ func testFetchOrderByIDTerminalLookup(
 		require.NoError(t, err)
 		require.NotNil(t, lookup)
 		assert.Equal(t, filled.OrderID, lookup.OrderID)
+
+		if missingID, ok := synthesizeMissingOrderID(filled.OrderID); ok {
+			_, err = adp.FetchOrderByID(ctx, missingID, symbol)
+			require.ErrorIs(t, err, exchanges.ErrOrderNotFound)
+		}
 	case errors.Is(err, exchanges.ErrNotSupported):
 		return
 	default:
@@ -202,4 +208,40 @@ func containsOrderID(orders []exchanges.Order, orderID string) bool {
 		}
 	}
 	return false
+}
+
+func synthesizeMissingOrderID(orderID string) (string, bool) {
+	if orderID == "" {
+		return "", false
+	}
+
+	if n, err := strconv.ParseUint(orderID, 10, 64); err == nil {
+		return strconv.FormatUint(n+1_000_000_000, 10), true
+	}
+
+	b := []byte(orderID)
+	for i := len(b) - 1; i >= 0; i-- {
+		switch {
+		case b[i] >= '0' && b[i] <= '8':
+			b[i]++
+			return string(b), true
+		case b[i] == '9':
+			b[i] = '0'
+			return string(b), true
+		case b[i] >= 'a' && b[i] <= 'y':
+			b[i]++
+			return string(b), true
+		case b[i] == 'z':
+			b[i] = 'a'
+			return string(b), true
+		case b[i] >= 'A' && b[i] <= 'Y':
+			b[i]++
+			return string(b), true
+		case b[i] == 'Z':
+			b[i] = 'A'
+			return string(b), true
+		}
+	}
+
+	return "", false
 }
