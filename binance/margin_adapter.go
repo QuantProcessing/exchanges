@@ -240,8 +240,8 @@ func (a *MarginAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderP
 	return o, nil
 }
 
-// Override GetOrder
-func (a *MarginAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+// Override FetchOrderByID
+func (a *MarginAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	formattedSymbol := spot.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -250,6 +250,9 @@ func (a *MarginAdapter) FetchOrder(ctx context.Context, orderID, symbol string) 
 
 	resp, err := a.marginClient.GetOrder(ctx, formattedSymbol, oid, "", false)
 	if err != nil {
+		if isBinanceOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
 
@@ -276,6 +279,10 @@ func (a *MarginAdapter) FetchOrder(ctx context.Context, orderID, symbol string) 
 		Timestamp:      resp.TransactTime,
 		ClientOrderID:  resp.ClientOrderID,
 	}, nil
+}
+
+func (a *MarginAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 // Override CancelOrder

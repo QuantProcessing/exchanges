@@ -14,7 +14,6 @@ import (
 	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
 	"github.com/QuantProcessing/exchanges/hyperliquid/sdk/spot"
 
-
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/shopspring/decimal"
 )
@@ -451,7 +450,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}
 
 	// Need to fetch original order to get side
-	origOrder, err := a.FetchOrder(ctx, orderID, symbol)
+	origOrder, err := a.FetchOrderByID(ctx, orderID, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch original order: %w", err)
 	}
@@ -491,14 +490,23 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}, nil
 }
 
-func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	// TODO: Implement when spot SDK has order查询
-	return nil, fmt.Errorf("GetOrder not yet implemented for Hyperliquid spot")
+func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	_ = ctx
+	_ = orderID
+	_ = symbol
+	return nil, exchanges.ErrNotSupported
+}
+
+func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	_ = ctx
+	_ = symbol
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	// TODO: Implement when spot SDK has order查询
-	return []exchanges.Order{}, nil
+	_ = ctx
+	_ = symbol
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {

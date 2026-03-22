@@ -321,7 +321,8 @@ _, err := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
 | **交易** | `PlaceOrder(ctx, params)` | 下单（市价/限价/PostOnly） |
 | | `CancelOrder(ctx, orderID, symbol)` | 撤销单个订单 |
 | | `CancelAllOrders(ctx, symbol)` | 撤销某交易对全部订单 |
-| | `FetchOrder(ctx, orderID, symbol)` | 查询订单状态 |
+| | `FetchOrderByID(ctx, orderID, symbol)` | 按订单 ID 查询单笔订单；若交易所支持，应可返回终态订单 |
+| | `FetchOrders(ctx, symbol)` | 查询某个 symbol 下所有可见订单 |
 | | `FetchOpenOrders(ctx, symbol)` | 查询所有挂单 |
 | **账户** | `FetchAccount(ctx)` | 完整账户：余额 + 持仓 + 挂单 |
 | | `FetchBalance(ctx)` | 仅查可用余额 |
@@ -335,6 +336,8 @@ _, err := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
 | | `WatchTicker(ctx, symbol, cb)` | 实时行情 |
 | | `WatchTrades(ctx, symbol, cb)` | 实时成交 |
 | | `WatchKlines(ctx, symbol, interval, cb)` | 实时 K 线 |
+
+`FetchOrderByID`、`FetchOrders`、`FetchOpenOrders` 是刻意拆开的语义：单笔查单不能用扫描挂单来伪实现，`FetchOrders` 的范围也应大于 `FetchOpenOrders`。
 
 ### PerpExchange 接口（继承 Exchange）
 

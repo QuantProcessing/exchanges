@@ -56,6 +56,16 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	})
 }
 
+func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "DOGE",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: true,
+		SupportsOrderHistory:   false,
+	})
+}
+
 func TestSpotAdapter_Compliance(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, "BTC")
@@ -74,12 +84,22 @@ func TestSpotAdapter_Orders(t *testing.T) {
 	})
 }
 
+func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupSpotAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "ASTER",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: true,
+		SupportsOrderHistory:   false,
+	})
+}
+
 func TestSpotAdapter_Lifecycle(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "ASTER"})
 }
 
 func TestPerpAdapter_LocalState(t *testing.T) {
-adp := setupPerpAdapter(t)
-testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
+	adp := setupPerpAdapter(t)
+	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
 }

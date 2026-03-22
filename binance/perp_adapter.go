@@ -324,7 +324,7 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	return a.normalizeOrderResponse(resp)
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -333,10 +333,17 @@ func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (_ *ex
 
 	res, err := a.client.GetOrder(ctx, formattedSymbol, oid, "")
 	if err != nil {
+		if isBinanceOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
 
 	return a.normalizeOrderResponse(res)
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) (_ []exchanges.Order, retErr error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) (_ []exchanges.Order, retErr error) {
@@ -356,6 +363,18 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) (_ []excha
 	}
 
 	return orders, nil
+}
+
+func isBinanceOrderLookupMiss(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "order") &&
+		(strings.Contains(msg, "does not exist") ||
+			strings.Contains(msg, "unknown order") ||
+			strings.Contains(msg, "not found"))
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr error) {

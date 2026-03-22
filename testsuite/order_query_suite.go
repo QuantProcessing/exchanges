@@ -15,6 +15,7 @@ import (
 // OrderQueryConfig configures the shared order-query semantics suite.
 type OrderQueryConfig struct {
 	Symbol                 string
+	SupportsOpenOrders     bool
 	SupportsTerminalLookup bool
 	SupportsOrderHistory   bool
 }
@@ -33,7 +34,7 @@ func RunOrderQuerySemanticsSuite(t *testing.T, adp exchanges.Exchange, cfg Order
 	})
 
 	t.Run("OrdersVsOpenOrders", func(t *testing.T) {
-		testFetchOrdersVsOpenOrders(t, adp, cfg.Symbol, cfg.SupportsOrderHistory, updates)
+		testFetchOrdersVsOpenOrders(t, adp, cfg.Symbol, cfg.SupportsOpenOrders, cfg.SupportsOrderHistory, updates)
 	})
 
 	t.Run("Cleanup", func(t *testing.T) {
@@ -81,12 +82,52 @@ func testFetchOrdersVsOpenOrders(
 	t *testing.T,
 	adp exchanges.Exchange,
 	symbol string,
+	supportsOpenOrders bool,
 	supportsOrderHistory bool,
 	updates <-chan *exchanges.Order,
 ) {
 	t.Helper()
 
 	ctx := context.Background()
+
+	if !supportsOpenOrders {
+		_, err := adp.FetchOpenOrders(ctx, symbol)
+		require.ErrorIs(t, err, exchanges.ErrNotSupported)
+
+		if !supportsOrderHistory {
+			_, err = adp.FetchOrders(ctx, symbol)
+			require.ErrorIs(t, err, exchanges.ErrNotSupported)
+			return
+		}
+
+		qty, _ := SmartQuantity(t, adp, symbol)
+		price := SmartLimitPrice(t, adp, symbol, exchanges.OrderSideBuy)
+
+		limit, err := adp.PlaceOrder(ctx, &exchanges.OrderParams{
+			Symbol:      symbol,
+			Side:        exchanges.OrderSideBuy,
+			Type:        exchanges.OrderTypeLimit,
+			Quantity:    qty,
+			Price:       price,
+			TimeInForce: exchanges.TimeInForceGTC,
+		})
+		require.NoError(t, err)
+
+		confirmed := WaitOrderStatus(t, updates, limit.OrderID, limit.ClientOrderID, exchanges.OrderStatusNew, 15*time.Second)
+		require.NotEmpty(t, confirmed.OrderID)
+
+		err = adp.CancelOrder(ctx, confirmed.OrderID, symbol)
+		require.NoError(t, err)
+
+		cancelled := WaitOrderStatus(t, updates, confirmed.OrderID, confirmed.ClientOrderID, exchanges.OrderStatusCancelled, 15*time.Second)
+		require.NotEmpty(t, cancelled.OrderID)
+
+		allOrders, err := adp.FetchOrders(ctx, symbol)
+		require.NoError(t, err)
+		requireOrderPresent(t, allOrders, cancelled.OrderID)
+		return
+	}
+
 	qty, _ := SmartQuantity(t, adp, symbol)
 	price := SmartLimitPrice(t, adp, symbol, exchanges.OrderSideBuy)
 

@@ -21,7 +21,6 @@ type Adapter struct {
 	lifecycleCtx context.Context
 	cancel       context.CancelFunc
 
-	
 	client    *standx.Client
 	wsMarket  *standx.WsMarketClient
 	wsAccount *standx.WsAccountClient
@@ -377,32 +376,16 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	return nil, fmt.Errorf("modify order not supported by standx adapter")
 }
 
-func (a *Adapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	// Standx QueryUserOrders filters by symbol.
-	// There isn't a direct "GetOrder(ID)" endpoint easily exposed in client?
-	// We can QueryUserOrders(symbol) and search locally or check if ID filter exists.
-	// The client.QueryUserOrders only accepts symbol.
-	// We'll iterate. Inefficient but necessary.
-	orders, err := a.client.QueryUserOrders(ctx, a.toExchangeSymbol(symbol))
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range orders {
-		// Compare ID. o.ID is int. orderID is string.
-		if fmt.Sprintf("%d", o.ID) == orderID {
-			ord := a.mapSDKOrderToAdapterOrder(o)
-			return &ord, nil
-		}
-		if o.ClOrdID == orderID {
-			ord := a.mapSDKOrderToAdapterOrder(o)
-			return &ord, nil
-		}
-	}
-	return nil, fmt.Errorf("order not found")
+func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	orders, err := a.client.QueryUserOrders(ctx, a.toExchangeSymbol(symbol))
+	orders, err := a.client.QueryUserAllOpenOrders(ctx, a.toExchangeSymbol(symbol))
 	if err != nil {
 		return nil, err
 	}

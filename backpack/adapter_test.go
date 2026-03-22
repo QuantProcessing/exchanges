@@ -87,6 +87,16 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	})
 }
 
+func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 requireEnvSymbol(t, "BACKPACK_PERP_TEST_SYMBOL"),
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: false,
+		SupportsOrderHistory:   false,
+	})
+}
+
 func TestPerpAdapter_Lifecycle(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
@@ -111,6 +121,16 @@ func TestSpotAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
 		Symbol:       requireEnvSymbol(t, "BACKPACK_SPOT_TEST_SYMBOL"),
 		SkipSlippage: true,
+	})
+}
+
+func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupSpotAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 requireEnvSymbol(t, "BACKPACK_SPOT_TEST_SYMBOL"),
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: false,
+		SupportsOrderHistory:   false,
 	})
 }
 

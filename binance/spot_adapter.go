@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/QuantProcessing/exchanges/binance/sdk/spot"
 
@@ -18,10 +17,10 @@ import (
 // SpotAdapter implements exchanges.Exchange for Binance Spot markets
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client        *spot.Client
-	wsMarket      *spot.WsMarketClient
-	wsAccount     *spot.WsAccountClient
-	wsAPI         *spot.WsAPIClient
+	client    *spot.Client
+	wsMarket  *spot.WsMarketClient
+	wsAccount *spot.WsAccountClient
+	wsAPI     *spot.WsAPIClient
 
 	apiKey        string
 	secretKey     string
@@ -223,7 +222,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}
 
 	// Get existing order to determine side
-	existingOrder, err := a.FetchOrder(ctx, orderID, symbol)
+	existingOrder, err := a.FetchOrderByID(ctx, orderID, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get existing order: %w", err)
 	}
@@ -257,7 +256,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	return a.normalizeOrderResponse(resp.NewOrderResponse)
 }
 
-func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -266,10 +265,17 @@ func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*
 
 	resp, err := a.client.GetOrder(ctx, formattedSymbol, oid, "")
 	if err != nil {
+		if isBinanceOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
 
 	return a.normalizeOrderResponse(resp)
+}
+
+func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {

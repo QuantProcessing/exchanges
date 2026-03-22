@@ -321,7 +321,8 @@ Every adapter implements these methods:
 | **Trading** | `PlaceOrder(ctx, params)` | Place order (market/limit/post-only) |
 | | `CancelOrder(ctx, orderID, symbol)` | Cancel a single order |
 | | `CancelAllOrders(ctx, symbol)` | Cancel all open orders for a symbol |
-| | `FetchOrder(ctx, orderID, symbol)` | Get order status |
+| | `FetchOrderByID(ctx, orderID, symbol)` | Get a single order by ID, including terminal orders when supported |
+| | `FetchOrders(ctx, symbol)` | List all visible orders for a symbol |
 | | `FetchOpenOrders(ctx, symbol)` | List all open orders |
 | **Account** | `FetchAccount(ctx)` | Full account: balance + positions + orders |
 | | `FetchBalance(ctx)` | Available balance only |
@@ -335,6 +336,8 @@ Every adapter implements these methods:
 | | `WatchTicker(ctx, symbol, cb)` | Real-time ticker |
 | | `WatchTrades(ctx, symbol, cb)` | Real-time trades |
 | | `WatchKlines(ctx, symbol, interval, cb)` | Real-time klines |
+
+`FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are intentionally separate: single-order lookup should not be implemented by scanning open orders, and `FetchOrders` is broader than `FetchOpenOrders`.
 
 ### PerpExchange Interface (extends Exchange)
 

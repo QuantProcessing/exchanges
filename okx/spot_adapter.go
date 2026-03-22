@@ -410,18 +410,25 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}, nil
 }
 
-func (a *SpotAdapter) FetchOrder(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	instId := a.FormatSymbol(symbol)
 
 	res, err := a.client.GetOrder(ctx, instId, orderID, "")
 	if err != nil {
+		if isOKXOrderLookupMiss(err) {
+			return nil, exchanges.ErrOrderNotFound
+		}
 		return nil, err
 	}
 	if len(res) == 0 {
-		return nil, fmt.Errorf("order not found")
+		return nil, exchanges.ErrOrderNotFound
 	}
 
 	return a.mapOrderRest(&res[0]), nil
+}
+
+func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
@@ -543,9 +550,9 @@ func (a *SpotAdapter) FetchKlines(ctx context.Context, symbol string, interval e
 		end = opts.End
 		limit = opts.Limit
 	}
-_ = start
-_ = end
-_ = limit
+	_ = start
+	_ = end
+	_ = limit
 	instId := a.FormatSymbol(symbol)
 
 	bar := "1m"
@@ -683,7 +690,6 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 	})
 }
 
-
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
 	// OKX SDK doesn't have Subscribe Candles yet
 	return fmt.Errorf("SubscribeKline not implemented for OKX spot")
@@ -707,7 +713,6 @@ func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error 
 	}
 	return a.wsPublic.Unsubscribe(channel)
 }
-
 
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
 	return nil
@@ -795,7 +800,6 @@ func mapOKXOrderType(t okx.OrderType) exchanges.OrderType {
 		return exchanges.OrderTypeUnknown
 	}
 }
-
 
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	return fmt.Errorf("not implemented")

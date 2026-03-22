@@ -35,7 +35,17 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{Symbol: "ETH"})
 }
 
+func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+		Symbol:                 "ETH",
+		SupportsOpenOrders:     true,
+		SupportsTerminalLookup: false,
+		SupportsOrderHistory:   false,
+	})
+}
+
 func TestPerpAdapter_LocalState(t *testing.T) {
-adp := setupPerpAdapter(t)
-testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "ETH"})
+	adp := setupPerpAdapter(t)
+	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "ETH"})
 }
