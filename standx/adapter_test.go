@@ -34,3 +34,8 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{Symbol: "ETH"})
 }
+
+func TestPerpAdapter_LocalState(t *testing.T) {
+adp := setupPerpAdapter(t)
+testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "ETH"})
+}

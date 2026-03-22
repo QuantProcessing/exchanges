@@ -28,7 +28,7 @@ When answering a question or making a change, start from the smallest set of aut
 | Shared models/enums | `models.go` | Real fields and enum names; do not invent types |
 | Error handling | `errors.go` | Sentinel errors and `ExchangeError` contract |
 | Shared validation/helpers | `utils.go` | Precision formatting, `GenerateID`, slippage helpers, partial-fill helper |
-| Local state / account sync | `local_state.go` | `LocalOrderBook`, `LocalStateManager`, `AccountManager` |
+| Local state / account sync | `local_state.go`, `event_bus.go` | `LocalOrderBook`, `LocalState`, `EventBus` |
 | Registry behavior | `registry.go` | Supported registry keys, constructor signature |
 | Real expectations for adapters | `testsuite/compliance.go`, `testsuite/order_suite.go`, `testsuite/lifecycle_suite.go`, `testsuite/helpers.go` | These are the behavioral contracts |
 | Exchange-specific constructor/auth/support | `<exchange>/register.go`, `<exchange>/options.go` | Real ctor names, registry keys, auth fields, quote currency rules |
@@ -67,7 +67,7 @@ Use this table to decide what to load first instead of reading the entire repo.
 | Add or fix order placement | `exchange.go`, `utils.go` | target `PlaceOrder`, `FetchOrder`, `WatchOrders`, `testsuite/order_suite.go` |
 | Fix order status / partial-fill behavior | `models.go`, `utils.go` | target `WatchOrders`, response mapping helpers, `testsuite/helpers.go` |
 | Fix local orderbook behavior | `local_state.go` | target `WatchOrderBook`, local orderbook file, `testsuite/compliance.go` |
-| Fix account sync / local state | `local_state.go` | target WS account handlers, `FetchAccount`, `WatchOrders`, `WatchPositions` |
+| Fix account sync / local state | `local_state.go`, `event_bus.go` | target WS account handlers, `FetchAccount`, `WatchOrders`, `WatchPositions` |
 | Add a new exchange adapter | `registry.go`, `exchange.go`, `testsuite/*` | copy a similar exchange package structure |
 | Answer "what auth/options does exchange X need?" | `<exchange>/options.go` | `<exchange>/register.go` |
 | Answer "what markets does exchange X support?" | `<exchange>/register.go` | presence of `spot_adapter.go` / `perp_adapter.go` |
@@ -84,7 +84,8 @@ Use this table to decide what to load first instead of reading the entire repo.
 | `errors.go` | Sentinel errors and `ExchangeError` | Structured error handling |
 | `utils.go` | Precision, ID generation, validation helpers | Avoid re-implementing rounding or order validation |
 | `base_adapter.go` | Shared adapter behavior | See how order validation, slippage, local books, and order mode are meant to work |
-| `local_state.go` | Local order/position/balance state and `AccountManager` | Implement or debug state sync |
+| `local_state.go` | `LocalOrderBook` interface + unified `LocalState` manager | Implement or debug state sync |
+| `event_bus.go` | Generic `EventBus[T]` fan-out pub/sub | Understand event distribution for orders/positions |
 | `registry.go` | Global adapter registry | Config-driven construction |
 | `manager.go` | Runtime holder for multiple adapters | Store and retrieve already-built adapters |
 | `testsuite/` | Shared behavioral tests | Understand required adapter behavior |
@@ -393,16 +394,14 @@ The shared adapter path expects:
 
 ### Local account state contract
 
-There are two layers:
+`LocalState` is the unified local state manager that wraps any `Exchange` adapter:
 
-- `LocalStateManager`: embedded shared tracker used inside adapters
-- `AccountManager`: end-user helper that wraps a `PerpExchange`
-
-When implementing or debugging WS account handling, inspect how order, position, and balance updates feed:
-
-- `ApplyOrderUpdate`
-- `ApplyPositionUpdate`
-- `UpdateBalance`
+- Call `NewLocalState(adp, logger)` to create
+- `Start(ctx)` performs REST snapshot + auto `WatchOrders` + `WatchPositions` + periodic refresh
+- `GetOrder`, `GetPosition`, `GetBalance` for zero-latency reads
+- `SubscribeOrders()` / `SubscribePositions()` for fan-out event subscriptions (multiple consumers)
+- `PlaceOrder` + `OrderResult.WaitTerminal` for integrated order tracking
+- `Close()` to release resources
 
 ## AI Workflow For This Repository
 
@@ -439,6 +438,7 @@ Start with:
 - `models.go`
 - `errors.go`
 - `local_state.go`
+- `event_bus.go`
 
 Not the README.
 
@@ -500,33 +500,32 @@ Why this is the default:
 - the code handles terminal states
 - it avoids polling loops until necessary
 
-## AccountManager Recipe
+> **Note:** For simpler use, prefer `LocalState.PlaceOrder()` which handles WatchOrders subscription, fan-out, and filtering automatically. The manual recipe above is for cases where you don't want `LocalState` overhead.
 
-Use `AccountManager` when the caller wants a local synchronized view of perp positions, orders, and balance.
+## LocalState Recipe
+
+Use `LocalState` when the caller wants a local synchronized view of orders, positions, and balance, with fan-out event subscriptions and integrated order tracking.
 
 ```go
-func startManager(ctx context.Context, perp exchanges.PerpExchange) (*exchanges.AccountManager, error) {
-    mgr, err := exchanges.NewAccountManager(perp, nil)
-    if err != nil {
+func startLocalState(ctx context.Context, adp exchanges.Exchange) (*exchanges.LocalState, error) {
+    state := exchanges.NewLocalState(adp, nil)
+    if err := state.Start(ctx); err != nil {
         return nil, err
     }
-
-    if err := mgr.Start(ctx, time.Minute); err != nil {
-        mgr.Close()
-        return nil, err
-    }
-
-    return mgr, nil
+    return state, nil
 }
 ```
 
 Remember:
 
-- it requires `PerpExchange`
+- it wraps any `Exchange` (not just `PerpExchange`)
 - it performs an initial `FetchAccount`
-- it subscribes to order and position streams
-- `GetAllPositions()` returns `[]*Position`
-- `GetLocalBalance()` returns the last synced balance
+- it subscribes to order and position streams automatically
+- `SubscribeOrders()` returns a `*Subscription[Order]` with a `C` channel for fan-out
+- `PlaceOrder` returns `*OrderResult` with `WaitTerminal(timeout)` for blocking until terminal state
+- `GetAllOpenOrders()` returns `[]Order`
+- `GetBalance()` returns the last synced balance
+- Always call `state.Close()` when done
 
 ## Adding Or Extending An Exchange Adapter
 
@@ -594,6 +593,7 @@ The test suite names in this repository are:
 - `testsuite.RunAdapterComplianceTests`
 - `testsuite.RunOrderSuite`
 - `testsuite.RunLifecycleSuite`
+- `testsuite.RunLocalStateSuite`
 
 Do not invent names like `RunComplianceSuite`.
 
@@ -615,6 +615,13 @@ func TestMyExchangeOrders(t *testing.T) {
 func TestMyExchangeLifecycle(t *testing.T) {
     adp := createTestAdapter(t)
     testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
+        Symbol: "DOGE",
+    })
+}
+
+func TestMyExchange_LocalState(t *testing.T) {
+    adp := createTestAdapter(t)
+    testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{
         Symbol: "DOGE",
     })
 }

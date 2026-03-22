@@ -14,10 +14,11 @@ import (
 // - Connection tracking (WS Market, WS Order, WS Account)
 // - Local OrderBook mapping and readiness waiting
 // - Symbol detail caching
-// - Local state management (Orders, Positions, Balance) via embedding LocalStateManager
 // - Automatic order validation and slippage handling
+//
+// For local state management (Orders, Positions, Balance), use LocalState
+// which wraps the Exchange adapter externally.
 type BaseAdapter struct {
-	*LocalStateManager // Embed state manager for Orders/Positions/Balance
 
 	Name       string
 	MarketType MarketType
@@ -46,7 +47,6 @@ func NewBaseAdapter(name string, marketType MarketType, logger Logger) *BaseAdap
 		logger = NopLogger
 	}
 	return &BaseAdapter{
-		LocalStateManager: NewLocalStateManager(logger),
 		Name:              name,
 		MarketType:        marketType,
 		Logger:            logger,

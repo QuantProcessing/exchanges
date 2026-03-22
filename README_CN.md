@@ -215,27 +215,37 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 }
 ```
 
-### AccountManager（自动状态同步）
+### LocalState（统一状态管理）
 
 ```go
-// AccountManager 订阅 WS 推送，自动维护本地状态
-mgr, err := exchanges.NewAccountManager(adp.(exchanges.PerpExchange), nil)
-if err != nil {
-    panic(err)
-}
-err = mgr.Start(ctx, 1*time.Minute) // 每分钟 REST 刷新作为兜底
+// LocalState 包装任意 Exchange 适配器 — 自动订阅 WS 推送，
+// 维护订单/仓位/余额，并提供 fan-out 事件订阅。
+state := exchanges.NewLocalState(adp, nil)
+err := state.Start(ctx) // REST 快照 + 自动 WatchOrders/WatchPositions + 定时刷新
 
 // 随时读取状态（线程安全，零延迟）
-pos, ok := mgr.GetPosition("BTC")
-order, ok := mgr.GetOrder("order-123")
-balance := mgr.GetLocalBalance()
+pos, ok := state.GetPosition("BTC")
+order, ok := state.GetOrder("order-123")
+balance := state.GetBalance()
 
-// 通过 channel 接收推送
+// Fan-out 事件订阅（支持多消费者）
+sub := state.SubscribeOrders()
+defer sub.Unsubscribe()
 go func() {
-    for order := range mgr.GetOrderStream() {
+    for order := range sub.C {
         fmt.Printf("订单更新: %s %s\n", order.OrderID, order.Status)
     }
 }()
+
+// 下单 + 集成追踪 — 无需单独调用 WatchOrders
+result, err := state.PlaceOrder(ctx, &exchanges.OrderParams{
+    Symbol:   "BTC",
+    Side:     exchanges.OrderSideBuy,
+    Type:     exchanges.OrderTypeMarket,
+    Quantity: decimal.NewFromFloat(0.001),
+})
+defer result.Done()
+filled, err := result.WaitTerminal(30 * time.Second) // 阻塞至 FILLED/CANCELLED/REJECTED
 ```
 
 ### 切换交易所
@@ -512,7 +522,8 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 ├── models.go               统一数据类型（Order, Position, Ticker 等）
 ├── errors.go               哨兵错误 + ExchangeError 类型
 ├── base_adapter.go         共享适配器逻辑（深度簿、校验、通用辅助）
-├── local_state.go          LocalOrderBook 接口 + AccountManager
+├── local_state.go          LocalOrderBook 接口 + 统一 LocalState 管理器
+├── event_bus.go            通用 EventBus[T] fan-out 发布/订阅
 ├── log.go                  Logger 接口 + NopLogger
 ├── testsuite/              适配器一致性测试套件
 ├── binance/                Binance 适配器 + SDK
@@ -547,6 +558,13 @@ go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -
 go test ./binance/ -v      # 若未配置 Key 会自动跳过
 go test ./grvt/ -v
 go test ./edgex/ -v
+```
+
+运行 LocalState 集成测试（实盘下单 + 追踪）：
+```bash
+go test -v -run TestPerpAdapter_LocalState ./binance/
+go test -v -run TestPerpAdapter_LocalState ./okx/
+go test -v -run TestPerpAdapter_LocalState ./hyperliquid/
 ```
 
 ## 许可证

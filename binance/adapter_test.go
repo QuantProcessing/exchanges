@@ -74,3 +74,13 @@ func TestSpotAdapter_Lifecycle(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "DOGE"})
 }
+
+func TestPerpAdapter_LocalState(t *testing.T) {
+	adp := setupPerpAdapter(t)
+	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
+}
+
+func TestSpotAdapter_LocalState(t *testing.T) {
+	adp := setupSpotAdapter(t)
+	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
+}

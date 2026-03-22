@@ -215,27 +215,37 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 }
 ```
 
-### AccountManager (Auto-Sync State)
+### LocalState (Unified State Management)
 
 ```go
-// AccountManager subscribes to WS updates and keeps local state in sync
-mgr, err := exchanges.NewAccountManager(adp.(exchanges.PerpExchange), nil)
-if err != nil {
-    panic(err)
-}
-err = mgr.Start(ctx, 1*time.Minute) // REST refresh every minute as backup
+// LocalState wraps any Exchange adapter — auto-subscribes to WS streams,
+// maintains orders/positions/balance, and provides fan-out event subscriptions.
+state := exchanges.NewLocalState(adp, nil)
+err := state.Start(ctx) // REST snapshot + auto WatchOrders/WatchPositions + periodic refresh
 
 // Read state anytime (thread-safe, zero-latency)
-pos, ok := mgr.GetPosition("BTC")
-order, ok := mgr.GetOrder("order-123")
-balance := mgr.GetLocalBalance()
+pos, ok := state.GetPosition("BTC")
+order, ok := state.GetOrder("order-123")
+balance := state.GetBalance()
 
-// Stream updates via channels
+// Fan-out event subscriptions (multiple consumers supported)
+sub := state.SubscribeOrders()
+defer sub.Unsubscribe()
 go func() {
-    for order := range mgr.GetOrderStream() {
+    for order := range sub.C {
         fmt.Printf("Order update: %s %s\n", order.OrderID, order.Status)
     }
 }()
+
+// Place order with integrated tracking — no need for separate WatchOrders
+result, err := state.PlaceOrder(ctx, &exchanges.OrderParams{
+    Symbol:   "BTC",
+    Side:     exchanges.OrderSideBuy,
+    Type:     exchanges.OrderTypeMarket,
+    Quantity: decimal.NewFromFloat(0.001),
+})
+defer result.Done()
+filled, err := result.WaitTerminal(30 * time.Second) // blocks until FILLED/CANCELLED/REJECTED
 ```
 
 ### Switching Exchanges
@@ -512,7 +522,8 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── models.go               Unified data types (Order, Position, Ticker, etc.)
 ├── errors.go               Sentinel errors + ExchangeError type
 ├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
-├── local_state.go          LocalOrderBook interface + AccountManager
+├── local_state.go          LocalOrderBook interface + unified LocalState manager
+├── event_bus.go            Generic EventBus[T] for fan-out pub/sub
 ├── log.go                  Logger interface + NopLogger
 ├── testsuite/              Adapter compliance test suite
 ├── binance/                Binance adapter + SDK
@@ -547,6 +558,13 @@ Run integration tests (requires API keys in `.env`):
 go test ./binance/ -v      # Tests skip automatically if keys are missing
 go test ./grvt/ -v
 go test ./edgex/ -v
+```
+
+Run LocalState integration tests (live order placement + tracking):
+```bash
+go test -v -run TestPerpAdapter_LocalState ./binance/
+go test -v -run TestPerpAdapter_LocalState ./okx/
+go test -v -run TestPerpAdapter_LocalState ./hyperliquid/
 ```
 
 ## License

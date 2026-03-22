@@ -35,336 +35,139 @@ type LocalOrderBook interface {
 }
 
 // ============================================================================
-// LocalStateManager — generic order/position/balance tracker
+// LocalState — unified local state manager
 // ============================================================================
 
-// LocalStateManager provides thread-safe local state management for adapters.
-// It tracks Orders, Positions, and Balances, typically updated via WebSocket streams.
-// Unlike LocalOrderBook (which is per-exchange), this is a shared concrete
-// implementation because order/position state management logic is identical
-// across all exchanges.
-type LocalStateManager struct {
-	mu     sync.RWMutex
+// LocalState provides unified local state management by wrapping an Exchange adapter.
+// It automatically maintains Orders, Positions, and Balance via WebSocket streams,
+// and provides fan-out event subscriptions and integrated order tracking.
+//
+// Usage:
+//
+//	state := exchanges.NewLocalState(adp, logger)
+//	state.Start(ctx)
+//
+//	// Query state
+//	pos, _ := state.GetPosition("BTC")
+//
+//	// Place order with tracking
+//	result, _ := state.PlaceOrder(ctx, params)
+//	defer result.Done()
+//	filled, _ := result.WaitTerminal(30 * time.Second)
+type LocalState struct {
+	adp    Exchange
 	logger Logger
+	mu     sync.RWMutex
 
+	// Local state
+	orders    map[string]*Order    // OrderID -> Order (open orders only)
 	positions map[string]*Position // Symbol -> Position
-	orders    map[string]*Order    // OrderID -> Order
 	balance   decimal.Decimal
 
-	// Channels for broadcasting updates if users want stream access
-	orderUpdateCh    chan *Order
-	positionUpdateCh chan *Position
-
-	initialized bool
-}
-
-// NewLocalStateManager initializes a new LocalStateManager
-func NewLocalStateManager(logger Logger) *LocalStateManager {
-	if logger == nil {
-		logger = NopLogger
-	}
-	return &LocalStateManager{
-		logger:           logger,
-		positions:        make(map[string]*Position),
-		orders:           make(map[string]*Order),
-		orderUpdateCh:    make(chan *Order, 100),
-		positionUpdateCh: make(chan *Position, 100),
-		initialized:      false,
-	}
-}
-
-// SetInitialState populates the state from a REST API snapshot
-func (m *LocalStateManager) SetInitialState(balance decimal.Decimal, positions []Position, orders []Order) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.balance = balance
-	m.positions = make(map[string]*Position)
-	m.orders = make(map[string]*Order)
-
-	for _, p := range positions {
-		cp := p
-		m.positions[p.Symbol] = &cp
-	}
-	for _, o := range orders {
-		co := o
-		m.orders[o.OrderID] = &co
-	}
-	m.initialized = true
-}
-
-// ApplyOrderUpdate applies an incremental order update
-func (m *LocalStateManager) ApplyOrderUpdate(o *Order) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	isTerminal := o.Status == OrderStatusFilled || o.Status == OrderStatusCancelled || o.Status == OrderStatusRejected
-
-	if isTerminal {
-		delete(m.orders, o.OrderID)
-	} else {
-		co := *o
-		m.orders[o.OrderID] = &co
-	}
-
-	// Non-blocking broadcast
-	select {
-	case m.orderUpdateCh <- o:
-	default:
-		m.logger.Warnw("order update channel full, dropping update", "orderID", o.OrderID)
-	}
-}
-
-// ApplyPositionUpdate applies an incremental position update
-func (m *LocalStateManager) ApplyPositionUpdate(p *Position) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	cp := *p
-	m.positions[p.Symbol] = &cp
-
-	// Non-blocking broadcast
-	select {
-	case m.positionUpdateCh <- p:
-	default:
-		m.logger.Warnw("position update channel full, dropping update", "symbol", p.Symbol)
-	}
-}
-
-// UpdateBalance applies an incremental balance update
-func (m *LocalStateManager) UpdateBalance(balance decimal.Decimal) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.balance = balance
-}
-
-// GetOrder returns a copy of the desired order if it exists locally
-func (m *LocalStateManager) GetOrder(orderID string) (*Order, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	o, ok := m.orders[orderID]
-	if !ok {
-		return nil, false
-	}
-	co := *o
-	return &co, true
-}
-
-// GetPosition returns a copy of the desired position if it exists locally
-func (m *LocalStateManager) GetPosition(symbol string) (*Position, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	p, ok := m.positions[symbol]
-	if !ok {
-		return nil, false
-	}
-	cp := *p
-	return &cp, true
-}
-
-// GetAllPositions returns a list of all positions
-func (m *LocalStateManager) GetAllPositions() []Position {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]Position, 0, len(m.positions))
-	for _, p := range m.positions {
-		result = append(result, *p)
-	}
-	return result
-}
-
-// GetAllOpenOrders returns a list of all current open orders
-func (m *LocalStateManager) GetAllOpenOrders() []Order {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]Order, 0, len(m.orders))
-	for _, o := range m.orders {
-		result = append(result, *o)
-	}
-	return result
-}
-
-// GetBalance returns the cached total balance
-func (m *LocalStateManager) GetBalance() decimal.Decimal {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.balance
-}
-
-// GetOrderStream gets the read-only channel for order updates
-func (m *LocalStateManager) GetOrderStream() <-chan *Order {
-	return m.orderUpdateCh
-}
-
-// GetPositionStream gets the read-only channel for position updates
-func (m *LocalStateManager) GetPositionStream() <-chan *Position {
-	return m.positionUpdateCh
-}
-
-// IsInitialized returns whether state has been populated
-func (m *LocalStateManager) IsInitialized() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.initialized
-}
-
-// Close closes the LocalStateManager (channels cleaned up by GC).
-func (m *LocalStateManager) Close() {}
-
-// ============================================================================
-// AccountManager — auto-sync wrapper over PerpExchange
-// ============================================================================
-
-// AccountManager automates local state management for a perp adapter.
-// It synchronizes Positions, Orders, and Balance via WebSocket and exposes read-only channels.
-// It requires the adapter to implement both PerpExchange and Streamable.
-type AccountManager struct {
-	adapter    PerpExchange
-	streamable Streamable
-	logger     Logger
-	mu         sync.RWMutex
-
-	// Local State
-	positions map[string]*Position // Symbol -> Position
-	orders    map[string]*Order    // OrderID -> Order
-	balance   decimal.Decimal
-
-	// Channels for broadcasting updates
-	orderUpdateCh    chan *Order
-	positionUpdateCh chan *Position
+	// Event buses (fan-out)
+	orderBus    *EventBus[Order]
+	positionBus *EventBus[Position]
 
 	started bool
 	done    chan struct{}
 }
 
-// NewAccountManager creates a new manager for the given perp adapter.
-// The adapter must implement both PerpExchange and Streamable.
-func NewAccountManager(adapter PerpExchange, logger Logger) (*AccountManager, error) {
-	streamable, ok := adapter.(Streamable)
-	if !ok {
-		return nil, fmt.Errorf("adapter %s does not implement Streamable", adapter.GetExchange())
-	}
+// NewLocalState creates a new LocalState wrapping the given Exchange adapter.
+func NewLocalState(adp Exchange, logger Logger) *LocalState {
 	if logger == nil {
 		logger = NopLogger
 	}
-	return &AccountManager{
-		adapter:          adapter,
-		streamable:       streamable,
-		logger:           logger,
-		positions:        make(map[string]*Position),
-		orders:           make(map[string]*Order),
-		orderUpdateCh:    make(chan *Order, 100),
-		positionUpdateCh: make(chan *Position, 100),
-		done:             make(chan struct{}),
-	}, nil
+	return &LocalState{
+		adp:         adp,
+		logger:      logger,
+		orders:      make(map[string]*Order),
+		positions:   make(map[string]*Position),
+		orderBus:    NewEventBus[Order](),
+		positionBus: NewEventBus[Position](),
+		done:        make(chan struct{}),
+	}
 }
 
-// Start initializes the account state and subscribes to updates.
-func (m *AccountManager) Start(ctx context.Context, syncInterval time.Duration) error {
-	m.mu.Lock()
-	if m.started {
-		m.mu.Unlock()
+// Start initializes local state and subscribes to WebSocket streams.
+// It performs: REST snapshot → WatchOrders → WatchPositions → periodic refresh.
+func (s *LocalState) Start(ctx context.Context) error {
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
 		return nil
 	}
-	m.started = true
-	m.mu.Unlock()
+	s.started = true
+	s.mu.Unlock()
 
-	if syncInterval == 0 {
-		syncInterval = 1 * time.Minute
-	}
-
-	m.logger.Infow("fetching initial account state")
-	acc, err := m.adapter.FetchAccount(ctx)
+	// 1. REST snapshot
+	s.logger.Infow("local_state: fetching initial account state")
+	acc, err := s.adp.FetchAccount(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get initial account state: %w", err)
+		return fmt.Errorf("local_state: failed to get initial state: %w", err)
 	}
 
-	m.mu.Lock()
-	m.balance = acc.TotalBalance
-	m.positions = make(map[string]*Position)
-	m.orders = make(map[string]*Order)
+	s.mu.Lock()
+	s.balance = acc.TotalBalance
 	for _, p := range acc.Positions {
 		cp := p
-		m.positions[p.Symbol] = &cp
+		s.positions[p.Symbol] = &cp
 	}
 	for _, o := range acc.Orders {
 		co := o
-		m.orders[o.OrderID] = &co
+		s.orders[o.OrderID] = &co
 	}
-	m.mu.Unlock()
-	m.logger.Infow("initial state loaded", "orders", len(m.orders), "positions", len(m.positions))
+	s.mu.Unlock()
+	s.logger.Infow("local_state: initial state loaded",
+		"orders", len(acc.Orders), "positions", len(acc.Positions))
 
-	// Subscribe to Order Updates
-	err = m.streamable.WatchOrders(ctx, func(o *Order) {
-		m.handleOrderUpdate(o)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to subscribe order update: %w", err)
-	}
-
-	// Subscribe to Position Updates
-	err = m.streamable.WatchPositions(ctx, func(p *Position) {
-		m.handlePositionUpdate(p)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to subscribe position update: %w", err)
+	// 2. Subscribe to order updates
+	streamable, ok := s.adp.(Streamable)
+	if !ok {
+		return fmt.Errorf("local_state: adapter %s does not implement Streamable", s.adp.GetExchange())
 	}
 
-	m.startBalanceSync(ctx, syncInterval)
+	if err := streamable.WatchOrders(ctx, func(o *Order) {
+		s.applyOrderUpdate(o)
+	}); err != nil {
+		return fmt.Errorf("local_state: WatchOrders failed: %w", err)
+	}
+
+	// 3. Subscribe to position updates
+	if err := streamable.WatchPositions(ctx, func(p *Position) {
+		s.applyPositionUpdate(p)
+	}); err != nil {
+		s.logger.Warnw("local_state: WatchPositions failed (may not be supported)", "error", err)
+		// Not fatal — some adapters may not support position streaming
+	}
+
+	// 4. Periodic full refresh
+	go s.periodicRefresh(ctx, 1*time.Minute)
+
 	return nil
 }
 
-// Close closes the manager.
-func (m *AccountManager) Close() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !m.started {
+// Close stops the LocalState and releases resources.
+func (s *LocalState) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started {
 		return
 	}
-	m.started = false
-	close(m.done)
+	s.started = false
+	close(s.done)
+	s.orderBus.Close()
+	s.positionBus.Close()
 }
 
-func (m *AccountManager) handleOrderUpdate(o *Order) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// ============================================================================
+// State Queries (read local cache, no network)
+// ============================================================================
 
-	isTerminal := o.Status == OrderStatusFilled || o.Status == OrderStatusCancelled || o.Status == OrderStatusRejected
-	if isTerminal {
-		delete(m.orders, o.OrderID)
-	} else {
-		co := *o
-		m.orders[o.OrderID] = &co
-	}
-
-	select {
-	case m.orderUpdateCh <- o:
-	default:
-		m.logger.Warnw("order update channel full, dropping update", "orderID", o.OrderID)
-	}
-}
-
-func (m *AccountManager) handlePositionUpdate(p *Position) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	cp := *p
-	m.positions[p.Symbol] = &cp
-
-	select {
-	case m.positionUpdateCh <- p:
-	default:
-		m.logger.Warnw("position update channel full, dropping update", "symbol", p.Symbol)
-	}
-}
-
-// GetOrder returns a copy of the order if found.
-func (m *AccountManager) GetOrder(orderID string) (*Order, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	o, ok := m.orders[orderID]
+// GetOrder returns a copy of the order if found in local state.
+func (s *LocalState) GetOrder(orderID string) (*Order, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	o, ok := s.orders[orderID]
 	if !ok {
 		return nil, false
 	}
@@ -373,10 +176,10 @@ func (m *AccountManager) GetOrder(orderID string) (*Order, bool) {
 }
 
 // GetPosition returns a copy of the position for the symbol.
-func (m *AccountManager) GetPosition(symbol string) (*Position, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	p, ok := m.positions[symbol]
+func (s *LocalState) GetPosition(symbol string) (*Position, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.positions[symbol]
 	if !ok {
 		return nil, false
 	}
@@ -384,77 +187,204 @@ func (m *AccountManager) GetPosition(symbol string) (*Position, bool) {
 	return &cp, true
 }
 
-// GetOrderStream returns the read-only channel for order updates.
-func (m *AccountManager) GetOrderStream() <-chan *Order {
-	return m.orderUpdateCh
-}
-
-// GetPositionStream returns the read-only channel for position updates.
-func (m *AccountManager) GetPositionStream() <-chan *Position {
-	return m.positionUpdateCh
-}
-
-// GetAllPositions returns a copy of all current positions.
-func (m *AccountManager) GetAllPositions() []*Position {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]*Position, 0, len(m.positions))
-	for _, p := range m.positions {
-		cp := *p
-		result = append(result, &cp)
+// GetAllOpenOrders returns copies of all open orders.
+func (s *LocalState) GetAllOpenOrders() []Order {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]Order, 0, len(s.orders))
+	for _, o := range s.orders {
+		result = append(result, *o)
 	}
 	return result
 }
 
-// GetLocalBalance returns the last known balance.
-func (m *AccountManager) GetLocalBalance() decimal.Decimal {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.balance
+// GetAllPositions returns copies of all positions.
+func (s *LocalState) GetAllPositions() []Position {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]Position, 0, len(s.positions))
+	for _, p := range s.positions {
+		result = append(result, *p)
+	}
+	return result
 }
 
-// ForceRefresh manually re-fetches full state from REST API.
-func (m *AccountManager) ForceRefresh(ctx context.Context) error {
-	acc, err := m.adapter.FetchAccount(ctx)
+// GetBalance returns the last known balance.
+func (s *LocalState) GetBalance() decimal.Decimal {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.balance
+}
+
+// ============================================================================
+// Event Subscriptions (fan-out, multiple consumers supported)
+// ============================================================================
+
+// SubscribeOrders returns a subscription for all order update events.
+// Call sub.Unsubscribe() when done.
+func (s *LocalState) SubscribeOrders() *Subscription[Order] {
+	return s.orderBus.Subscribe()
+}
+
+// SubscribePositions returns a subscription for all position update events.
+func (s *LocalState) SubscribePositions() *Subscription[Position] {
+	return s.positionBus.Subscribe()
+}
+
+// ============================================================================
+// Order Placement with Tracking
+// ============================================================================
+
+// OrderResult holds the result of PlaceOrder along with a filtered subscription
+// for tracking this specific order's lifecycle.
+type OrderResult struct {
+	Order *Order               // Initial order snapshot
+	Sub   *Subscription[Order] // Filtered updates for this order only
+}
+
+// WaitTerminal blocks until the order reaches a terminal state
+// (FILLED, CANCELLED, or REJECTED) or the timeout expires.
+func (r *OrderResult) WaitTerminal(timeout time.Duration) (*Order, error) {
+	timer := time.After(timeout)
+	for {
+		select {
+		case o, ok := <-r.Sub.C:
+			if !ok {
+				return nil, fmt.Errorf("subscription closed")
+			}
+			if o.Status == OrderStatusFilled ||
+				o.Status == OrderStatusCancelled ||
+				o.Status == OrderStatusRejected {
+				return o, nil
+			}
+		case <-timer:
+			return nil, fmt.Errorf("timeout waiting for order %s to reach terminal state", r.Order.OrderID)
+		}
+	}
+}
+
+// Done releases the subscription resources. Always call this when finished.
+func (r *OrderResult) Done() {
+	r.Sub.Unsubscribe()
+}
+
+// PlaceOrder places an order and returns an OrderResult with a subscription
+// that receives only this order's status updates.
+//
+// Usage:
+//
+//	result, err := state.PlaceOrder(ctx, params)
+//	defer result.Done()
+//	filled, err := result.WaitTerminal(30 * time.Second)
+func (s *LocalState) PlaceOrder(ctx context.Context, params *OrderParams) (*OrderResult, error) {
+	// 1. Subscribe to all order events BEFORE placing (prevent race)
+	allSub := s.orderBus.Subscribe()
+
+	// 2. Place the order
+	order, err := s.adp.PlaceOrder(ctx, params)
 	if err != nil {
-		return err
+		allSub.Unsubscribe()
+		return nil, err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.balance = acc.TotalBalance
-	m.positions = make(map[string]*Position)
-	m.orders = make(map[string]*Order)
+	// 3. Create a filtered subscription for this specific order
+	orderID := order.OrderID
+	clientOrderID := order.ClientOrderID
+	filteredCh := make(chan *Order, 16)
 
-	for _, p := range acc.Positions {
-		cp := p
-		m.positions[p.Symbol] = &cp
-	}
-	for _, o := range acc.Orders {
-		co := o
-		m.orders[o.OrderID] = &co
-	}
-	return nil
-}
-
-func (m *AccountManager) startBalanceSync(ctx context.Context, interval time.Duration) {
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-m.done:
-				return
-			case <-ticker.C:
-				if err := m.ForceRefresh(ctx); err != nil {
-					m.logger.Errorw("failed to refresh state", "error", err)
-				} else {
-					m.logger.Debugw("periodic state refresh completed", "balance", m.GetLocalBalance())
+		defer close(filteredCh)
+		for o := range allSub.C {
+			match := (orderID != "" && o.OrderID == orderID) ||
+				(clientOrderID != "" && o.ClientOrderID == clientOrderID)
+			if match {
+				select {
+				case filteredCh <- o:
+				default:
+				}
+				// Auto-close on terminal state
+				if o.Status == OrderStatusFilled ||
+					o.Status == OrderStatusCancelled ||
+					o.Status == OrderStatusRejected {
+					allSub.Unsubscribe()
+					return
 				}
 			}
 		}
 	}()
+
+	filteredSub := &Subscription[Order]{
+		C:   filteredCh,
+		ch:  filteredCh,
+		bus: s.orderBus,
+	}
+
+	return &OrderResult{
+		Order: order,
+		Sub:   filteredSub,
+	}, nil
+}
+
+// ============================================================================
+// Internal state management
+// ============================================================================
+
+func (s *LocalState) applyOrderUpdate(o *Order) {
+	s.mu.Lock()
+	isTerminal := o.Status == OrderStatusFilled ||
+		o.Status == OrderStatusCancelled ||
+		o.Status == OrderStatusRejected
+
+	if isTerminal {
+		delete(s.orders, o.OrderID)
+	} else {
+		co := *o
+		s.orders[o.OrderID] = &co
+	}
+	s.mu.Unlock()
+
+	// Fan-out to all subscribers
+	s.orderBus.Publish(o)
+}
+
+func (s *LocalState) applyPositionUpdate(p *Position) {
+	s.mu.Lock()
+	cp := *p
+	s.positions[p.Symbol] = &cp
+	s.mu.Unlock()
+
+	s.positionBus.Publish(p)
+}
+
+func (s *LocalState) periodicRefresh(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.done:
+			return
+		case <-ticker.C:
+			acc, err := s.adp.FetchAccount(ctx)
+			if err != nil {
+				s.logger.Errorw("local_state: periodic refresh failed", "error", err)
+				continue
+			}
+			s.mu.Lock()
+			s.balance = acc.TotalBalance
+			s.positions = make(map[string]*Position)
+			s.orders = make(map[string]*Order)
+			for _, p := range acc.Positions {
+				cp := p
+				s.positions[p.Symbol] = &cp
+			}
+			for _, o := range acc.Orders {
+				co := o
+				s.orders[o.OrderID] = &co
+			}
+			s.mu.Unlock()
+			s.logger.Debugw("local_state: periodic refresh completed", "balance", acc.TotalBalance)
+		}
+	}
 }
