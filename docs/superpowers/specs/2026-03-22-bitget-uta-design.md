@@ -56,7 +56,7 @@ Planned support split:
   - `TransferAsset` returns `exchanges.ErrNotSupported`
 - perp:
   - real `WatchOrders`
-  - real `WatchPositions`
+  - target `WatchPositions` support in v1 when Bitget’s private position stream is strong enough, but this is not a merge gate for current shared local-state readiness
   - `SetLeverage` supported
   - `ModifyOrder` supported
 - funding-rate methods may return `exchanges.ErrNotSupported` in v1 if UTA v3 support is not direct enough in the first pass
@@ -478,7 +478,7 @@ Claiming local-state readiness without real private order streams would be a fal
 Mitigation:
 
 - treat `WatchOrders` as mandatory
-- treat `WatchPositions` as mandatory for perp and optional for spot
+- treat `WatchPositions` as optional for spot and additive for perp in v1
 
 ## Success Criteria
 
