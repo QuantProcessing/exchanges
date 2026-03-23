@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Approved for initial rollout
 
 ## Problem
 
@@ -25,6 +25,24 @@ The goal is not to force every exchange into identical files or identical intern
 - Allow exchange-specific protocol and account-model differences without letting them spread through the whole package.
 - Define a minimum test matrix and review checklist for all adapters.
 - Create a phased convergence path for existing packages.
+
+## Initial Rollout Scope
+
+This first pass lands enforcement artifacts and package gap docs for the current convergence work. It records package classifications that are being enforced now without claiming that every repository-wide naming or file-layout decision is already settled.
+
+Initial rollout classifications:
+
+- `backpack`: explicit REST-only transport adapter in this pass
+- `bitget`: controlled hybrid transport adapter in this pass
+- `binance`: follow-up cleanup target for constructor/auth and sentinel-error convergence, not the final repository template
+- `okx`: follow-up cleanup target for constructor/auth and sentinel-error convergence, not the final repository template
+
+Repository-wide decisions that remain explicitly deferred beyond this pass:
+
+- universal constructor failure policy for required market metadata
+- whether every adapter must declare an explicit transport default rather than inheriting `BaseAdapter` behavior
+- repository-wide default placement for stream logic and related file splits
+- repository-wide WS client naming normalization and other broad SDK rename work
 
 ## Non-Goals
 
@@ -173,6 +191,8 @@ If an adapter participates in `OrderMode`, it must document which of these patte
 
 Hybrid behavior is allowed only as a transitional state and must be tested explicitly.
 
+For this initial rollout, "controlled hybrid" means the same thing as an approved hybrid transport classification for a specific package: the switched subset is documented, the REST-default path is explicit, and tests prove there is no silent fallback outside the documented subset.
+
 The long-term target is to converge on either:
 
 - full switching for supported order operations
@@ -202,6 +222,8 @@ Adapters must not drift into ambiguous behavior such as:
 - returning inconsistent semantics between spot and perp without explicit reason
 
 ## Package Structure Standard
+
+This section defines the default repository target. It does not mean every later-phase file-layout question is already settled for every package.
 
 Each exchange package should use these entry files by default:
 
@@ -312,6 +334,8 @@ SDK layout may vary, but the following boundaries must remain clear:
 
 ### SDK Naming
 
+This first pass only requires naming convergence where a package gap doc calls for it. It does not settle a repository-wide rename campaign for every SDK type or WS client.
+
 SDK naming should converge on these verbs:
 
 - `Get*`
@@ -389,6 +413,8 @@ Deviations must be:
 
 ## Current Package Assessment
 
+This section is a high-level snapshot for the initial rollout only. The package gap docs under `docs/superpowers/gaps/` are the source of truth for package-specific convergence status and acceptance conditions.
+
 ### Binance
 
 Strengths:
@@ -407,7 +433,7 @@ Gaps against this standard:
 
 Role in convergence:
 
-- use as one of the baseline references, not as the final standard by itself
+- use as one of the baseline references in this rollout, not as the final standard by itself
 
 ### OKX
 
@@ -426,7 +452,7 @@ Gaps against this standard:
 
 Role in convergence:
 
-- baseline reference, especially for flat SDK structure and explicit instrument mapping
+- baseline reference in this rollout, especially for flat SDK structure and explicit instrument mapping
 
 ### Bitget
 
@@ -439,12 +465,12 @@ Strengths:
 Gaps against this standard:
 
 - introduces a private-profile/classic-only local architecture that should be treated as a controlled exception, not a new package default
-- uses an approved hybrid transport shape today: REST-default with optional WS switching for a documented subset of order operations
+- uses the initial-rollout controlled hybrid transport shape: REST-default with optional WS switching for a documented subset of order operations
 - funding and private-path placement should be normalized relative to the package standard
 
 Role in convergence:
 
-- acceptable package with targeted cleanup and explicit exception classification
+- acceptable package for the first pass with targeted cleanup and explicit exception classification
 
 ### Backpack
 
@@ -456,7 +482,7 @@ Strengths:
 
 Gaps against this standard:
 
-- currently behaves as a de facto REST-only adapter and should declare that explicitly unless full transport switching is added later
+- currently behaves as a de facto REST-only adapter and should declare and test that explicitly in this pass unless full transport switching is added later
 - stream organization has drifted into a separate local pattern
 - SDK naming is farther from the repository norm
 - some stable failures still use free-form errors rather than shared sentinel errors
@@ -464,15 +490,17 @@ Gaps against this standard:
 
 Role in convergence:
 
-- first package to prioritize for structural convergence
+- first package to prioritize for explicit REST-only classification and structural convergence
 
 ## Phased Convergence Plan
 
+This phased plan is rollout guidance, not a second source of package-specific acceptance criteria. Package-level convergence detail belongs in the gap docs.
+
 ### Phase 1: Standardize The Rulebook
 
-- adopt this document as the baseline adapter standard
-- use it for all new adapters immediately
-- require reviewers to check major adapter work against this document
+- adopt this document and its companion review artifacts as the initial-rollout baseline
+- use it for new adapter work immediately, subject to the deferred decisions listed below
+- require reviewers to check major adapter work against this document and the checklist artifact
 
 ### Phase 2: Bring Current Outliers Under Control
 
@@ -485,16 +513,16 @@ Priority order:
 
 #### Backpack Phase-2 Targets
 
-- decide and document whether it is REST-only or a real `OrderMode` participant
-- normalize SDK naming where practical
-- reduce unnecessary structural fragmentation while keeping clear stream/orderbook boundaries
+- declare and enforce REST-only transport behavior in this pass; revisit only if full switching is introduced later
+- normalize SDK naming where practical without claiming repository-wide rename work is complete
+- reduce unnecessary structural fragmentation where it improves readability while keeping repository-wide stream-layout decisions deferred
 - expand SDK-level tests where runtime coverage is thin
 
 #### Bitget Phase-2 Targets
 
 - classify classic/private-profile layering as an approved exception with tighter boundaries
-- decide whether REST default is a temporary compatibility choice or the permanent adapter contract
-- align file placement for funding/private transport responsibilities
+- keep the controlled hybrid transport contract explicit and tested in this pass
+- align file placement for funding/private transport responsibilities without treating all future layout choices as settled
 
 #### Binance And OKX Phase-2 Targets
 
@@ -512,14 +540,14 @@ After the first convergence pass:
 
 ## Recommended Immediate Follow-Up
 
-1. Resolve the open decisions below and then publish this document as the repository baseline standard.
-2. Produce per-package gap lists for `backpack` and `bitget`.
-3. Turn the review checklist into an actionable PR or review template.
-4. Use the standard as the starting point for future adapter-generation workflows.
+1. Publish this document and the review checklist as the initial-rollout baseline while keeping the deferred repository-wide decisions open.
+2. Track per-package gap lists for `backpack` and `bitget` as the first-pass convergence records.
+3. Use the standard as the starting point for future adapter-generation and review workflows.
+4. Revisit the deferred repository-wide naming and file-layout questions after the first convergence pass lands.
 
 ## Open Decisions
 
-These should be resolved before implementation planning:
+These are explicitly deferred beyond the initial rollout:
 
 1. Should repository-standard constructor behavior be fail-fast for required market metadata in all adapters?
 2. Should repository-standard `OrderMode` default remain inherited from `BaseAdapter`, or should adapters be required to declare their transport default explicitly?
