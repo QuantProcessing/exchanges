@@ -43,6 +43,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 
 func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*Adapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypePerp, opts.logger())
+	// Bitget defaults order transport to REST; only classic place/cancel paths switch on OrderModeWS.
 	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, quoteToPerpCategory(quote), "")
@@ -197,14 +198,6 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
 	return a.private.SetLeverage(ctx, symbol, leverage)
-}
-
-func (a *Adapter) FetchFundingRate(ctx context.Context, symbol string) (*exchanges.FundingRate, error) {
-	return nil, exchanges.ErrNotSupported
-}
-
-func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.FundingRate, error) {
-	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {

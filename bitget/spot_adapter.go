@@ -14,15 +14,15 @@ import (
 
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client      *sdk.Client
-	publicWS    *sdk.PublicWSClient
-	privateWS   *sdk.PrivateWSClient
-	private     spotPrivateProfile
-	markets     *marketCache
-	quote       exchanges.QuoteCurrency
-	cancel      context.CancelFunc
-	cancels     map[string]context.CancelFunc
-	mu          sync.RWMutex
+	client    *sdk.Client
+	publicWS  *sdk.PublicWSClient
+	privateWS *sdk.PrivateWSClient
+	private   spotPrivateProfile
+	markets   *marketCache
+	quote     exchanges.QuoteCurrency
+	cancel    context.CancelFunc
+	cancels   map[string]context.CancelFunc
+	mu        sync.RWMutex
 }
 
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
@@ -42,6 +42,7 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 
 func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*SpotAdapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, opts.logger())
+	// Bitget defaults order transport to REST; only classic place/cancel paths switch on OrderModeWS.
 	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, categorySpot, "")

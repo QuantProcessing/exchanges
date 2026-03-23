@@ -73,6 +73,37 @@ func TestBitgetWSOrderModeDoesNotSilentlyFallbackToREST(t *testing.T) {
 	require.Equal(t, int32(0), restHits.Load(), "WS mode failure must not fallback to REST")
 }
 
+func TestClassicOrderModeWSKeepsModifyOrderOnREST(t *testing.T) {
+	var modifyHits atomic.Int32
+	var detailHits atomic.Int32
+	restServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/mix/order/modify-order":
+			modifyHits.Add(1)
+			_, _ = w.Write([]byte(`{"code":"00000","msg":"success","requestTime":1,"data":{"orderId":"modified-order"}}`))
+		case "/api/v2/mix/order/detail":
+			detailHits.Add(1)
+			_, _ = w.Write([]byte(`{"code":"00000","msg":"success","requestTime":1,"data":{"symbol":"BTCUSDT","orderId":"modified-order","size":"0.2","price":"101","status":"new","side":"buy","force":"gtc","orderType":"limit","cTime":"1","uTime":"1"}}`))
+		default:
+			t.Fatalf("unexpected REST path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(restServer.Close)
+
+	wsServer := newPrivateTradeWSServer(t, true)
+	adp := newClassicPerpOrderModeTestAdapter(t, restServer.URL, wsServer)
+	adp.SetOrderMode(exchanges.OrderModeWS)
+
+	order, err := adp.ModifyOrder(context.Background(), "existing-order", "BTC", &exchanges.ModifyOrderParams{
+		Quantity: decimal.RequireFromString("0.2"),
+		Price:    decimal.RequireFromString("101"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), modifyHits.Load(), "modify should keep using REST in the controlled hybrid contract")
+	require.Equal(t, int32(1), detailHits.Load(), "modify should still refresh from the REST detail endpoint")
+	require.Equal(t, "modified-order", order.OrderID)
+}
+
 func TestBitgetConstructorsDefaultToRESTOrderMode(t *testing.T) {
 	client := newTestClient(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {

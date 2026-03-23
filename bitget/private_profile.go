@@ -8,6 +8,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// privateProfile isolates Bitget account-model-specific private behavior.
+// This split is a Bitget exception, not the repository default adapter pattern.
 type privateProfile interface {
 	PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error)
 	CancelOrder(ctx context.Context, orderID, symbol string) error
@@ -43,9 +45,11 @@ func newPrivateWSClient(opts Options) *sdk.PrivateWSClient {
 }
 
 func newPerpPrivateProfile(adp *Adapter) perpPrivateProfile {
+	// Classic mode is the only Bitget private profile wired today.
 	return &classicPerpProfile{adp: adp}
 }
 
 func newSpotPrivateProfile(adp *SpotAdapter) spotPrivateProfile {
+	// Classic mode is the only Bitget private profile wired today.
 	return &classicSpotProfile{adp: adp}
 }

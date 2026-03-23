@@ -12,10 +12,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// classicPerpProfile owns Bitget's current hybrid transport subset:
+// place/cancel honor OrderModeWS, while the rest of private trading remains REST-backed.
 type classicPerpProfile struct {
 	adp *Adapter
 }
 
+// classicSpotProfile mirrors the classic perp hybrid split for spot place/cancel flows.
 type classicSpotProfile struct {
 	adp *SpotAdapter
 }
