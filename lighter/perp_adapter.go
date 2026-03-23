@@ -19,9 +19,12 @@ import (
 // Adapter Lighter 适配器
 type Adapter struct {
 	*exchanges.BaseAdapter
-	client       *lighter.Client
-	wsClient     *lighter.WebsocketClient
-	tokenManager *TokenManager
+	client          *lighter.Client
+	wsClient        *lighter.WebsocketClient
+	tokenManager    *TokenManager
+	hasAccountIndex bool
+	hasReadAccess   bool
+	hasWriteAccess  bool
 
 	// Symbol <-> MarketID
 	symbolToID map[string]int
@@ -42,37 +45,55 @@ type Adapter struct {
 
 // NewAdapter 创建 Lighter 适配器
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
+
 	client := lighter.NewClient()
 	wsClient := lighter.NewWebsocketClient(ctx)
+	hasAccountIndex := opts.AccountIndex != ""
 
-	// Only set up credentials if private key is provided
-	if opts.PrivateKey != "" {
+	if hasAccountIndex {
 		accIndex, err := strconv.ParseInt(opts.AccountIndex, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("parse account index: %w", err)
 		}
-		keyIndex := uint8(0)
-		if opts.KeyIndex != "" {
-			ki, err := strconv.ParseUint(opts.KeyIndex, 10, 8)
-			if err != nil {
-				return nil, fmt.Errorf("parse key index: %w", err)
-			}
-			keyIndex = uint8(ki)
+		client.AccountIndex = accIndex
+	}
+	if opts.KeyIndex != "" {
+		ki, err := strconv.ParseUint(opts.KeyIndex, 10, 8)
+		if err != nil {
+			return nil, fmt.Errorf("parse key index: %w", err)
 		}
-		client.WithCredentials(opts.PrivateKey, accIndex, keyIndex)
+		client.KeyIndex = uint8(ki)
+	}
+
+	// Only set up credentials if private key is provided
+	if opts.PrivateKey != "" {
+		client.WithCredentials(opts.PrivateKey, client.AccountIndex, client.KeyIndex)
+		if client.KeyManager == nil {
+			return nil, exchanges.NewExchangeError("LIGHTER", "", "invalid private_key", exchanges.ErrAuthFailed)
+		}
 	}
 
 	base := exchanges.NewBaseAdapter("LIGHTER", exchanges.MarketTypePerp, opts.logger())
+	// Lighter perp is a controlled hybrid adapter: order placement and cancellation can switch between WS and REST.
 
 	a := &Adapter{
-		BaseAdapter:  base,
-		client:       client,
-		wsClient:     wsClient,
-		tokenManager: NewTokenManager(client, opts.RoToken),
-		symbolToID:   make(map[string]int),
-		idToSymbol:   make(map[int]string),
-		marketMeta:   make(map[int]*lighter.OrderBookDetail),
-		cancels:      make(map[string]context.CancelFunc),
+		BaseAdapter:     base,
+		client:          client,
+		wsClient:        wsClient,
+		tokenManager:    NewTokenManager(client, opts.RoToken),
+		hasAccountIndex: hasAccountIndex,
+		hasReadAccess:   opts.RoToken != "" || opts.PrivateKey != "",
+		hasWriteAccess:  opts.PrivateKey != "",
+		symbolToID:      make(map[string]int),
+		idToSymbol:      make(map[int]string),
+		marketMeta:      make(map[int]*lighter.OrderBookDetail),
+		cancels:         make(map[string]context.CancelFunc),
 	}
 
 	// Start TokenManager only if credentials are available
@@ -92,6 +113,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requireReadAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -111,6 +135,9 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -185,6 +212,9 @@ func (a *Adapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, err
@@ -241,27 +271,29 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 	}
 
 	// open orders
-	for _, marketId := range marketIds {
-		orderRes, err := a.client.GetAccountActiveOrders(ctx, marketId)
-		if err != nil {
-			return nil, err
-		}
-		for _, o := range orderRes.Orders {
-			if o == nil {
-				continue
+	if a.hasWriteAccess {
+		for _, marketId := range marketIds {
+			orderRes, err := a.client.GetAccountActiveOrders(ctx, marketId)
+			if err != nil {
+				return nil, err
 			}
-			account.Orders = append(account.Orders, exchanges.Order{
-				OrderID:        o.OrderId,
-				ClientOrderID:  o.ClientOrderId,
-				Symbol:         a.idToSymbol[o.MarketIndex],
-				Side:           exchanges.OrderSide(o.Side),
-				Quantity:       parseString(o.InitialBaseAmount),
-				FilledQuantity: parseString(o.FilledBaseAmount),
-				Price:          parseString(o.Price),
-				Status:         exchanges.OrderStatus(o.Status),
-				Type:           exchanges.OrderType(o.OrderType),
-				TimeInForce:    exchanges.TimeInForce(o.TimeInForce),
-			})
+			for _, o := range orderRes.Orders {
+				if o == nil {
+					continue
+				}
+				account.Orders = append(account.Orders, exchanges.Order{
+					OrderID:        o.OrderId,
+					ClientOrderID:  o.ClientOrderId,
+					Symbol:         a.idToSymbol[o.MarketIndex],
+					Side:           exchanges.OrderSide(o.Side),
+					Quantity:       parseString(o.InitialBaseAmount),
+					FilledQuantity: parseString(o.FilledBaseAmount),
+					Price:          parseString(o.Price),
+					Status:         exchanges.OrderStatus(o.Status),
+					Type:           exchanges.OrderType(o.OrderType),
+					TimeInForce:    exchanges.TimeInForce(o.TimeInForce),
+				})
+			}
 		}
 	}
 
@@ -523,6 +555,9 @@ func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.O
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	a.metaMu.RLock()
 	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
 	a.metaMu.RUnlock()
@@ -567,10 +602,13 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
-	return nil // Not supported/needed
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	a.feeOnce.Do(func() {
 		limits, err := a.client.GetAccountLimits(ctx)
 		if err != nil {
@@ -827,7 +865,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 }
 
 func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
@@ -937,7 +975,7 @@ func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
 	return nil
 }
 func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error {
 	a.metaMu.RLock()
@@ -1094,4 +1132,31 @@ func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBo
 		Bids:      bids,
 		Asks:      asks,
 	}
+}
+
+func (a *Adapter) requireAccountAccess() error {
+	if !a.hasAccountIndex {
+		return exchanges.NewExchangeError("LIGHTER", "", "account_index is required for account access", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
+func (a *Adapter) requireReadAccess() error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
+	if !a.hasReadAccess {
+		return exchanges.NewExchangeError("LIGHTER", "", "ro_token or private_key is required for account streams", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
+func (a *Adapter) requireWriteAccess() error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
+	if !a.hasWriteAccess {
+		return exchanges.NewExchangeError("LIGHTER", "", "private_key is required for trading operations", exchanges.ErrAuthFailed)
+	}
+	return nil
 }

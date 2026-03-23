@@ -41,3 +41,19 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 	}
 	return "", fmt.Errorf("lighter: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
 }
+
+func (o Options) validateCredentials() error {
+	if o.PrivateKey == "" && o.AccountIndex == "" && o.KeyIndex == "" && o.RoToken == "" {
+		return nil
+	}
+	if o.PrivateKey != "" && o.AccountIndex == "" {
+		return exchanges.NewExchangeError("LIGHTER", "", "account_index is required when private_key is set", exchanges.ErrAuthFailed)
+	}
+	if o.KeyIndex != "" && o.PrivateKey == "" {
+		return exchanges.NewExchangeError("LIGHTER", "", "key_index requires private_key", exchanges.ErrAuthFailed)
+	}
+	if o.RoToken != "" && o.AccountIndex == "" {
+		return exchanges.NewExchangeError("LIGHTER", "", "account_index is required when ro_token is set", exchanges.ErrAuthFailed)
+	}
+	return nil
+}

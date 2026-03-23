@@ -18,9 +18,12 @@ import (
 // SpotAdapter Lighter 现货适配器
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client       *lighter.Client
-	wsClient     *lighter.WebsocketClient
-	tokenManager *TokenManager
+	client          *lighter.Client
+	wsClient        *lighter.WebsocketClient
+	tokenManager    *TokenManager
+	hasAccountIndex bool
+	hasReadAccess   bool
+	hasWriteAccess  bool
 
 	// Symbol <-> MarketID
 	symbolToID map[string]int
@@ -41,35 +44,55 @@ type SpotAdapter struct {
 
 // NewSpotAdapter 创建 Lighter 现货适配器
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
+
 	client := lighter.NewClient()
 	wsClient := lighter.NewWebsocketClient(ctx)
+	hasAccountIndex := opts.AccountIndex != ""
 
-	// Only set up credentials if private key is provided
-	if opts.PrivateKey != "" {
+	if hasAccountIndex {
 		accIndex, err := strconv.ParseInt(opts.AccountIndex, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("lighter spot init: %w", err)
 		}
-		keyIndex := uint8(0)
-		if opts.KeyIndex != "" {
-			ki, err := strconv.ParseUint(opts.KeyIndex, 10, 8)
-			if err != nil {
-				return nil, fmt.Errorf("lighter spot init: %w", err)
-			}
-			keyIndex = uint8(ki)
+		client.AccountIndex = accIndex
+	}
+	if opts.KeyIndex != "" {
+		ki, err := strconv.ParseUint(opts.KeyIndex, 10, 8)
+		if err != nil {
+			return nil, fmt.Errorf("lighter spot init: %w", err)
 		}
-		client.WithCredentials(opts.PrivateKey, accIndex, keyIndex)
+		client.KeyIndex = uint8(ki)
 	}
 
+	// Only set up credentials if private key is provided
+	if opts.PrivateKey != "" {
+		client.WithCredentials(opts.PrivateKey, client.AccountIndex, client.KeyIndex)
+		if client.KeyManager == nil {
+			return nil, exchanges.NewExchangeError("LIGHTER", "", "invalid private_key", exchanges.ErrAuthFailed)
+		}
+	}
+
+	base := exchanges.NewBaseAdapter("LIGHTER", exchanges.MarketTypeSpot, opts.logger())
+	// Lighter spot currently routes private order placement and cancellation through WS only.
+
 	a := &SpotAdapter{
-		BaseAdapter:  exchanges.NewBaseAdapter("LIGHTER", exchanges.MarketTypeSpot, opts.logger()),
-		client:       client,
-		wsClient:     wsClient,
-		tokenManager: NewTokenManager(client, opts.RoToken),
-		symbolToID:   make(map[string]int),
-		idToSymbol:   make(map[int]string),
-		marketMeta:   make(map[int]*lighter.OrderBookDetail),
-		cancels:      make(map[string]context.CancelFunc),
+		BaseAdapter:     base,
+		client:          client,
+		wsClient:        wsClient,
+		tokenManager:    NewTokenManager(client, opts.RoToken),
+		hasAccountIndex: hasAccountIndex,
+		hasReadAccess:   opts.RoToken != "" || opts.PrivateKey != "",
+		hasWriteAccess:  opts.PrivateKey != "",
+		symbolToID:      make(map[string]int),
+		idToSymbol:      make(map[int]string),
+		marketMeta:      make(map[int]*lighter.OrderBookDetail),
+		cancels:         make(map[string]context.CancelFunc),
 	}
 
 	// Start TokenManager only if credentials are available
@@ -100,6 +123,9 @@ func (a *SpotAdapter) Close() error {
 }
 
 func (a *SpotAdapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requireReadAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -118,6 +144,9 @@ func (a *SpotAdapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -189,6 +218,9 @@ func (a *SpotAdapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, err
@@ -241,27 +273,29 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 	}
 	a.metaMu.RUnlock()
 
-	for _, marketId := range marketIds {
-		orderRes, err := a.client.GetAccountActiveOrders(ctx, marketId)
-		if err != nil {
-			continue // Skip on error
-		}
-		for _, o := range orderRes.Orders {
-			if o == nil {
-				continue
+	if a.hasWriteAccess {
+		for _, marketId := range marketIds {
+			orderRes, err := a.client.GetAccountActiveOrders(ctx, marketId)
+			if err != nil {
+				continue // Skip on error
 			}
-			account.Orders = append(account.Orders, exchanges.Order{
-				OrderID:        o.OrderId,
-				ClientOrderID:  o.ClientOrderId,
-				Symbol:         a.idToSymbol[o.MarketIndex],
-				Side:           exchanges.OrderSide(o.Side),
-				Quantity:       parseString(o.InitialBaseAmount),
-				FilledQuantity: parseString(o.FilledBaseAmount),
-				Price:          parseString(o.Price),
-				Status:         exchanges.OrderStatus(o.Status),
-				Type:           exchanges.OrderType(o.OrderType),
-				TimeInForce:    exchanges.TimeInForce(o.TimeInForce),
-			})
+			for _, o := range orderRes.Orders {
+				if o == nil {
+					continue
+				}
+				account.Orders = append(account.Orders, exchanges.Order{
+					OrderID:        o.OrderId,
+					ClientOrderID:  o.ClientOrderId,
+					Symbol:         a.idToSymbol[o.MarketIndex],
+					Side:           exchanges.OrderSide(o.Side),
+					Quantity:       parseString(o.InitialBaseAmount),
+					FilledQuantity: parseString(o.FilledBaseAmount),
+					Price:          parseString(o.Price),
+					Status:         exchanges.OrderStatus(o.Status),
+					Type:           exchanges.OrderType(o.OrderType),
+					TimeInForce:    exchanges.TimeInForce(o.TimeInForce),
+				})
+			}
 		}
 	}
 
@@ -277,6 +311,9 @@ func (a *SpotAdapter) FetchBalance(ctx context.Context) (decimal.Decimal, error)
 }
 
 func (a *SpotAdapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	a.feeOnce.Do(func() {
 		limits, err := a.client.GetAccountLimits(ctx)
 		if err != nil {
@@ -459,6 +496,9 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 }
 
 func (a *SpotAdapter) fetchActiveOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	a.metaMu.RLock()
 	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
 	a.metaMu.RUnlock()
@@ -546,6 +586,9 @@ func (a *SpotAdapter) mapOrder(o *lighter.Order) *exchanges.Order {
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	a.metaMu.RLock()
 	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
 	a.metaMu.RUnlock()
@@ -666,7 +709,7 @@ func (a *SpotAdapter) FetchKlines(ctx context.Context, symbol string, interval e
 	_ = start
 	_ = end
 	_ = limit
-	return nil, fmt.Errorf("GetKlines not implemented for Lighter spot")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
@@ -734,8 +777,7 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 }
 
 func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback exchanges.TickerCallback) error {
-	// Not implemented
-	return fmt.Errorf("SubscribeTicker not implemented for Lighter spot")
+	return exchanges.ErrNotSupported
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
@@ -778,11 +820,11 @@ func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, callbac
 }
 
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("SubscribeKline not implemented for Lighter spot")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
-	return fmt.Errorf("SubscribeTrades not implemented for Lighter spot")
+	return exchanges.ErrNotSupported
 }
 
 // Unsubscribe methods
@@ -791,15 +833,15 @@ func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) WaitOrderBookReady(ctx context.Context, symbol string) error {
@@ -863,11 +905,11 @@ func (a *SpotAdapter) unscaleSize(scaledSize int64, meta *lighter.OrderBookDetai
 }
 
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -879,5 +921,32 @@ func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) err
 	}
 	a.cancelMu.Unlock()
 	a.RemoveLocalOrderBook(formattedSymbol)
+	return nil
+}
+
+func (a *SpotAdapter) requireAccountAccess() error {
+	if !a.hasAccountIndex {
+		return exchanges.NewExchangeError("LIGHTER", "", "account_index is required for account access", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
+func (a *SpotAdapter) requireReadAccess() error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
+	if !a.hasReadAccess {
+		return exchanges.NewExchangeError("LIGHTER", "", "ro_token or private_key is required for account streams", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
+func (a *SpotAdapter) requireWriteAccess() error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
+	if !a.hasWriteAccess {
+		return exchanges.NewExchangeError("LIGHTER", "", "private_key is required for trading operations", exchanges.ErrAuthFailed)
+	}
 	return nil
 }
