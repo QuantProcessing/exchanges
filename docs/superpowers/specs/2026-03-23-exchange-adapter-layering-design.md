@@ -115,6 +115,11 @@ Constructor auth policy must also be explicit. An adapter must choose one of the
 
 Partial-credential behavior must never be accidental.
 
+Current repository drift is broader than one package:
+
+- `bitget` is already close to strict-completeness
+- `binance`, `okx`, and `backpack` still accept partial credential sets at construction time
+
 ### Symbol Semantics
 
 Adapter-facing methods should treat base symbols as the primary public contract, for example `"BTC"`.
@@ -151,6 +156,8 @@ Capability absence must return `ErrNotSupported`. It must not:
 - silently no-op
 - return `nil`
 - return arbitrary string errors for stable unsupported cases
+
+Unsupported registry market types are not part of this rule. They are constructor/configuration errors rather than runtime capability-absence cases, and may continue to use ordinary constructor errors unless the repository later standardizes them separately.
 
 ### BaseAdapter Transport Conventions
 
@@ -395,6 +402,7 @@ Gaps against this standard:
 
 - constructor behavior is stricter than some packages and looser than others, so the repository lacks a consistent constructor policy
 - spot order transport behavior does not presently participate in a repository-wide `OrderMode` contract
+- several spot unsupported paths still use inconsistent behavior, including free-form errors and one `StopWatchPositions` path that returns `nil`
 - SDK/package naming is not yet the single repository standard
 
 Role in convergence:
