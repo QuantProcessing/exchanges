@@ -41,3 +41,17 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 	}
 	return "", fmt.Errorf("okx: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
 }
+
+func (o Options) hasFullCredentials() bool {
+	return o.APIKey != "" && o.SecretKey != "" && o.Passphrase != ""
+}
+
+func (o Options) validateCredentials() error {
+	if o.APIKey == "" && o.SecretKey == "" && o.Passphrase == "" {
+		return nil
+	}
+	if !o.hasFullCredentials() {
+		return exchanges.NewExchangeError("OKX", "", "api_key, secret_key, and passphrase must be set together", exchanges.ErrAuthFailed)
+	}
+	return nil
+}

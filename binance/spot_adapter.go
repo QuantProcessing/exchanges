@@ -37,8 +37,13 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newSpotAdapterWithClient(ctx, opts, quote, spot.NewClient().WithCredentials(opts.APIKey, opts.SecretKey))
+}
 
-	client := spot.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
+func newSpotAdapterWithClient(ctx context.Context, opts Options, quote exchanges.QuoteCurrency, client *spot.Client) (*SpotAdapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 	wsMarket := spot.NewWsMarketClient(ctx)
 	wsAPI := spot.NewWsAPIClient(ctx)
 	wsAccount := spot.NewWsAccountClient(wsAPI, opts.APIKey, opts.SecretKey)

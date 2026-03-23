@@ -39,8 +39,13 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newPerpAdapterWithClient(ctx, opts, quote, perp.NewClient().WithCredentials(opts.APIKey, opts.SecretKey))
+}
 
-	client := perp.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
+func newPerpAdapterWithClient(ctx context.Context, opts Options, quote exchanges.QuoteCurrency, client *perp.Client) (*Adapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 	wsMarket := perp.NewWsMarketClient(ctx)
 	wsAccount := perp.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 	wsAPI := perp.NewWsAPIClient(ctx)

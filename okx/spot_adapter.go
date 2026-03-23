@@ -37,12 +37,17 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newSpotAdapterWithClient(ctx, opts, quote, okx.NewClient())
+}
 
-	client := okx.NewClient()
+func newSpotAdapterWithClient(ctx context.Context, opts Options, quote exchanges.QuoteCurrency, client *okx.Client) (*SpotAdapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 	wsPublic := okx.NewWsClient(ctx)
 	wsPrivate := okx.NewWsClient(ctx)
 
-	if opts.APIKey != "" {
+	if opts.hasFullCredentials() {
 		client.WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)
 		wsPrivate.WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)
 	}

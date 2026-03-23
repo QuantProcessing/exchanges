@@ -38,6 +38,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client adapterRESTClient) (*Adapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 	markets, err := client.GetMarkets(ctx)
 	if err != nil {
 		return nil, err

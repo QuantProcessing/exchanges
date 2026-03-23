@@ -38,6 +38,9 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 }
 
 func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client adapterRESTClient) (*SpotAdapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 	markets, err := client.GetMarkets(ctx)
 	if err != nil {
 		return nil, err

@@ -45,12 +45,17 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newPerpAdapterWithClient(ctx, opts, quote, okx.NewClient())
+}
 
-	client := okx.NewClient()
+func newPerpAdapterWithClient(ctx context.Context, opts Options, quote exchanges.QuoteCurrency, client *okx.Client) (*Adapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 	wsPublic := okx.NewWsClient(ctx)
 	wsPrivate := okx.NewWsClient(ctx)
 
-	if opts.APIKey != "" {
+	if opts.hasFullCredentials() {
 		client.WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)
 		wsPrivate.WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)
 	}
@@ -75,7 +80,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	}
 
 	// Load Position Mode
-	if opts.APIKey != "" {
+	if opts.hasFullCredentials() {
 		if err := a.RefreshPositionMode(context.Background()); err != nil {
 			// TODO: logger.Warn("Failed to load position mode, using default", zap.Error(err))
 		}
