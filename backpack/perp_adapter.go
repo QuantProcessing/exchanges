@@ -13,7 +13,7 @@ import (
 
 type Adapter struct {
 	*exchanges.BaseAdapter
-	client    *sdk.Client
+	client    adapterRESTClient
 	marketWS  *sdk.WSClient
 	accountWS *sdk.WSClient
 	markets   *marketCache
@@ -29,18 +29,26 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 		return nil, err
 	}
 	lifecycleCtx, cancel := context.WithCancel(ctx)
-	client := sdk.NewClient().WithCredentials(opts.APIKey, opts.PrivateKey)
-	markets, err := client.GetMarkets(lifecycleCtx)
+	adp, err := newPerpAdapterWithClient(lifecycleCtx, cancel, opts, quote, sdk.NewClient().WithCredentials(opts.APIKey, opts.PrivateKey))
 	if err != nil {
 		cancel()
+		return nil, err
+	}
+	return adp, nil
+}
+
+func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client adapterRESTClient) (*Adapter, error) {
+	markets, err := client.GetMarkets(ctx)
+	if err != nil {
 		return nil, err
 	}
 	cache, err := buildMarketCache(markets, quote)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 	base := exchanges.NewBaseAdapter("BACKPACK", exchanges.MarketTypePerp, opts.logger())
+	// Backpack places and cancels orders over REST in this adapter pass.
+	base.SetOrderMode(exchanges.OrderModeREST)
 	base.SetSymbolDetails(buildSymbolDetails(markets, quote, exchanges.MarketTypePerp))
 	return &Adapter{
 		BaseAdapter: base,

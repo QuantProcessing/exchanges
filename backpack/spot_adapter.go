@@ -13,7 +13,7 @@ import (
 
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client    *sdk.Client
+	client    adapterRESTClient
 	marketWS  *sdk.WSClient
 	accountWS *sdk.WSClient
 	markets   *marketCache
@@ -29,18 +29,26 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 		return nil, err
 	}
 	lifecycleCtx, cancel := context.WithCancel(ctx)
-	client := sdk.NewClient().WithCredentials(opts.APIKey, opts.PrivateKey)
-	markets, err := client.GetMarkets(lifecycleCtx)
+	adp, err := newSpotAdapterWithClient(lifecycleCtx, cancel, opts, quote, sdk.NewClient().WithCredentials(opts.APIKey, opts.PrivateKey))
 	if err != nil {
 		cancel()
+		return nil, err
+	}
+	return adp, nil
+}
+
+func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client adapterRESTClient) (*SpotAdapter, error) {
+	markets, err := client.GetMarkets(ctx)
+	if err != nil {
 		return nil, err
 	}
 	cache, err := buildMarketCache(markets, quote)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 	base := exchanges.NewBaseAdapter("BACKPACK", exchanges.MarketTypeSpot, opts.logger())
+	// Backpack places and cancels orders over REST in this adapter pass.
+	base.SetOrderMode(exchanges.OrderModeREST)
 	base.SetSymbolDetails(buildSymbolDetails(markets, quote, exchanges.MarketTypeSpot))
 	return &SpotAdapter{
 		BaseAdapter: base,
@@ -224,7 +232,7 @@ func (a *SpotAdapter) FetchBalance(ctx context.Context) (decimal.Decimal, error)
 	}
 	balance, ok := balances[string(a.quote)]
 	if !ok {
-		return decimal.Zero, fmt.Errorf("backpack: quote balance %s not found", a.quote)
+		return decimal.Zero, exchanges.ErrSymbolNotFound
 	}
 	return parseDecimal(balance.Available), nil
 }

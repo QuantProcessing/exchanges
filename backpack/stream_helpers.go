@@ -10,7 +10,11 @@ import (
 	"github.com/QuantProcessing/exchanges/backpack/sdk"
 )
 
-func refreshOrderBookSnapshot(client *sdk.Client, symbol string, ob *OrderBook) error {
+type depthSnapshotClient interface {
+	GetDepth(ctx context.Context, symbol string, limit int) (*sdk.Depth, error)
+}
+
+func refreshOrderBookSnapshot(client depthSnapshotClient, symbol string, ob *OrderBook) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
