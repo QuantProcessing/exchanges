@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	exchanges "github.com/QuantProcessing/exchanges"
@@ -39,6 +40,7 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 	adp, err := NewAdapter(context.Background(), opts)
 	if err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 		t.Fatalf("NewAdapter failed: %v", err)
 	}
 	configurePerpTestLeverage(t, adp)
@@ -72,7 +74,13 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 
 	adp, err := NewSpotAdapter(context.Background(), opts)
 	if err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 		t.Fatalf("NewSpotAdapter failed: %v", err)
+	}
+	// Spot construction only exercises public instruments, so probe one private read
+	// to skip early when the credentials still point at a unified account.
+	if _, err := adp.FetchAccount(context.Background()); err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 	}
 	return adp
 }
@@ -88,7 +96,18 @@ func setupSpotAdapterWS(t *testing.T) *SpotAdapter {
 func requireBitgetWSTests(t *testing.T) {
 	t.Helper()
 	if os.Getenv("BITGET_ENABLE_WS_ORDER_TESTS") != "1" {
-		t.Skip("Skipping: set BITGET_ENABLE_WS_ORDER_TESTS=1 to run Bitget WS order transport live tests")
+		t.Skip("Skipping: set BITGET_ENABLE_WS_ORDER_TESTS=1 to run Bitget classic WS order transport live tests")
+	}
+}
+
+func skipIfClassicOnlyMismatch(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "40085") || strings.Contains(lower, "unified account mode") {
+		t.Skip("Skipping: Bitget live private tests require classic account credentials; current credentials point to a unified account")
 	}
 }
 
@@ -119,6 +138,7 @@ func configurePerpTestLeverage(t *testing.T, adp *Adapter) {
 	}
 
 	if err := adp.SetLeverage(context.Background(), symbol, leverage); err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 		t.Fatalf("SetLeverage(%s,%d) failed: %v", symbol, leverage, err)
 	}
 }

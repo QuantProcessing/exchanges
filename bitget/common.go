@@ -1,7 +1,6 @@
 package bitget
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,8 +17,6 @@ const (
 	categorySpot        = "SPOT"
 	categoryUSDTFutures = "USDT-FUTURES"
 	categoryUSDCFutures = "USDC-FUTURES"
-	accountModeUnified  = "unified"
-	accountModeHybrid   = "hybrid"
 )
 
 type marketCache struct {
@@ -88,89 +85,6 @@ func quoteToPerpCategory(quote exchanges.QuoteCurrency) string {
 	default:
 		return categoryUSDTFutures
 	}
-}
-
-func validatePrivateInit(ctx context.Context, client *sdk.Client, opts Options) error {
-	_, err := detectPrivateAccountMode(ctx, client, opts)
-	return err
-}
-
-func detectPrivateAccountMode(ctx context.Context, client *sdk.Client, opts Options) (string, error) {
-	if !hasAnyCredentials(opts) {
-		mode, err := opts.accountMode()
-		if err != nil {
-			return "", err
-		}
-		return mode, nil
-	}
-	if !hasFullCredentials(opts) {
-		return "", authError("bitget: api_key, secret_key, and passphrase must all be set together")
-	}
-
-	mode, err := opts.accountMode()
-	if err != nil {
-		return "", err
-	}
-
-	switch mode {
-	case accountModeClassic:
-		return accountModeClassic, nil
-	case accountModeUTA:
-		if err := validateUTAAccount(ctx, client); err != nil {
-			return "", err
-		}
-		return accountModeUTA, nil
-	default:
-		detected, err := autoDetectAccountMode(ctx, client)
-		if err != nil {
-			return "", err
-		}
-		return detected, nil
-	}
-}
-
-func autoDetectAccountMode(ctx context.Context, client *sdk.Client) (string, error) {
-	settings, err := client.GetAccountSettings(ctx)
-	if err != nil {
-		if isClassicAccountModeError(err) {
-			return accountModeClassic, nil
-		}
-		return "", err
-	}
-	if isUTASettings(settings) {
-		return accountModeUTA, nil
-	}
-	return accountModeClassic, nil
-}
-
-func validateUTAAccount(ctx context.Context, client *sdk.Client) error {
-	settings, err := client.GetAccountSettings(ctx)
-	if err != nil {
-		if isClassicAccountModeError(err) {
-			return authError("bitget: UTA account required for private access")
-		}
-		return err
-	}
-	if !isUTASettings(settings) {
-		return authError("bitget: UTA account required for private access")
-	}
-	return nil
-}
-
-func isUTASettings(settings *sdk.AccountSettings) bool {
-	if settings == nil {
-		return false
-	}
-	mode := strings.ToLower(settings.AccountMode)
-	return mode == accountModeUnified || mode == accountModeHybrid
-}
-
-func isClassicAccountModeError(err error) bool {
-	if err == nil {
-		return false
-	}
-	lower := strings.ToLower(err.Error())
-	return strings.Contains(lower, "40084") || strings.Contains(lower, "classic account mode")
 }
 
 func requirePrivateAccess(client *sdk.Client) error {

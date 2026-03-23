@@ -8,12 +8,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const (
-	accountModeAuto    = "auto"
-	accountModeUTA     = "uta"
-	accountModeClassic = "classic"
-)
-
 type privateProfile interface {
 	PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error)
 	CancelOrder(ctx context.Context, orderID, symbol string) error
@@ -42,28 +36,16 @@ type spotPrivateProfile interface {
 	FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBalance, error)
 }
 
-func newPrivateWSClient(opts Options, mode string) *sdk.PrivateWSClient {
-	client := sdk.NewPrivateWSClient().WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)
-	if mode == accountModeClassic {
-		client = client.WithClassicMode()
-	}
-	return client
+func newPrivateWSClient(opts Options) *sdk.PrivateWSClient {
+	return sdk.NewPrivateWSClient().
+		WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase).
+		WithClassicMode()
 }
 
-func newPerpPrivateProfile(adp *Adapter, mode string) perpPrivateProfile {
-	switch mode {
-	case accountModeClassic:
-		return &classicPerpProfile{adp: adp}
-	default:
-		return &utaPerpProfile{adp: adp}
-	}
+func newPerpPrivateProfile(adp *Adapter) perpPrivateProfile {
+	return &classicPerpProfile{adp: adp}
 }
 
-func newSpotPrivateProfile(adp *SpotAdapter, mode string) spotPrivateProfile {
-	switch mode {
-	case accountModeClassic:
-		return &classicSpotProfile{adp: adp}
-	default:
-		return &utaSpotProfile{adp: adp}
-	}
+func newSpotPrivateProfile(adp *SpotAdapter) spotPrivateProfile {
+	return &classicSpotProfile{adp: adp}
 }

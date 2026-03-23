@@ -18,28 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUTAOrderModeWSRoutesPlaceOrderToWS(t *testing.T) {
-	var restHits atomic.Int32
-	restServer := newRejectingRESTServer(t, &restHits)
-	wsServer := newPrivateTradeWSServer(t, false)
-
-	adp := newUTASpotOrderModeTestAdapter(t, restServer.URL, wsServer)
-	adp.SetOrderMode(exchanges.OrderModeWS)
-
-	order, err := adp.PlaceOrder(context.Background(), &exchanges.OrderParams{
-		Symbol:      "BTC",
-		Side:        exchanges.OrderSideBuy,
-		Type:        exchanges.OrderTypeLimit,
-		Quantity:    decimal.RequireFromString("0.1"),
-		Price:       decimal.RequireFromString("100"),
-		TimeInForce: exchanges.TimeInForceGTC,
-		ClientID:    "cid-uta",
-	})
-	require.NoError(t, err)
-	require.Equal(t, int32(0), restHits.Load(), "OrderModeWS should avoid the REST place-order path")
-	require.Equal(t, "ws-order", order.OrderID)
-}
-
 func TestClassicOrderModeWSRoutesPlaceOrderToWS(t *testing.T) {
 	var restHits atomic.Int32
 	restServer := newRejectingRESTServer(t, &restHits)
@@ -80,7 +58,7 @@ func TestBitgetWSOrderModeDoesNotSilentlyFallbackToREST(t *testing.T) {
 	restServer := newRejectingRESTServer(t, &restHits)
 	wsServer := newPrivateTradeErrorWSServer(t)
 
-	adp := newUTASpotOrderModeTestAdapter(t, restServer.URL, wsServer)
+	adp := newClassicSpotOrderModeTestAdapter(t, restServer.URL, wsServer)
 	adp.SetOrderMode(exchanges.OrderModeWS)
 
 	_, err := adp.PlaceOrder(context.Background(), &exchanges.OrderParams{
@@ -197,91 +175,35 @@ func newPrivateTradeErrorWSServer(t *testing.T) string {
 func buildTradeAck(t *testing.T, payload []byte, classic bool) []byte {
 	t.Helper()
 
-	if classic {
-		var req struct {
-			Args []struct {
-				ID       string `json:"id"`
-				InstType string `json:"instType"`
-				Channel  string `json:"channel"`
-				InstID   string `json:"instId"`
-			} `json:"args"`
-		}
-		require.NoError(t, json.Unmarshal(payload, &req))
-		require.NotEmpty(t, req.Args)
-
-		resp := map[string]any{
-			"event": "trade",
-			"arg": []map[string]any{{
-				"id":       req.Args[0].ID,
-				"instType": req.Args[0].InstType,
-				"channel":  req.Args[0].Channel,
-				"instId":   req.Args[0].InstID,
-				"params": map[string]any{
-					"orderId":   "ws-order",
-					"clientOid": "ws-client",
-				},
-			}},
-			"code": 0,
-			"msg":  "Success",
-		}
-		out, err := json.Marshal(resp)
-		require.NoError(t, err)
-		return out
-	}
-
 	var req struct {
-		ID       string `json:"id"`
-		Topic    string `json:"topic"`
-		Category string `json:"category"`
-		Args     []struct {
-			Symbol string `json:"symbol"`
+		Args []struct {
+			ID       string `json:"id"`
+			InstType string `json:"instType"`
+			Channel  string `json:"channel"`
+			InstID   string `json:"instId"`
 		} `json:"args"`
 	}
 	require.NoError(t, json.Unmarshal(payload, &req))
 	require.NotEmpty(t, req.Args)
 
 	resp := map[string]any{
-		"event":    "trade",
-		"id":       req.ID,
-		"category": req.Category,
-		"topic":    req.Topic,
-		"args": []map[string]any{{
-			"symbol":    req.Args[0].Symbol,
-			"orderId":   "ws-order",
-			"clientOid": "ws-client",
-			"cTime":     "1710000000000",
+		"event": "trade",
+		"arg": []map[string]any{{
+			"id":       req.Args[0].ID,
+			"instType": req.Args[0].InstType,
+			"channel":  req.Args[0].Channel,
+			"instId":   req.Args[0].InstID,
+			"params": map[string]any{
+				"orderId":   "ws-order",
+				"clientOid": "ws-client",
+			},
 		}},
-		"code": "0",
-		"msg":  "success",
-		"ts":   "1710000000001",
+		"code": 0,
+		"msg":  "Success",
 	}
 	out, err := json.Marshal(resp)
 	require.NoError(t, err)
 	return out
-}
-
-func newUTASpotOrderModeTestAdapter(t *testing.T, restURL, wsURL string) *SpotAdapter {
-	t.Helper()
-
-	client := sdk.NewClient().
-		WithBaseURL(restURL).
-		WithCredentials("api-key", "secret-key", "passphrase")
-	wsClient := sdk.NewPrivateWSClient().
-		WithCredentials("api-key", "secret-key", "passphrase")
-	setPrivateWSURL(t, wsClient, wsURL)
-
-	adp := &SpotAdapter{
-		BaseAdapter: exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, exchanges.NopLogger),
-		client:      client,
-		privateWS:   wsClient,
-		quote:       exchanges.QuoteCurrencyUSDT,
-		markets: &marketCache{
-			spotByBase: map[string]sdk.Instrument{"BTC": {Symbol: "BTCUSDT", BaseCoin: "BTC", QuoteCoin: "USDT", Category: categorySpot, Status: "online"}},
-			bySymbol:   map[string]sdk.Instrument{"BTCUSDT": {Symbol: "BTCUSDT", BaseCoin: "BTC", QuoteCoin: "USDT", Category: categorySpot, Status: "online"}},
-		},
-	}
-	adp.private = &utaSpotProfile{adp: adp}
-	return adp
 }
 
 func newClassicSpotOrderModeTestAdapter(t *testing.T, restURL, wsURL string) *SpotAdapter {

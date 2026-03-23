@@ -18,7 +18,6 @@ type Adapter struct {
 	publicWS     *sdk.PublicWSClient
 	privateWS    *sdk.PrivateWSClient
 	private      perpPrivateProfile
-	accountMode  string
 	markets      *marketCache
 	quote        exchanges.QuoteCurrency
 	perpCategory string
@@ -50,9 +49,8 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 	if err != nil {
 		return nil, err
 	}
-	mode, err := detectPrivateAccountMode(ctx, client, opts)
-	if err != nil {
-		return nil, err
+	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
+		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
 	}
 	markets := buildMarketCache(instruments, quote)
 	base.SetSymbolDetails(buildSymbolDetails(instruments, quote, exchanges.MarketTypePerp))
@@ -61,15 +59,14 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		BaseAdapter:  base,
 		client:       client,
 		publicWS:     sdk.NewPublicWSClient(),
-		privateWS:    newPrivateWSClient(opts, mode),
-		accountMode:  mode,
+		privateWS:    newPrivateWSClient(opts),
 		markets:      markets,
 		quote:        quote,
 		perpCategory: quoteToPerpCategory(quote),
 		cancel:       cancel,
 		cancels:      make(map[string]context.CancelFunc),
 	}
-	adp.private = newPerpPrivateProfile(adp, mode)
+	adp.private = newPerpPrivateProfile(adp)
 	return adp, nil
 }
 

@@ -159,3 +159,12 @@ func firstClassicAck(resp *classicTradeResponse) classicTradeAck {
 	}
 	return resp.Arg[0]
 }
+
+func isWSSuccessCode(code NumberString) bool {
+	switch strings.TrimSpace(string(code)) {
+	case "", "0", "00000":
+		return true
+	default:
+		return false
+	}
+}
