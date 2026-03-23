@@ -95,6 +95,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if a.wsAccount.Conn == nil {
 		if err := a.wsAccount.Connect(); err != nil {
 			return err
@@ -116,6 +119,9 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 
 // grvt not support ws order place
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if a.wsTradeRpc.Conn == nil {
 		if err := a.wsTradeRpc.Connect(); err != nil {
 			return err
@@ -138,6 +144,9 @@ func (a *Adapter) Close() error {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetAccountSummary(ctx)
 	if err != nil {
 		return nil, err
@@ -293,6 +302,9 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	// REST mode
 	if a.IsRESTMode() {
 		return a.client.CancelOrder(ctx, orderID)
@@ -324,6 +336,9 @@ func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.O
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetOpenOrders(ctx, a.FormatSymbol(symbol))
 	if err != nil {
 		return nil, err
@@ -336,6 +351,9 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	// REST mode
 	if a.IsRESTMode() {
 		return a.client.CancelAllOrders(ctx)
@@ -371,6 +389,9 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	res, err := a.client.SetLeverage(ctx, a.FormatSymbol(symbol), leverage)
 	if err != nil {
 		return err
@@ -382,6 +403,9 @@ func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) 
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	a.feeOnce.Do(func() {
 		account, err := a.client.GetFundingAccountSummary(ctx)
 		if err != nil {
@@ -894,4 +918,11 @@ func (a *Adapter) mapGrvtFill(f *grvt.WsFill) *exchanges.Order {
 		FilledQuantity: parseGrvtFloat(f.Size),
 		Timestamp:      ts / 1000000,
 	}
+}
+
+func (a *Adapter) requirePrivateAccess() error {
+	if a.apiKey == "" || a.privateKey == "" || a.subAccountID == 0 {
+		return exchanges.NewExchangeError("GRVT", "", "private API not available (no credentials configured)", exchanges.ErrAuthFailed)
+	}
+	return nil
 }

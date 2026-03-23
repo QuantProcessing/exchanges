@@ -66,6 +66,9 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 }
 
 func (a *SpotAdapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if a.wsAccount.IsConnected() {
 		return nil
 	}
@@ -92,6 +95,9 @@ func (a *SpotAdapter) Close() error {
 // ================= Account & Trading =================
 
 func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("aster spot get account failed: %w", err)
@@ -137,6 +143,9 @@ func (a *SpotAdapter) FetchPositions(ctx context.Context) ([]exchanges.Position,
 }
 
 func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
@@ -181,6 +190,9 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 }
 
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, _ := strconv.ParseInt(orderID, 10, 64)
 	_, err := a.client.CancelOrder(ctx, formattedSymbol, oid, "")
@@ -192,6 +204,9 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 }
 
 func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -212,6 +227,9 @@ func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	resp, err := a.client.GetOpenOrders(ctx, formattedSymbol)
 	if err != nil {
@@ -229,6 +247,9 @@ func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exc
 }
 
 func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	// Not supported natively in spot SDK usually, need to verify
 	// SDK has no CancelAllOrders method visible in order.go view?
 	// It has CancelOrder.
@@ -251,6 +272,9 @@ func (a *SpotAdapter) SetLeverage(ctx context.Context, symbol string, leverage i
 }
 
 func (a *SpotAdapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	// Spot doesn't always show fee rate easily via API?
 	// Ticker info might have it? No.
 	// Account info has commissions.
@@ -405,6 +429,9 @@ func (a *SpotAdapter) FetchSymbolDetails(ctx context.Context, symbol string) (*e
 // ================= Spot-Specific =================
 
 func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBalance, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, err
@@ -810,4 +837,11 @@ func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionU
 
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {
 	return exchanges.ErrNotSupported
+}
+
+func (a *SpotAdapter) requirePrivateAccess() error {
+	if a.apiKey == "" || a.secretKey == "" {
+		return exchanges.NewExchangeError("ASTER", "", "private API not available (no credentials configured)", exchanges.ErrAuthFailed)
+	}
+	return nil
 }

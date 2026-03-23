@@ -71,6 +71,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if a.wsAccount.Conn == nil {
 		if err := a.wsAccount.Connect(); err != nil {
 			return err
@@ -104,6 +107,9 @@ func (a *Adapter) Close() error {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (_ *exchanges.Account, retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("aster get account failed: %w", err)
@@ -177,6 +183,9 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (_ *exchanges.Order, retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
@@ -277,6 +286,9 @@ func (a *Adapter) mapTimeInForce(params *exchanges.OrderParams) perp.TimeInForce
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	p := perp.CancelOrderParams{
 		Symbol:  formattedSymbol,
@@ -288,6 +300,9 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retE
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (_ *exchanges.Order, retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, _ := strconv.ParseInt(orderID, 10, 64)
 	p := perp.ModifyOrderParams{
@@ -306,6 +321,9 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
@@ -328,6 +346,9 @@ func (a *Adapter) FetchOrders(ctx context.Context, symbol string) (_ []exchanges
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) (_ []exchanges.Order, retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	res, err := a.client.GetOpenOrders(ctx, formattedSymbol)
 	if err != nil {
@@ -359,6 +380,9 @@ func isAsterOrderLookupMiss(err error) bool {
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	p := perp.CancelAllOrdersParams{
 		Symbol: formattedSymbol,
@@ -367,12 +391,18 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr er
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) (retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	formattedSymbol := a.FormatSymbol(symbol)
 	_, err := a.client.ChangeLeverage(ctx, formattedSymbol, leverage)
 	return err
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (_ *exchanges.FeeRate, retErr error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	if v, ok := a.feeCache.Load(symbol); ok {
 		return v.(*exchanges.FeeRate), nil
 	}
@@ -1021,4 +1051,11 @@ func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBo
 		Bids:      bids,
 		Asks:      asks,
 	}
+}
+
+func (a *Adapter) requirePrivateAccess() error {
+	if a.apiKey == "" || a.secretKey == "" {
+		return exchanges.NewExchangeError("ASTER", "", "private API not available (no credentials configured)", exchanges.ErrAuthFailed)
+	}
+	return nil
 }

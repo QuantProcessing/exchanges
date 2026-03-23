@@ -12,3 +12,8 @@ func TestNewAdapterRejectsInvalidPrivateKey(t *testing.T) {
 	_, err := NewAdapter(context.Background(), Options{PrivateKey: "invalid"})
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
 }
+
+func TestNewAdapterRejectsUnsupportedQuoteCurrency(t *testing.T) {
+	_, err := NewAdapter(context.Background(), Options{QuoteCurrency: exchanges.QuoteCurrencyUSDT})
+	require.ErrorContains(t, err, "unsupported quote currency")
+}

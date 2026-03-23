@@ -30,10 +30,14 @@ type Adapter struct {
 	cancels  map[string]context.CancelFunc
 
 	// Cached fee rates (per-symbol)
-	feeCache sync.Map // symbol -> *exchanges.FeeRate
+	feeCache         sync.Map // symbol -> *exchanges.FeeRate
+	hasPrivateAccess bool
 }
 
 func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
 	// 1. Create lifecycle context for the adapter and its background services
 	// This context is used to shut down the exchanges.
 	aCtx, cancel := context.WithCancel(ctx)
@@ -69,14 +73,15 @@ func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
 	// StandX is a controlled hybrid adapter: place/cancel switch on OrderMode, while some private setup stays WS-backed.
 
 	a := &Adapter{
-		BaseAdapter:  base,
-		lifecycleCtx: aCtx,
-		cancel:       cancel,
-		client:       client,
-		wsMarket:     wsMarket,
-		wsAccount:    wsAccount,
-		wsApi:        wsApi,
-		cancels:      make(map[string]context.CancelFunc),
+		BaseAdapter:      base,
+		lifecycleCtx:     aCtx,
+		cancel:           cancel,
+		client:           client,
+		wsMarket:         wsMarket,
+		wsAccount:        wsAccount,
+		wsApi:            wsApi,
+		cancels:          make(map[string]context.CancelFunc),
+		hasPrivateAccess: opts.PrivateKey != "",
 	}
 
 	// 5. Preload symbol details cache
@@ -110,6 +115,9 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if err := a.wsAccount.Connect(); err != nil {
 		return err
 	}
@@ -118,6 +126,9 @@ func (a *Adapter) WsAccountConnected(ctx context.Context) error {
 }
 
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if err := a.wsApi.Connect(); err != nil {
 		return err
 	}
@@ -127,6 +138,9 @@ func (a *Adapter) WsOrderConnected(ctx context.Context) error {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	// Balance and Positions are separate calls in Standx SDK
 	// We run them sequentially for simplicity.
 	balance, err := a.client.QueryBalances(ctx)
@@ -193,6 +207,9 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 }
 
 func (a *Adapter) FetchBalance(ctx context.Context) (decimal.Decimal, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return decimal.Zero, err
+	}
 	bal, err := a.client.QueryBalances(ctx)
 	if err != nil {
 		return decimal.Zero, err
@@ -201,6 +218,9 @@ func (a *Adapter) FetchBalance(ctx context.Context) (decimal.Decimal, error) {
 }
 
 func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	rawPositions, err := a.client.QueryPositions(ctx, "")
 	if err != nil {
 		return nil, err
@@ -387,6 +407,9 @@ func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.O
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	orders, err := a.client.QueryUserAllOpenOrders(ctx, a.toExchangeSymbol(symbol))
 	if err != nil {
 		return nil, err
@@ -399,6 +422,9 @@ func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	// ChangeLeverage uses HTTP client, so no ensureAPIReady needed for wsApi
 	req := standx.ChangeLeverageRequest{
 		Symbol:   a.toExchangeSymbol(symbol),
@@ -739,7 +765,17 @@ func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error { re
 // ================= Helpers & Internals =================
 
 func (a *Adapter) ensureAPIReady(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	return a.WsOrderConnected(ctx)
+}
+
+func (a *Adapter) requirePrivateAccess() error {
+	if !a.hasPrivateAccess {
+		return exchanges.NewExchangeError("STANDX", "", "private API not available (no credentials configured)", exchanges.ErrAuthFailed)
+	}
+	return nil
 }
 
 func (a *Adapter) WaitOrderBookReady(ctx context.Context, symbol string) error {
