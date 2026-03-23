@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,10 @@ type PrivateWSClient struct {
 	subs     map[string]WSArg
 	handlers map[string]func(json.RawMessage)
 	loginCh  chan error
+
+	pendingMu      sync.Mutex
+	pendingRequests map[string]chan []byte
+	requestTimeout time.Duration
 }
 
 type wsLoginRequest struct {
@@ -79,6 +84,8 @@ func NewPrivateWSClient() *PrivateWSClient {
 		cancel:   cancel,
 		subs:     make(map[string]WSArg),
 		handlers: make(map[string]func(json.RawMessage)),
+		pendingRequests: make(map[string]chan []byte),
+		requestTimeout:  10 * time.Second,
 	}
 }
 
@@ -235,6 +242,35 @@ func (c *PrivateWSClient) writeJSONLocked(v any) error {
 	return c.conn.WriteJSON(v)
 }
 
+func (c *PrivateWSClient) sendRequest(id string, req any) ([]byte, error) {
+	return c.sendRequestWithTimeout(id, req, c.requestTimeout)
+}
+
+func (c *PrivateWSClient) sendRequestWithTimeout(id string, req any, timeout time.Duration) ([]byte, error) {
+	ch := make(chan []byte, 1)
+
+	c.pendingMu.Lock()
+	c.pendingRequests[id] = ch
+	c.pendingMu.Unlock()
+
+	defer func() {
+		c.pendingMu.Lock()
+		delete(c.pendingRequests, id)
+		c.pendingMu.Unlock()
+	}()
+
+	if err := c.writeJSON(req); err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("bitget private ws: request timeout")
+	}
+}
+
 func (c *PrivateWSClient) pingLoop(conn *websocket.Conn) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -281,6 +317,10 @@ func (c *PrivateWSClient) readLoop(conn *websocket.Conn) {
 			continue
 		}
 
+		if c.dispatchPendingResponse(payload) {
+			continue
+		}
+
 		var env WSEnvelope
 		if err := json.Unmarshal(payload, &env); err != nil {
 			continue
@@ -318,6 +358,82 @@ func (c *PrivateWSClient) readLoop(conn *websocket.Conn) {
 			handler(payload)
 		}
 	}
+}
+
+func (c *PrivateWSClient) dispatchPendingResponse(payload []byte) bool {
+	id, ok := extractResponseID(payload)
+	if !ok {
+		return false
+	}
+
+	c.pendingMu.Lock()
+	ch, found := c.pendingRequests[id]
+	c.pendingMu.Unlock()
+	if !found {
+		return false
+	}
+
+	select {
+	case ch <- payload:
+	default:
+	}
+	return true
+}
+
+func extractResponseID(payload []byte) (string, bool) {
+	var env struct {
+		ID   json.RawMessage `json:"id"`
+		Arg  json.RawMessage `json:"arg"`
+		Args json.RawMessage `json:"args"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return "", false
+	}
+
+	if id := parseResponseID(env.ID); id != "" {
+		return id, true
+	}
+	if id := parseNestedResponseID(env.Arg); id != "" {
+		return id, true
+	}
+	if id := parseNestedResponseID(env.Args); id != "" {
+		return id, true
+	}
+	return "", false
+}
+
+func parseNestedResponseID(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" || trimmed[0] != '[' {
+		return ""
+	}
+
+	var entries []struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil || len(entries) == 0 {
+		return ""
+	}
+	return parseResponseID(entries[0].ID)
+}
+
+func parseResponseID(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return ""
+	}
+
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return asString
+	}
+
+	var asNumber json.Number
+	if err := json.Unmarshal(raw, &asNumber); err == nil {
+		return asNumber.String()
+	}
+
+	return strings.Trim(trimmed, `"`)
 }
 
 func (c *PrivateWSClient) reconnect() {
