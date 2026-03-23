@@ -102,7 +102,7 @@ func (a *SpotAdapter) FetchTicker(ctx context.Context, symbol string) (*exchange
 }
 
 func (a *SpotAdapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	raw, err := a.client.GetDepth(ctx, a.FormatSymbol(symbol), limit)
+	raw, err := a.client.GetOrderBook(ctx, a.FormatSymbol(symbol), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	if err != nil {
 		return nil, err
 	}
-	raw, err := a.client.ExecuteOrder(ctx, req)
+	raw, err := a.client.PlaceOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}

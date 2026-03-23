@@ -132,6 +132,10 @@ func (c *Client) ExecuteOrder(ctx context.Context, req CreateOrderRequest) (*Ord
 	return &out, nil
 }
 
+func (c *Client) PlaceOrder(ctx context.Context, req CreateOrderRequest) (*Order, error) {
+	return c.ExecuteOrder(ctx, req)
+}
+
 func (c *Client) CancelOrder(ctx context.Context, req CancelOrderRequest) (*Order, error) {
 	signParams := map[string]string{
 		"orderId": req.OrderID,

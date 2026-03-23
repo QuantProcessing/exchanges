@@ -11,14 +11,14 @@ import (
 )
 
 type depthSnapshotClient interface {
-	GetDepth(ctx context.Context, symbol string, limit int) (*sdk.Depth, error)
+	GetOrderBook(ctx context.Context, symbol string, limit int) (*sdk.Depth, error)
 }
 
 func refreshOrderBookSnapshot(client depthSnapshotClient, symbol string, ob *OrderBook) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	snapshot, err := client.GetDepth(ctx, symbol, 1000)
+	snapshot, err := client.GetOrderBook(ctx, symbol, 1000)
 	if err != nil {
 		return err
 	}

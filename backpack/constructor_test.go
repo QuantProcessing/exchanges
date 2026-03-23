@@ -72,7 +72,7 @@ func testBackpackPerpMarket() sdk.Market {
 type backpackStubClient struct {
 	getMarkets       func(context.Context) ([]sdk.Market, error)
 	getTicker        func(context.Context, string) (*sdk.Ticker, error)
-	getDepth         func(context.Context, string, int) (*sdk.Depth, error)
+	getOrderBook     func(context.Context, string, int) (*sdk.Depth, error)
 	getTrades        func(context.Context, string, int) ([]sdk.Trade, error)
 	getFundingRates  func(context.Context) ([]sdk.FundingRate, error)
 	getKlines        func(context.Context, string, string, int64, int64, string) ([]sdk.Kline, error)
@@ -80,7 +80,7 @@ type backpackStubClient struct {
 	getBalances      func(context.Context) (map[string]sdk.CapitalBalance, error)
 	getOpenOrders    func(context.Context, string, string) ([]sdk.Order, error)
 	getOpenPositions func(context.Context, string) ([]sdk.Position, error)
-	executeOrder     func(context.Context, sdk.CreateOrderRequest) (*sdk.Order, error)
+	placeOrder       func(context.Context, sdk.CreateOrderRequest) (*sdk.Order, error)
 	cancelOrder      func(context.Context, sdk.CancelOrderRequest) (*sdk.Order, error)
 	cancelOpenOrders func(context.Context, string, string) error
 }
@@ -99,11 +99,11 @@ func (c *backpackStubClient) GetTicker(ctx context.Context, symbol string) (*sdk
 	return c.getTicker(ctx, symbol)
 }
 
-func (c *backpackStubClient) GetDepth(ctx context.Context, symbol string, limit int) (*sdk.Depth, error) {
-	if c.getDepth == nil {
-		panic("unexpected GetDepth call")
+func (c *backpackStubClient) GetOrderBook(ctx context.Context, symbol string, limit int) (*sdk.Depth, error) {
+	if c.getOrderBook == nil {
+		panic("unexpected GetOrderBook call")
 	}
-	return c.getDepth(ctx, symbol, limit)
+	return c.getOrderBook(ctx, symbol, limit)
 }
 
 func (c *backpackStubClient) GetTrades(ctx context.Context, symbol string, limit int) ([]sdk.Trade, error) {
@@ -155,11 +155,11 @@ func (c *backpackStubClient) GetOpenPositions(ctx context.Context, symbol string
 	return c.getOpenPositions(ctx, symbol)
 }
 
-func (c *backpackStubClient) ExecuteOrder(ctx context.Context, req sdk.CreateOrderRequest) (*sdk.Order, error) {
-	if c.executeOrder == nil {
-		panic("unexpected ExecuteOrder call")
+func (c *backpackStubClient) PlaceOrder(ctx context.Context, req sdk.CreateOrderRequest) (*sdk.Order, error) {
+	if c.placeOrder == nil {
+		panic("unexpected PlaceOrder call")
 	}
-	return c.executeOrder(ctx, req)
+	return c.placeOrder(ctx, req)
 }
 
 func (c *backpackStubClient) CancelOrder(ctx context.Context, req sdk.CancelOrderRequest) (*sdk.Order, error) {

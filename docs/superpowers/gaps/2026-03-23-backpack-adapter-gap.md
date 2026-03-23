@@ -22,3 +22,4 @@
 - Any future move from REST-only transport to full `OrderMode` switching.
 - Repository-wide decisions about whether stream logic should default back into the main adapter files.
 - Broad repository-wide WS naming normalization beyond the Backpack-specific convergence work in this pass.
+- `WSClient` naming stays deferred until the repository resolves the open WS naming decision in the adapter-layering spec.

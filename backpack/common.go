@@ -14,7 +14,7 @@ import (
 type adapterRESTClient interface {
 	GetMarkets(ctx context.Context) ([]sdk.Market, error)
 	GetTicker(ctx context.Context, symbol string) (*sdk.Ticker, error)
-	GetDepth(ctx context.Context, symbol string, limit int) (*sdk.Depth, error)
+	GetOrderBook(ctx context.Context, symbol string, limit int) (*sdk.Depth, error)
 	GetTrades(ctx context.Context, symbol string, limit int) ([]sdk.Trade, error)
 	GetFundingRates(ctx context.Context) ([]sdk.FundingRate, error)
 	GetKlines(ctx context.Context, symbol, interval string, startTime, endTime int64, priceType string) ([]sdk.Kline, error)
@@ -22,7 +22,7 @@ type adapterRESTClient interface {
 	GetBalances(ctx context.Context) (map[string]sdk.CapitalBalance, error)
 	GetOpenOrders(ctx context.Context, marketType, symbol string) ([]sdk.Order, error)
 	GetOpenPositions(ctx context.Context, symbol string) ([]sdk.Position, error)
-	ExecuteOrder(ctx context.Context, req sdk.CreateOrderRequest) (*sdk.Order, error)
+	PlaceOrder(ctx context.Context, req sdk.CreateOrderRequest) (*sdk.Order, error)
 	CancelOrder(ctx context.Context, req sdk.CancelOrderRequest) (*sdk.Order, error)
 	CancelOpenOrders(ctx context.Context, symbol, marketType string) error
 }

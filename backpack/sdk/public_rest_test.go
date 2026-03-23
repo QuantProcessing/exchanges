@@ -44,6 +44,38 @@ func TestGetKlinesBuildsExpectedQuery(t *testing.T) {
 	}, gotQuery)
 }
 
+func TestClientGetOrderBookDelegatesToDepthEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotQuery map[string]string
+	client := NewClient()
+	client.baseURL = "https://example.test"
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotPath = r.URL.Path
+			gotQuery = map[string]string{
+				"symbol": r.URL.Query().Get("symbol"),
+				"limit":  r.URL.Query().Get("limit"),
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"asks":[],"bids":[],"lastUpdateId":"7","timestamp":123}`)),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	book, err := client.GetOrderBook(context.Background(), "BTC_USDC", 20)
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/depth", gotPath)
+	require.Equal(t, map[string]string{
+		"symbol": "BTC_USDC",
+		"limit":  "20",
+	}, gotQuery)
+	require.Equal(t, "7", book.LastUpdateID)
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

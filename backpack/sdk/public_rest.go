@@ -33,6 +33,10 @@ func (c *Client) GetDepth(ctx context.Context, symbol string, limit int) (*Depth
 	return &out, nil
 }
 
+func (c *Client) GetOrderBook(ctx context.Context, symbol string, limit int) (*Depth, error) {
+	return c.GetDepth(ctx, symbol, limit)
+}
+
 func (c *Client) GetTrades(ctx context.Context, symbol string, limit int) ([]Trade, error) {
 	query := map[string]string{"symbol": symbol}
 	if limit > 0 {
