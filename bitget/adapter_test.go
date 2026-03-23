@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	exchanges "github.com/QuantProcessing/exchanges"
@@ -39,9 +40,18 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 	adp, err := NewAdapter(context.Background(), opts)
 	if err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 		t.Fatalf("NewAdapter failed: %v", err)
 	}
 	configurePerpTestLeverage(t, adp)
+	return adp
+}
+
+func setupPerpAdapterWS(t *testing.T) *Adapter {
+	t.Helper()
+	requireBitgetWSTests(t)
+	adp := setupPerpAdapter(t)
+	adp.SetOrderMode(exchanges.OrderModeWS)
 	return adp
 }
 
@@ -64,9 +74,41 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 
 	adp, err := NewSpotAdapter(context.Background(), opts)
 	if err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 		t.Fatalf("NewSpotAdapter failed: %v", err)
 	}
+	// Spot construction only exercises public instruments, so probe one private read
+	// to skip early when the credentials still point at a unified account.
+	if _, err := adp.FetchAccount(context.Background()); err != nil {
+		skipIfClassicOnlyMismatch(t, err)
+	}
 	return adp
+}
+
+func setupSpotAdapterWS(t *testing.T) *SpotAdapter {
+	t.Helper()
+	requireBitgetWSTests(t)
+	adp := setupSpotAdapter(t)
+	adp.SetOrderMode(exchanges.OrderModeWS)
+	return adp
+}
+
+func requireBitgetWSTests(t *testing.T) {
+	t.Helper()
+	if os.Getenv("BITGET_ENABLE_WS_ORDER_TESTS") != "1" {
+		t.Skip("Skipping: set BITGET_ENABLE_WS_ORDER_TESTS=1 to run Bitget classic WS order transport live tests")
+	}
+}
+
+func skipIfClassicOnlyMismatch(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "40085") || strings.Contains(lower, "unified account mode") {
+		t.Skip("Skipping: Bitget live private tests require classic account credentials; current credentials point to a unified account")
+	}
 }
 
 func requireEnvSymbol(t *testing.T, key string) string {
@@ -96,6 +138,7 @@ func configurePerpTestLeverage(t *testing.T, adp *Adapter) {
 	}
 
 	if err := adp.SetLeverage(context.Background(), symbol, leverage); err != nil {
+		skipIfClassicOnlyMismatch(t, err)
 		t.Fatalf("SetLeverage(%s,%d) failed: %v", symbol, leverage, err)
 	}
 }
@@ -107,6 +150,14 @@ func TestPerpAdapter_Compliance(t *testing.T) {
 
 func TestPerpAdapter_Orders(t *testing.T) {
 	adp := setupPerpAdapter(t)
+	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
+		Symbol:   requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
+		Slippage: decimal.NewFromFloat(0.01),
+	})
+}
+
+func TestPerpAdapter_Orders_WS(t *testing.T) {
+	adp := setupPerpAdapterWS(t)
 	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
 		Symbol:   requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
 		Slippage: decimal.NewFromFloat(0.01),
@@ -125,6 +176,13 @@ func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
 
 func TestPerpAdapter_Lifecycle(t *testing.T) {
 	adp := setupPerpAdapter(t)
+	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
+		Symbol: requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
+	})
+}
+
+func TestPerpAdapter_Lifecycle_WS(t *testing.T) {
+	adp := setupPerpAdapterWS(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
 		Symbol: requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
 	})
@@ -150,6 +208,14 @@ func TestSpotAdapter_Orders(t *testing.T) {
 	})
 }
 
+func TestSpotAdapter_Orders_WS(t *testing.T) {
+	adp := setupSpotAdapterWS(t)
+	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
+		Symbol:   requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
+		Slippage: decimal.NewFromFloat(0.01),
+	})
+}
+
 func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
@@ -162,6 +228,13 @@ func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
 
 func TestSpotAdapter_Lifecycle(t *testing.T) {
 	adp := setupSpotAdapter(t)
+	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
+		Symbol: requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
+	})
+}
+
+func TestSpotAdapter_Lifecycle_WS(t *testing.T) {
+	adp := setupSpotAdapterWS(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
 		Symbol: requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
 	})

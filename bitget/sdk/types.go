@@ -33,17 +33,6 @@ type Instrument struct {
 	Status             string `json:"status"`
 }
 
-type AccountMode struct {
-	AccountMode string `json:"accountMode"`
-}
-
-type AccountSettings struct {
-	AccountLevel string `json:"accountLevel"`
-	AccountMode  string `json:"accountMode"`
-	AssetMode    string `json:"assetMode"`
-	HoldMode     string `json:"holdMode"`
-}
-
 type PlaceOrderRequest struct {
 	Category    string `json:"category"`
 	Symbol      string `json:"symbol"`

@@ -43,7 +43,15 @@ func (p *classicPerpProfile) PlaceOrder(ctx context.Context, params *exchanges.O
 	if tradeSide == "close" {
 		req.Side = oppositeBitgetSide(req.Side)
 	}
-	raw, err := p.adp.client.PlaceClassicMixOrder(ctx, req, p.adp.perpCategory, p.marginCoin())
+	var raw *sdk.PlaceOrderResponse
+	if p.adp.IsRESTMode() {
+		raw, err = p.adp.client.PlaceClassicMixOrder(ctx, req, p.adp.perpCategory, p.marginCoin())
+	} else {
+		if err := p.adp.WsOrderConnected(ctx); err != nil {
+			return nil, err
+		}
+		raw, err = p.adp.privateWS.PlaceClassicPerpOrderWS(req, p.adp.perpCategory, p.marginCoin())
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +74,14 @@ func (p *classicPerpProfile) CancelOrder(ctx context.Context, orderID, symbol st
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
-	_, err := p.adp.client.CancelClassicMixOrder(ctx, p.adp.FormatSymbol(symbol), p.adp.perpCategory, p.marginCoin(), orderID, "")
+	if p.adp.IsRESTMode() {
+		_, err := p.adp.client.CancelClassicMixOrder(ctx, p.adp.FormatSymbol(symbol), p.adp.perpCategory, p.marginCoin(), orderID, "")
+		return err
+	}
+	if err := p.adp.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err := p.adp.privateWS.CancelClassicPerpOrderWS(p.adp.FormatSymbol(symbol), p.adp.perpCategory, p.marginCoin(), orderID, "")
 	return err
 }
 
@@ -326,7 +341,15 @@ func (p *classicSpotProfile) PlaceOrder(ctx context.Context, params *exchanges.O
 	if err != nil {
 		return nil, err
 	}
-	raw, err := p.adp.client.PlaceClassicSpotOrder(ctx, req)
+	var raw *sdk.PlaceOrderResponse
+	if p.adp.IsRESTMode() {
+		raw, err = p.adp.client.PlaceClassicSpotOrder(ctx, req)
+	} else {
+		if err := p.adp.WsOrderConnected(ctx); err != nil {
+			return nil, err
+		}
+		raw, err = p.adp.privateWS.PlaceClassicSpotOrderWS(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +371,14 @@ func (p *classicSpotProfile) CancelOrder(ctx context.Context, orderID, symbol st
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
-	_, err := p.adp.client.CancelClassicSpotOrder(ctx, p.adp.FormatSymbol(symbol), orderID, "")
+	if p.adp.IsRESTMode() {
+		_, err := p.adp.client.CancelClassicSpotOrder(ctx, p.adp.FormatSymbol(symbol), orderID, "")
+		return err
+	}
+	if err := p.adp.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err := p.adp.privateWS.CancelClassicSpotOrderWS(p.adp.FormatSymbol(symbol), orderID, "")
 	return err
 }
 

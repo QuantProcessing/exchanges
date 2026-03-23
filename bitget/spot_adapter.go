@@ -3,6 +3,7 @@ package bitget
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -17,7 +18,6 @@ type SpotAdapter struct {
 	publicWS    *sdk.PublicWSClient
 	privateWS   *sdk.PrivateWSClient
 	private     spotPrivateProfile
-	accountMode string
 	markets     *marketCache
 	quote       exchanges.QuoteCurrency
 	cancel      context.CancelFunc
@@ -42,14 +42,14 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 
 func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*SpotAdapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, opts.logger())
+	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, categorySpot, "")
 	if err != nil {
 		return nil, err
 	}
-	mode, err := detectPrivateAccountMode(ctx, client, opts)
-	if err != nil {
-		return nil, err
+	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
+		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
 	}
 	markets := buildMarketCache(instruments, quote)
 	base.SetSymbolDetails(buildSymbolDetails(instruments, quote, exchanges.MarketTypeSpot))
@@ -58,14 +58,13 @@ func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		BaseAdapter: base,
 		client:      client,
 		publicWS:    sdk.NewPublicWSClient(),
-		privateWS:   newPrivateWSClient(opts, mode),
-		accountMode: mode,
+		privateWS:   newPrivateWSClient(opts),
 		markets:     markets,
 		quote:       quote,
 		cancel:      cancel,
 		cancels:     make(map[string]context.CancelFunc),
 	}
-	adp.private = newSpotPrivateProfile(adp, mode)
+	adp.private = newSpotPrivateProfile(adp)
 	return adp, nil
 }
 
@@ -196,6 +195,20 @@ func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBa
 
 func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.TransferParams) error {
 	return exchanges.ErrNotSupported
+}
+
+func (a *SpotAdapter) WsOrderConnected(ctx context.Context) error {
+	if err := requirePrivateAccess(a.client); err != nil {
+		return err
+	}
+	if a.privateWS == nil {
+		return fmt.Errorf("bitget: private ws client unavailable")
+	}
+	if err := a.privateWS.Connect(ctx); err != nil {
+		return err
+	}
+	a.MarkOrderConnected()
+	return nil
 }
 
 func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {

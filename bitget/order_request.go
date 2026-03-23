@@ -324,6 +324,6 @@ func bitgetSpotQuotePrecision(adp exchanges.Exchange, symbol string) (int, bool)
 }
 
 func isClassicBitgetSpot(adp exchanges.Exchange) bool {
-	spot, ok := adp.(*SpotAdapter)
-	return ok && spot.accountMode == accountModeClassic
+	_, ok := adp.(*SpotAdapter)
+	return ok
 }

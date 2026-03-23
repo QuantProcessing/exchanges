@@ -5,18 +5,6 @@ import (
 	"fmt"
 )
 
-func (c *Client) GetAccountSettings(ctx context.Context) (*AccountSettings, error) {
-	var out responseEnvelope[AccountSettings]
-	err := c.getPrivate(ctx, "/api/v3/account/settings", nil, &out)
-	if err != nil {
-		return nil, err
-	}
-	if out.Code != "00000" {
-		return nil, fmt.Errorf("bitget sdk: get account settings failed: %s %s", out.Code, out.Msg)
-	}
-	return &out.Data, nil
-}
-
 func (c *Client) PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (*PlaceOrderResponse, error) {
 	var out responseEnvelope[PlaceOrderResponse]
 	err := c.postPrivate(ctx, "/api/v3/trade/place-order", req, &out)

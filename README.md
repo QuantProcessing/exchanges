@@ -25,9 +25,15 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 | Nado        | ✅    | ✅    | —      | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —      | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —      | USDC             | USDC    |
+| Bitget      | ✅    | ✅    | —      | USDT, USDC       | USDT    |
 | StandX      | ✅    | —    | —      | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —      | USDT             | USDT    |
 | EdgeX       | ✅    | —    | —      | USDC             | USDC    |
+
+### Exchange Notes
+
+- Bitget currently supports the classic private API surface only.
+- Bitget defaults to `OrderModeREST`. Explicit `OrderModeWS` is opt-in and requires Bitget to enable classic WebSocket trade access for the API key.
 
 ## Installation
 

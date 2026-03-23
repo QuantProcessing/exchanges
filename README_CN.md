@@ -25,9 +25,15 @@
 | Nado        | ✅    | ✅    | —    | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —    | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —    | USDC             | USDC    |
+| Bitget      | ✅    | ✅    | —    | USDT, USDC       | USDT    |
 | StandX      | ✅    | —    | —    | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —    | USDT             | USDT    |
 | EdgeX       | ✅    | —    | —    | USDC             | USDC    |
+
+### 交易所说明
+
+- Bitget 当前只支持经典账户的私有 API 面。
+- Bitget 默认下单模式为 `OrderModeREST`。如需显式使用 `OrderModeWS`，需要由 Bitget 为该 API key 额外开通经典账户的 WebSocket 交易权限。
 
 ## 安装
 

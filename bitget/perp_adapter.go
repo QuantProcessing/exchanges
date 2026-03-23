@@ -3,6 +3,7 @@ package bitget
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -17,7 +18,6 @@ type Adapter struct {
 	publicWS     *sdk.PublicWSClient
 	privateWS    *sdk.PrivateWSClient
 	private      perpPrivateProfile
-	accountMode  string
 	markets      *marketCache
 	quote        exchanges.QuoteCurrency
 	perpCategory string
@@ -43,14 +43,14 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 
 func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*Adapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypePerp, opts.logger())
+	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, quoteToPerpCategory(quote), "")
 	if err != nil {
 		return nil, err
 	}
-	mode, err := detectPrivateAccountMode(ctx, client, opts)
-	if err != nil {
-		return nil, err
+	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
+		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
 	}
 	markets := buildMarketCache(instruments, quote)
 	base.SetSymbolDetails(buildSymbolDetails(instruments, quote, exchanges.MarketTypePerp))
@@ -59,15 +59,14 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		BaseAdapter:  base,
 		client:       client,
 		publicWS:     sdk.NewPublicWSClient(),
-		privateWS:    newPrivateWSClient(opts, mode),
-		accountMode:  mode,
+		privateWS:    newPrivateWSClient(opts),
 		markets:      markets,
 		quote:        quote,
 		perpCategory: quoteToPerpCategory(quote),
 		cancel:       cancel,
 		cancels:      make(map[string]context.CancelFunc),
 	}
-	adp.private = newPerpPrivateProfile(adp, mode)
+	adp.private = newPerpPrivateProfile(adp)
 	return adp, nil
 }
 
@@ -210,6 +209,20 @@ func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.Funding
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return a.private.ModifyOrder(ctx, orderID, symbol, params)
+}
+
+func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := requirePrivateAccess(a.client); err != nil {
+		return err
+	}
+	if a.privateWS == nil {
+		return fmt.Errorf("bitget: private ws client unavailable")
+	}
+	if err := a.privateWS.Connect(ctx); err != nil {
+		return err
+	}
+	a.MarkOrderConnected()
+	return nil
 }
 
 func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
