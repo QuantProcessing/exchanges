@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved and implemented for the initial rollout
+Approved and implemented for the initial rollout. A subsequent repository-wide convergence pass extended the same baseline across all current adapter packages.
 
 ## Problem
 
@@ -26,7 +26,7 @@ The goal is not to force every exchange into identical files or identical intern
 - Define a minimum test matrix and review checklist for all adapters.
 - Create a phased convergence path for existing packages.
 
-## Initial Rollout Scope
+## Rollout Scope
 
 This first pass lands enforcement artifacts and package gap docs for the current convergence work. It records package classifications that are being enforced now without claiming that every repository-wide naming or file-layout decision is already settled.
 
@@ -43,6 +43,15 @@ Repository-wide decisions that remain explicitly deferred beyond this pass:
 - whether every adapter must declare an explicit transport default rather than inheriting `BaseAdapter` behavior
 - repository-wide default placement for stream logic and related file splits
 - repository-wide WS client naming normalization and other broad SDK rename work
+
+The repository-wide convergence pass extended the same baseline to the remaining adapter packages:
+
+- `aster` and `grvt`: constructor credential handling, explicit transport classification, and stable unsupported-path sentinel behavior were normalized
+- `standx`: the same semantic cleanup landed, plus an SDK-side invalid-credential panic was replaced with `ErrAuthFailed`
+- `edgex`: constructor quote/auth validation, REST-only classification, and stable unsupported/auth sentinel behavior were normalized
+- `nado`: public-only construction no longer leaves private paths vulnerable to nil-pointer failures; private paths now fail with `ErrAuthFailed`
+- `lighter`: readonly/account-index access and write access are now explicitly separated, with constructor validation and auth gates aligned to that split
+- `hyperliquid`: constructor validation, account-address derivation, read-versus-write auth gates, and stable unsupported-path sentinel behavior were normalized
 
 ## Non-Goals
 
@@ -413,7 +422,7 @@ Deviations must be:
 
 ## Current Package Assessment
 
-This section is a high-level snapshot for the initial rollout only. For packages that have rollout gap docs under `docs/superpowers/gaps/` (currently Backpack and Bitget), those docs are the source of truth for package-specific convergence status and acceptance conditions.
+This section is a high-level snapshot for the baseline rollout and the subsequent repository-wide convergence pass. For packages that have rollout gap docs under `docs/superpowers/gaps/` (currently Backpack and Bitget), those docs are the source of truth for package-specific convergence status and acceptance conditions.
 
 ### Binance
 
@@ -486,6 +495,16 @@ Gaps against this standard:
 Role in convergence:
 
 - first package to prioritize for explicit REST-only classification and structural convergence
+
+### Additional Packages Normalized In The Repository-Wide Pass
+
+- `aster`: now follows the constructor credential policy, declares REST-only private transport explicitly, and uses shared sentinels for stable unsupported paths
+- `grvt`: now follows the constructor credential policy, documents its controlled hybrid shape, and uses shared sentinels for stable unsupported paths
+- `standx`: now maps constructor-time credential failures to `ErrAuthFailed`, fixes an SDK invalid-key panic path, and keeps its controlled hybrid classification explicit
+- `edgex`: now validates quote/auth inputs in the constructor, declares REST-only private order transport explicitly, and normalizes stable unsupported/auth sentinel behavior
+- `nado`: now guards private account/order paths with `ErrAuthFailed` instead of relying on nil client state, while keeping its exchange-specific transport split explicit
+- `lighter`: now has an explicit account/read/write permission model, validated constructor credential combinations, and stable sentinel behavior for unsupported paths
+- `hyperliquid`: now validates quote/auth inputs in the constructor, preserves private-key-only account derivation, separates read-only account access from write access, and normalizes stable unsupported sentinel behavior
 
 ## Phased Convergence Plan
 

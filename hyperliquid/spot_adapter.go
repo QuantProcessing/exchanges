@@ -40,12 +40,23 @@ type SpotAdapter struct {
 
 // NewSpotAdapter 创建 Hyperliquid 现货适配器
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
-	baseClient := hyperliquid.NewClient().WithCredentials(opts.PrivateKey, nil).WithAccount(opts.AccountAddr)
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
+
+	accountAddr := opts.accountAddr()
+	baseClient := hyperliquid.NewClient().WithCredentials(opts.PrivateKey, nil)
+	if accountAddr != "" {
+		baseClient = baseClient.WithAccount(accountAddr)
+	}
 	client := spot.NewClient(baseClient)
 
 	// Create lifecycle context
 	baseWsClient := hyperliquid.NewWebsocketClient(ctx).WithCredentials(opts.PrivateKey, nil)
-	baseWsClient.AccountAddr = opts.AccountAddr
+	baseWsClient.AccountAddr = accountAddr
 
 	wsClient := spot.NewWebsocketClient(baseWsClient)
 
@@ -53,12 +64,13 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 		BaseAdapter: exchanges.NewBaseAdapter("HYPERLIQUID", exchanges.MarketTypeSpot, opts.logger()),
 		client:      client,
 		wsClient:    wsClient,
-		accountAddr: opts.AccountAddr,
+		accountAddr: accountAddr,
 		privateKey:  opts.PrivateKey,
 		symbolToID:  make(map[string]int),
 		idToSymbol:  make(map[int]string),
 		cancels:     make(map[string]context.CancelFunc),
 	}
+	// Hyperliquid spot uses WS-only private order transport in this adapter.
 	// Init metadata
 	if err := a.RefreshSymbolDetails(context.Background()); err != nil {
 		return nil, fmt.Errorf("hyperliquid spot init: %w", err)
@@ -79,6 +91,9 @@ func (a *SpotAdapter) Close() error {
 }
 
 func (a *SpotAdapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -97,6 +112,9 @@ func (a *SpotAdapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -184,6 +202,9 @@ func (a *SpotAdapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	account := &exchanges.Account{
 		Positions: nil, // Spot has no positions
 		Orders:    []exchanges.Order{},
@@ -192,7 +213,7 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 	// Get real spot balances
 	balances, err := a.FetchSpotBalances(ctx)
 	if err != nil {
-		return account, nil // Return empty account on error
+		return nil, err
 	}
 
 	// Sum USD-like balances as total/available
@@ -207,6 +228,9 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 }
 
 func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBalance, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	res, err := a.client.GetBalance()
 	if err != nil {
 		return nil, err
@@ -227,6 +251,9 @@ func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBa
 }
 
 func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.TransferParams) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	if params.Asset != "USDC" && params.Asset != "USD" {
 		return fmt.Errorf("only USDC transfer supported")
 	}
@@ -249,10 +276,11 @@ func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.Trans
 
 	timestamp := time.Now().UnixMilli()
 
-	// Parse private key
+	// The constructor validates configured private keys, so this should only fail
+	// if the adapter was built manually without going through NewSpotAdapter.
 	pk, err := crypto.HexToECDSA(a.privateKey)
 	if err != nil {
-		return fmt.Errorf("invalid private key: %w", err)
+		return exchanges.NewExchangeError("HYPERLIQUID", "", "invalid private_key", exchanges.ErrAuthFailed)
 	}
 
 	isMainnet := a.client.BaseURL == hyperliquid.MainnetAPIURL
@@ -286,6 +314,9 @@ func (a *SpotAdapter) FetchFeeRate(ctx context.Context, symbol string) (*exchang
 }
 
 func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	// Hyperliquid doesn't support true market orders (price=0 is rejected).
 	// Auto-apply default slippage to convert MARKET to aggressive LIMIT+IOC.
 	if params.Type == exchanges.OrderTypeMarket && params.Slippage.IsZero() {
@@ -406,6 +437,9 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 }
 
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
@@ -437,57 +471,11 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 }
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-	assetID, ok := a.getAssetID(symbol)
-	if !ok {
-		return nil, fmt.Errorf("unknown symbol: %s", symbol)
-	}
-	oid, err := strconv.ParseInt(orderID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid order id: %s", orderID)
-	}
-
-	// Need to fetch original order to get side
-	origOrder, err := a.FetchOrderByID(ctx, orderID, symbol)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch original order: %w", err)
-	}
-	isBuy := origOrder.Side == exchanges.OrderSideBuy
-
-	req := spot.ModifyOrderRequest{
-		Oid: &oid,
-		Order: spot.PlaceOrderRequest{
-			AssetID: assetID,
-			IsBuy:   isBuy,
-			Price:   params.Price.InexactFloat64(),
-			Size:    params.Quantity.InexactFloat64(),
-			OrderType: spot.OrderType{
-				Limit: &spot.OrderTypeLimit{
-					Tif: hyperliquid.TifGtc,
-				},
-			},
-		},
-	}
-
-	ch, err := a.wsClient.ModifyOrder(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	res := <-ch
-	if res.Error != nil {
-		return nil, fmt.Errorf("modify order error: %v", res.Error)
-	}
-
-	return &exchanges.Order{
-		OrderID:   orderID,
-		Symbol:    symbol,
-		Quantity:  params.Quantity,
-		Price:     params.Price,
-		Status:    exchanges.OrderStatusPending,
-		Timestamp: time.Now().UnixMilli(),
-	}, nil
+	_ = ctx
+	_ = orderID
+	_ = symbol
+	_ = params
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -866,11 +854,17 @@ func (a *SpotAdapter) mapOrderType(params *exchanges.OrderParams) spot.OrderType
 }
 
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
-	return fmt.Errorf("not implemented")
+	_ = ctx
+	_ = cb
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("SubscribeKline not yet implemented for Hyperliquid spot")
+	_ = ctx
+	_ = symbol
+	_ = interval
+	_ = callback
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
@@ -895,13 +889,19 @@ func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback e
 	})
 }
 
-func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error    { return nil }
-func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error { return nil }
+func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {
+	_ = ctx
+	return exchanges.ErrNotSupported
+}
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	return a.wsClient.UnsubscribeBbo(symbol)
 }
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	_ = ctx
+	_ = symbol
+	_ = interval
+	return exchanges.ErrNotSupported
 }
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
 	return a.wsClient.UnsubscribeTrades(symbol)
@@ -911,6 +911,24 @@ func (a *SpotAdapter) WaitOrderBookReady(ctx context.Context, symbol string) err
 	formattedSymbol := a.FormatSymbol(symbol)
 	return a.BaseAdapter.WaitOrderBookReady(ctx, formattedSymbol)
 }
+
+func (a *SpotAdapter) requireAccountAccess() error {
+	if a.accountAddr == "" {
+		return exchanges.NewExchangeError("HYPERLIQUID", "", "account_addr or private_key is required for account access", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
+func (a *SpotAdapter) requireWriteAccess() error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
+	if a.privateKey == "" {
+		return exchanges.NewExchangeError("HYPERLIQUID", "", "private_key is required for trading operations", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
 func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
 	formattedSymbol := a.FormatSymbol(symbol)
 	a.cancelMu.Lock()

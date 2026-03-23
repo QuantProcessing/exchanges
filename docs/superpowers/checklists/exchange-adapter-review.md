@@ -3,7 +3,7 @@
 Use this checklist for every new adapter and every major adapter refactor.
 
 Definitions and policy details live in [2026-03-23-exchange-adapter-layering-design.md](/Users/dylan/Code/exchanges/docs/superpowers/specs/2026-03-23-exchange-adapter-layering-design.md). This checklist is a review companion, not a replacement for the spec.
-During the initial rollout, package gap docs remain the source of truth for package-specific landed work versus deferred items only where those docs exist (currently Backpack and Bitget).
+Package gap docs remain the source of truth for package-specific landed work versus deferred items only where those docs exist. After the repository-wide convergence pass, Backpack and Bitget are still the only packages with dedicated gap docs.
 
 - [ ] Constructor semantics are explicit and stable. Confirm constructor names, auth policy, metadata-loading behavior, and any fail-fast or permissive behavior are documented and consistent.
 - [ ] Base-symbol semantics are preserved at the adapter boundary, or any compatibility exception is explicit. Confirm unified methods take base symbols unless a documented compatibility escape hatch exists.

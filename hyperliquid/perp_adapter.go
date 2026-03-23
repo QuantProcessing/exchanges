@@ -43,12 +43,23 @@ type Adapter struct {
 
 // NewAdapter 创建 Hyperliquid 适配器
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
-	baseClient := hyperliquid.NewClient().WithCredentials(opts.PrivateKey, nil).WithAccount(opts.AccountAddr)
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
+
+	accountAddr := opts.accountAddr()
+	baseClient := hyperliquid.NewClient().WithCredentials(opts.PrivateKey, nil)
+	if accountAddr != "" {
+		baseClient = baseClient.WithAccount(accountAddr)
+	}
 	client := perp.NewClient(baseClient)
 
 	// Create lifecycle context
 	baseWsClient := hyperliquid.NewWebsocketClient(ctx).WithCredentials(opts.PrivateKey, nil)
-	baseWsClient.AccountAddr = opts.AccountAddr
+	baseWsClient.AccountAddr = accountAddr
 
 	wsClient := perp.NewWebsocketClient(baseWsClient)
 
@@ -58,12 +69,13 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 		BaseAdapter: base,
 		client:      client,
 		wsClient:    wsClient,
-		accountAddr: opts.AccountAddr,
+		accountAddr: accountAddr,
 		privateKey:  opts.PrivateKey,
 		symbolToID:  make(map[string]int),
 		idToSymbol:  make(map[int]string),
 		cancels:     make(map[string]context.CancelFunc),
 	}
+	// Hyperliquid perp is a controlled hybrid: REST and WS can both carry orders.
 	// Init metadata
 	if err := a.RefreshSymbolDetails(context.Background()); err != nil {
 		return nil, fmt.Errorf("hyperliquid init: %w", err)
@@ -74,6 +86,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -93,6 +108,9 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	if a.wsClient.Conn == nil {
 		if err := a.wsClient.Connect(); err != nil {
 			return err
@@ -155,6 +173,9 @@ func (a *Adapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	perpPos, err := a.client.GetPerpPosition(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get perp position: %w", err)
@@ -237,6 +258,9 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	// Hyperliquid doesn't support true market orders (price=0 is rejected).
 	// Auto-apply default slippage to convert MARKET to aggressive LIMIT+IOC.
 	if params.Type == exchanges.OrderTypeMarket && params.Slippage.IsZero() {
@@ -398,6 +422,9 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 
 // PlaceMarketOrder places a market order (aggressive limit)
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	assetID, ok := a.getAssetID(symbol)
 	if !ok {
 		return fmt.Errorf("unknown symbol: %s", symbol)
@@ -437,6 +464,9 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
+	if err := a.requireWriteAccess(); err != nil {
+		return nil, err
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return nil, err
 	}
@@ -492,6 +522,9 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid order id: %s", orderID)
@@ -532,6 +565,9 @@ func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.O
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	openOrders, err := a.client.UserOpenOrders(ctx, a.accountAddr)
 	if err != nil {
 		return nil, err
@@ -563,6 +599,9 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
 	assetID, ok := a.getAssetID(symbol)
 	if !ok {
 		return fmt.Errorf("unknown symbol: %s", symbol)
@@ -576,6 +615,9 @@ func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) 
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requireAccountAccess(); err != nil {
+		return nil, err
+	}
 	a.feeOnce.Do(func() {
 		fees, err := a.client.GetUserFees(ctx)
 		if err != nil {
@@ -871,7 +913,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 }
 
 func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("subscribe kline not implemented for hyperliquid")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
@@ -952,7 +994,7 @@ func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
 	return a.wsClient.UnsubscribeL2Book(symbol)
 }
 func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error {
 	return a.wsClient.UnsubscribeTrades(symbol)
@@ -967,6 +1009,23 @@ func (a *Adapter) FetchSymbolDetails(ctx context.Context, symbol string) (*excha
 }
 
 // Helpers
+
+func (a *Adapter) requireAccountAccess() error {
+	if a.accountAddr == "" {
+		return exchanges.NewExchangeError("HYPERLIQUID", "", "account_addr or private_key is required for account access", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
+
+func (a *Adapter) requireWriteAccess() error {
+	if err := a.requireAccountAccess(); err != nil {
+		return err
+	}
+	if a.privateKey == "" {
+		return exchanges.NewExchangeError("HYPERLIQUID", "", "private_key is required for trading operations", exchanges.ErrAuthFailed)
+	}
+	return nil
+}
 
 func (a *Adapter) getAssetID(symbol string) (int, bool) {
 	s := a.FormatSymbol(symbol)

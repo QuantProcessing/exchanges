@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // supportedQuoteCurrencies lists the quote currencies supported by Hyperliquid.
@@ -38,4 +39,30 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 		}
 	}
 	return "", fmt.Errorf("hyperliquid: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
+}
+
+func (o Options) validateCredentials() error {
+	if o.PrivateKey == "" && o.AccountAddr == "" {
+		return nil
+	}
+	if o.PrivateKey != "" {
+		if _, err := crypto.HexToECDSA(o.PrivateKey); err != nil {
+			return exchanges.NewExchangeError("HYPERLIQUID", "", "invalid private_key", exchanges.ErrAuthFailed)
+		}
+	}
+	return nil
+}
+
+func (o Options) accountAddr() string {
+	if o.AccountAddr != "" {
+		return o.AccountAddr
+	}
+	if o.PrivateKey == "" {
+		return ""
+	}
+	pk, err := crypto.HexToECDSA(o.PrivateKey)
+	if err != nil {
+		return ""
+	}
+	return crypto.PubkeyToAddress(pk.PublicKey).Hex()
 }
