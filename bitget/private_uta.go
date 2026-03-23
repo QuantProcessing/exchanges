@@ -34,7 +34,15 @@ func (p *utaPerpProfile) PlaceOrder(ctx context.Context, params *exchanges.Order
 	if err != nil {
 		return nil, err
 	}
-	raw, err := p.adp.client.PlaceOrder(ctx, req)
+	var raw *sdk.PlaceOrderResponse
+	if p.adp.IsRESTMode() {
+		raw, err = p.adp.client.PlaceOrder(ctx, req)
+	} else {
+		if err := p.adp.WsOrderConnected(ctx); err != nil {
+			return nil, err
+		}
+		raw, err = p.adp.privateWS.PlaceOrderUTAWS(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +65,19 @@ func (p *utaPerpProfile) CancelOrder(ctx context.Context, orderID, symbol string
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
-	_, err := p.adp.client.CancelOrder(ctx, &sdk.CancelOrderRequest{
+	req := &sdk.CancelOrderRequest{
 		Category: p.adp.perpCategory,
 		Symbol:   p.adp.FormatSymbol(symbol),
 		OrderID:  orderID,
-	})
+	}
+	if p.adp.IsRESTMode() {
+		_, err := p.adp.client.CancelOrder(ctx, req)
+		return err
+	}
+	if err := p.adp.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err := p.adp.privateWS.CancelOrderUTAWS(req)
 	return err
 }
 
@@ -207,7 +223,16 @@ func (p *utaPerpProfile) ModifyOrder(ctx context.Context, orderID, symbol string
 		return nil, err
 	}
 	req := toModifyOrderRequest(p.adp, p.adp.perpCategory, orderID, symbol, params)
-	raw, err := p.adp.client.ModifyOrder(ctx, req)
+	var raw *sdk.CancelOrderResponse
+	var err error
+	if p.adp.IsRESTMode() {
+		raw, err = p.adp.client.ModifyOrder(ctx, req)
+	} else {
+		if err := p.adp.WsOrderConnected(ctx); err != nil {
+			return nil, err
+		}
+		raw, err = p.adp.privateWS.ModifyOrderUTAWS(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +323,15 @@ func (p *utaSpotProfile) PlaceOrder(ctx context.Context, params *exchanges.Order
 	if err != nil {
 		return nil, err
 	}
-	raw, err := p.adp.client.PlaceOrder(ctx, req)
+	var raw *sdk.PlaceOrderResponse
+	if p.adp.IsRESTMode() {
+		raw, err = p.adp.client.PlaceOrder(ctx, req)
+	} else {
+		if err := p.adp.WsOrderConnected(ctx); err != nil {
+			return nil, err
+		}
+		raw, err = p.adp.privateWS.PlaceOrderUTAWS(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -320,11 +353,19 @@ func (p *utaSpotProfile) CancelOrder(ctx context.Context, orderID, symbol string
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
-	_, err := p.adp.client.CancelOrder(ctx, &sdk.CancelOrderRequest{
+	req := &sdk.CancelOrderRequest{
 		Category: categorySpot,
 		Symbol:   p.adp.FormatSymbol(symbol),
 		OrderID:  orderID,
-	})
+	}
+	if p.adp.IsRESTMode() {
+		_, err := p.adp.client.CancelOrder(ctx, req)
+		return err
+	}
+	if err := p.adp.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err := p.adp.privateWS.CancelOrderUTAWS(req)
 	return err
 }
 

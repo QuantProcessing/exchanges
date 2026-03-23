@@ -75,6 +75,26 @@ func TestClassicOrderModeWSRoutesCancelOrderToWS(t *testing.T) {
 	require.Equal(t, int32(0), restHits.Load(), "OrderModeWS should avoid the classic REST cancel-order path")
 }
 
+func TestBitgetWSOrderModeDoesNotSilentlyFallbackToREST(t *testing.T) {
+	var restHits atomic.Int32
+	restServer := newRejectingRESTServer(t, &restHits)
+	wsServer := newPrivateTradeErrorWSServer(t)
+
+	adp := newUTASpotOrderModeTestAdapter(t, restServer.URL, wsServer)
+	adp.SetOrderMode(exchanges.OrderModeWS)
+
+	_, err := adp.PlaceOrder(context.Background(), &exchanges.OrderParams{
+		Symbol:      "BTC",
+		Side:        exchanges.OrderSideBuy,
+		Type:        exchanges.OrderTypeLimit,
+		Quantity:    decimal.RequireFromString("0.1"),
+		Price:       decimal.RequireFromString("100"),
+		TimeInForce: exchanges.TimeInForceGTC,
+	})
+	require.Error(t, err)
+	require.Equal(t, int32(0), restHits.Load(), "WS mode failure must not fallback to REST")
+}
+
 func newRejectingRESTServer(t *testing.T, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,16 +135,48 @@ func newPrivateTradeWSServer(t *testing.T, classic bool) string {
 	return "ws" + strings.TrimPrefix(server.URL, "http")
 }
 
+func newPrivateTradeErrorWSServer(t *testing.T) string {
+	t.Helper()
+
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			if strings.Contains(string(payload), `"op":"login"`) {
+				require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"login","code":"0","msg":"success"}`)))
+				continue
+			}
+
+			var req struct {
+				ID string `json:"id"`
+			}
+			require.NoError(t, json.Unmarshal(payload, &req))
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"error","id":"`+req.ID+`","code":"40725","msg":"service return an error"}`)))
+			return
+		}
+	}))
+	t.Cleanup(server.Close)
+	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
 func buildTradeAck(t *testing.T, payload []byte, classic bool) []byte {
 	t.Helper()
 
 	if classic {
 		var req struct {
 			Args []struct {
-				ID      string `json:"id"`
+				ID       string `json:"id"`
 				InstType string `json:"instType"`
-				Channel string `json:"channel"`
-				InstID  string `json:"instId"`
+				Channel  string `json:"channel"`
+				InstID   string `json:"instId"`
 			} `json:"args"`
 		}
 		require.NoError(t, json.Unmarshal(payload, &req))

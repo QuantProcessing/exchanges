@@ -45,6 +45,14 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 	return adp
 }
 
+func setupPerpAdapterWS(t *testing.T) *Adapter {
+	t.Helper()
+	requireBitgetWSTests(t)
+	adp := setupPerpAdapter(t)
+	adp.SetOrderMode(exchanges.OrderModeWS)
+	return adp
+}
+
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
 	loadBitgetEnv()
@@ -67,6 +75,21 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 		t.Fatalf("NewSpotAdapter failed: %v", err)
 	}
 	return adp
+}
+
+func setupSpotAdapterWS(t *testing.T) *SpotAdapter {
+	t.Helper()
+	requireBitgetWSTests(t)
+	adp := setupSpotAdapter(t)
+	adp.SetOrderMode(exchanges.OrderModeWS)
+	return adp
+}
+
+func requireBitgetWSTests(t *testing.T) {
+	t.Helper()
+	if os.Getenv("BITGET_ENABLE_WS_ORDER_TESTS") != "1" {
+		t.Skip("Skipping: set BITGET_ENABLE_WS_ORDER_TESTS=1 to run Bitget WS order transport live tests")
+	}
 }
 
 func requireEnvSymbol(t *testing.T, key string) string {
@@ -113,6 +136,14 @@ func TestPerpAdapter_Orders(t *testing.T) {
 	})
 }
 
+func TestPerpAdapter_Orders_WS(t *testing.T) {
+	adp := setupPerpAdapterWS(t)
+	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
+		Symbol:   requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
+		Slippage: decimal.NewFromFloat(0.01),
+	})
+}
+
 func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
@@ -125,6 +156,13 @@ func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
 
 func TestPerpAdapter_Lifecycle(t *testing.T) {
 	adp := setupPerpAdapter(t)
+	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
+		Symbol: requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
+	})
+}
+
+func TestPerpAdapter_Lifecycle_WS(t *testing.T) {
+	adp := setupPerpAdapterWS(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
 		Symbol: requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
 	})
@@ -150,6 +188,14 @@ func TestSpotAdapter_Orders(t *testing.T) {
 	})
 }
 
+func TestSpotAdapter_Orders_WS(t *testing.T) {
+	adp := setupSpotAdapterWS(t)
+	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
+		Symbol:   requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
+		Slippage: decimal.NewFromFloat(0.01),
+	})
+}
+
 func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
@@ -162,6 +208,13 @@ func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
 
 func TestSpotAdapter_Lifecycle(t *testing.T) {
 	adp := setupSpotAdapter(t)
+	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
+		Symbol: requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
+	})
+}
+
+func TestSpotAdapter_Lifecycle_WS(t *testing.T) {
+	adp := setupSpotAdapterWS(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
 		Symbol: requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
 	})

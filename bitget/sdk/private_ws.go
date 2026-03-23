@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,9 +32,10 @@ type PrivateWSClient struct {
 	handlers map[string]func(json.RawMessage)
 	loginCh  chan error
 
-	pendingMu      sync.Mutex
+	pendingMu       sync.Mutex
 	pendingRequests map[string]chan []byte
-	requestTimeout time.Duration
+	requestTimeout  time.Duration
+	debug           bool
 }
 
 type wsLoginRequest struct {
@@ -79,13 +81,14 @@ func DecodePositionMessage(payload []byte) (*WSPositionMessage, error) {
 func NewPrivateWSClient() *PrivateWSClient {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PrivateWSClient{
-		url:      privateWSURL,
-		ctx:      ctx,
-		cancel:   cancel,
-		subs:     make(map[string]WSArg),
-		handlers: make(map[string]func(json.RawMessage)),
+		url:             privateWSURL,
+		ctx:             ctx,
+		cancel:          cancel,
+		subs:            make(map[string]WSArg),
+		handlers:        make(map[string]func(json.RawMessage)),
 		pendingRequests: make(map[string]chan []byte),
 		requestTimeout:  10 * time.Second,
+		debug:           os.Getenv("BITGET_WS_DEBUG") == "1",
 	}
 }
 
@@ -230,6 +233,11 @@ func (c *PrivateWSClient) writeJSON(v any) error {
 
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	if c.debug {
+		if payload, err := json.Marshal(v); err == nil {
+			fmt.Printf("bitget private ws send: %s\n", string(payload))
+		}
+	}
 	return conn.WriteJSON(v)
 }
 
@@ -239,6 +247,11 @@ func (c *PrivateWSClient) writeJSONLocked(v any) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	if c.debug {
+		if payload, err := json.Marshal(v); err == nil {
+			fmt.Printf("bitget private ws send: %s\n", string(payload))
+		}
+	}
 	return c.conn.WriteJSON(v)
 }
 
@@ -265,6 +278,9 @@ func (c *PrivateWSClient) sendRequestWithTimeout(id string, req any, timeout tim
 
 	select {
 	case resp := <-ch:
+		if err := extractEventError(resp); err != nil {
+			return nil, err
+		}
 		return resp, nil
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("bitget private ws: request timeout")
@@ -316,6 +332,9 @@ func (c *PrivateWSClient) readLoop(conn *websocket.Conn) {
 		if string(payload) == "pong" {
 			continue
 		}
+		if c.debug {
+			fmt.Printf("bitget private ws recv: %s\n", string(payload))
+		}
 
 		if c.dispatchPendingResponse(payload) {
 			continue
@@ -363,6 +382,23 @@ func (c *PrivateWSClient) readLoop(conn *websocket.Conn) {
 func (c *PrivateWSClient) dispatchPendingResponse(payload []byte) bool {
 	id, ok := extractResponseID(payload)
 	if !ok {
+		if !isStandaloneError(payload) {
+			return false
+		}
+		c.pendingMu.Lock()
+		if len(c.pendingRequests) != 1 {
+			c.pendingMu.Unlock()
+			return false
+		}
+		for _, only := range c.pendingRequests {
+			select {
+			case only <- payload:
+			default:
+			}
+			c.pendingMu.Unlock()
+			return true
+		}
+		c.pendingMu.Unlock()
 		return false
 	}
 
@@ -434,6 +470,33 @@ func parseResponseID(raw json.RawMessage) string {
 	}
 
 	return strings.Trim(trimmed, `"`)
+}
+
+func isStandaloneError(payload []byte) bool {
+	var env struct {
+		Event string `json:"event"`
+		Code  any    `json:"code"`
+		Msg   string `json:"msg"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return false
+	}
+	return strings.EqualFold(env.Event, "error") && env.Msg != ""
+}
+
+func extractEventError(payload []byte) error {
+	var env struct {
+		Event string       `json:"event"`
+		Code  NumberString `json:"code"`
+		Msg   string       `json:"msg"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return nil
+	}
+	if !strings.EqualFold(env.Event, "error") {
+		return nil
+	}
+	return fmt.Errorf("bitget private ws: %s %s", env.Code, env.Msg)
 }
 
 func (c *PrivateWSClient) reconnect() {

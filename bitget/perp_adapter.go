@@ -3,6 +3,7 @@ package bitget
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -210,6 +211,20 @@ func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.Funding
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return a.private.ModifyOrder(ctx, orderID, symbol, params)
+}
+
+func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := requirePrivateAccess(a.client); err != nil {
+		return err
+	}
+	if a.privateWS == nil {
+		return fmt.Errorf("bitget: private ws client unavailable")
+	}
+	if err := a.privateWS.Connect(ctx); err != nil {
+		return err
+	}
+	a.MarkOrderConnected()
+	return nil
 }
 
 func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {

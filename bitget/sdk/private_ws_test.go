@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -66,6 +67,56 @@ func TestPrivateWSRequestTimeoutCleansPending(t *testing.T) {
 	pending := reflect.ValueOf(client).Elem().FieldByName("pendingRequests")
 	require.True(t, pending.IsValid(), "PrivateWSClient should track pending requests")
 	require.Equal(t, 0, pending.Len(), "timed out request should be removed from pending requests")
+}
+
+func TestPrivateWSReturnsErrorFrameWithoutIDWhenSingleRequestPending(t *testing.T) {
+	client := newTestPrivateWSClient(t, func(conn *websocket.Conn) {
+		_, _, err := conn.ReadMessage()
+		require.NoError(t, err)
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"error","code":40026,"msg":"User is disabled","ts":1774230104229}`)))
+	})
+
+	sender, ok := any(client).(timedRequestSender)
+	require.True(t, ok, "PrivateWSClient should implement request timeouts")
+
+	_, err := sender.sendRequestWithTimeout("req-error", map[string]any{"id": "req-error"}, 50*time.Millisecond)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "40026")
+	require.Contains(t, err.Error(), "User is disabled")
+}
+
+func TestPlaceClassicPerpOrderWSOmitsFalseReduceOnly(t *testing.T) {
+	client := newTestPrivateWSClient(t, func(conn *websocket.Conn) {
+		_, payload, err := conn.ReadMessage()
+		require.NoError(t, err)
+
+		var req struct {
+			Args []struct {
+				ID     string         `json:"id"`
+				Params map[string]any `json:"params"`
+			} `json:"args"`
+		}
+		require.NoError(t, json.Unmarshal(payload, &req))
+		require.NotEmpty(t, req.Args)
+		_, exists := req.Args[0].Params["reduceOnly"]
+		require.False(t, exists, "classic perp ws request should omit reduceOnly when false")
+
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"trade","arg":[{"id":"`+req.Args[0].ID+`","instType":"USDT-FUTURES","channel":"place-order","instId":"BTCPERP","params":{"orderId":"123","clientOid":"abc"}}],"code":0,"msg":"Success"}`)))
+	})
+
+	resp, err := client.PlaceClassicPerpOrderWS(&PlaceOrderRequest{
+		Symbol:     "BTCPERP",
+		Qty:        "0.001",
+		Side:       "buy",
+		OrderType:  "market",
+		ClientOID:  "abc",
+		MarginCoin: "USDC",
+		MarginMode: "crossed",
+		TradeSide:  "open",
+		ReduceOnly: "no",
+	}, "USDT-FUTURES", "USDC")
+	require.NoError(t, err)
+	require.Equal(t, "123", resp.OrderID)
 }
 
 func newTestPrivateWSClient(t *testing.T, onMessage func(conn *websocket.Conn)) *PrivateWSClient {
