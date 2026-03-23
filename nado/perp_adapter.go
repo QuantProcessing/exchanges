@@ -49,6 +49,10 @@ type Adapter struct {
 
 // NewAdapter 创建 Nado 适配器
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+
 	subaccount := opts.SubAccountName
 	if subaccount == "" {
 		subaccount = "default"
@@ -80,6 +84,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	}
 
 	base := exchanges.NewBaseAdapter("NADO", exchanges.MarketTypePerp, opts.logger())
+	// Nado perp is a controlled hybrid adapter: order placement and cancellation can switch between WS and REST.
 
 	a := &Adapter{
 		BaseAdapter: base,
@@ -105,6 +110,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if !a.wsAccount.IsConnected() {
 		if err := a.wsAccount.Connect(); err != nil {
 			return err
@@ -124,6 +132,9 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if !a.apiClient.IsConnected() {
 		if err := a.apiClient.Connect(); err != nil {
 			return err
@@ -177,9 +188,15 @@ func (a *Adapter) IsConnected(ctx context.Context) (bool, error) {
 }
 
 func (a *Adapter) Close() error {
-	a.apiClient.Close()
-	a.wsAccount.Close()
-	a.wsMarket.Close()
+	if a.apiClient != nil {
+		a.apiClient.Close()
+	}
+	if a.wsAccount != nil {
+		a.wsAccount.Close()
+	}
+	if a.wsMarket != nil {
+		a.wsMarket.Close()
+	}
 	return nil
 }
 
@@ -202,6 +219,9 @@ func (a *Adapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	// Use subaccount_info API from Gateway to get balances and positions
 	resp, err := a.httpClient.GetAccount(ctx)
 	if err != nil {
@@ -463,7 +483,7 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	return nil, fmt.Errorf("modify order not supported by nado")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -490,6 +510,9 @@ func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.O
 }
 
 func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return nil, err
@@ -545,10 +568,13 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
-	return fmt.Errorf("set leverage not supported")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	a.feeOnce.Do(func() {
 		fees, err := a.httpClient.GetFeeRates(ctx)
 		if err != nil {
@@ -1154,4 +1180,11 @@ func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBo
 		Bids:      bids,
 		Asks:      asks,
 	}
+}
+
+func (a *Adapter) requirePrivateAccess() error {
+	if a.apiClient == nil || a.httpClient == nil || a.httpClient.Signer == nil {
+		return exchanges.NewExchangeError("NADO", "", "private API not available (no credentials configured)", exchanges.ErrAuthFailed)
+	}
+	return nil
 }

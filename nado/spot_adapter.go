@@ -44,6 +44,10 @@ type SpotAdapter struct {
 
 // NewAdapter 创建 Nado 适配器
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+
 	subaccount := opts.SubAccountName
 	if subaccount == "" {
 		subaccount = "default"
@@ -74,8 +78,11 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 		wsAccount.WithCredentials(privateKey)
 	}
 
+	base := exchanges.NewBaseAdapter("NADO", exchanges.MarketTypeSpot, opts.logger())
+	// Nado spot currently routes private order placement and cancellation through WS only.
+
 	a := &SpotAdapter{
-		BaseAdapter: exchanges.NewBaseAdapter("NADO", exchanges.MarketTypeSpot, opts.logger()),
+		BaseAdapter: base,
 		httpClient:  httpClient,
 		apiClient:   apiClient,
 		wsMarket:    wsMarket,
@@ -98,6 +105,9 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 }
 
 func (a *SpotAdapter) WsAccountConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if !a.wsAccount.IsConnected() {
 		if err := a.wsAccount.Connect(); err != nil {
 			return err
@@ -117,6 +127,9 @@ func (a *SpotAdapter) WsMarketConnected(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) WsOrderConnected(ctx context.Context) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if !a.apiClient.IsConnected() {
 		if err := a.apiClient.Connect(); err != nil {
 			return err
@@ -171,9 +184,15 @@ func (a *SpotAdapter) IsConnected(ctx context.Context) (bool, error) {
 }
 
 func (a *SpotAdapter) Close() error {
-	a.apiClient.Close()
-	a.wsAccount.Close()
-	a.wsMarket.Close()
+	if a.apiClient != nil {
+		a.apiClient.Close()
+	}
+	if a.wsAccount != nil {
+		a.wsAccount.Close()
+	}
+	if a.wsMarket != nil {
+		a.wsMarket.Close()
+	}
 	return nil
 }
 
@@ -199,6 +218,9 @@ func (a *SpotAdapter) ExtractSymbol(symbol string) string {
 // ================= Account & Trading =================
 
 func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	// Use subaccount_info API from Gateway to get balances and positions
 	resp, err := a.httpClient.GetAccount(ctx)
 	if err != nil {
@@ -304,6 +326,9 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 }
 
 func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBalance, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	resp, err := a.httpClient.GetAccount(ctx)
 	if err != nil {
 		return nil, err
@@ -338,7 +363,7 @@ func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBa
 }
 
 func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.TransferParams) error {
-	return fmt.Errorf("transfer asset not supported by nado adapter")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchBalance(ctx context.Context) (decimal.Decimal, error) {
@@ -467,7 +492,7 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 }
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	return nil, fmt.Errorf("modify order not supported by nado")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -494,6 +519,9 @@ func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchang
 }
 
 func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	productID, err := a.getProductId(symbol)
 	if err != nil {
 		return nil, err
@@ -531,10 +559,13 @@ func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error 
 }
 
 func (a *SpotAdapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
-	return fmt.Errorf("set leverage not supported")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
+	if err := a.requirePrivateAccess(); err != nil {
+		return nil, err
+	}
 	fees, err := a.httpClient.GetFeeRates(ctx)
 	if err != nil {
 		return nil, err
@@ -1040,7 +1071,7 @@ func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error { return nil }
 
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchSymbolDetails(ctx context.Context, symbol string) (*exchanges.SymbolDetails, error) {
@@ -1067,4 +1098,11 @@ func (a *SpotAdapter) getSymbol(productID int64) string {
 		return sym
 	}
 	return fmt.Sprintf("UNKNOWN-%d", productID)
+}
+
+func (a *SpotAdapter) requirePrivateAccess() error {
+	if a.apiClient == nil || a.httpClient == nil || a.httpClient.Signer == nil {
+		return exchanges.NewExchangeError("NADO", "", "private API not available (no credentials configured)", exchanges.ErrAuthFailed)
+	}
+	return nil
 }
