@@ -44,6 +44,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 
 func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*Adapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypePerp, opts.logger())
+	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, quoteToPerpCategory(quote), "")
 	if err != nil {

@@ -95,6 +95,33 @@ func TestBitgetWSOrderModeDoesNotSilentlyFallbackToREST(t *testing.T) {
 	require.Equal(t, int32(0), restHits.Load(), "WS mode failure must not fallback to REST")
 }
 
+func TestBitgetConstructorsDefaultToRESTOrderMode(t *testing.T) {
+	client := newTestClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3/market/instruments":
+			category := r.URL.Query().Get("category")
+			switch category {
+			case categorySpot:
+				return jsonHTTPResponse(`{"code":"00000","msg":"success","requestTime":1,"data":[{"symbol":"BTCUSDT","category":"SPOT","baseCoin":"BTC","quoteCoin":"USDT","minOrderQty":"0.0001","minOrderAmount":"5","pricePrecision":"2","quantityPrecision":"4","status":"online"}]}`), nil
+			case categoryUSDTFutures:
+				return jsonHTTPResponse(`{"code":"00000","msg":"success","requestTime":1,"data":[{"symbol":"BTCUSDT","category":"USDT-FUTURES","baseCoin":"BTC","quoteCoin":"USDT","minOrderQty":"0.001","minOrderAmount":"5","pricePrecision":"1","quantityPrecision":"3","status":"online"}]}`), nil
+			default:
+				return nil, nil
+			}
+		default:
+			return nil, nil
+		}
+	})
+
+	spot, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDT, client)
+	require.NoError(t, err)
+	require.Equal(t, exchanges.OrderModeREST, spot.GetOrderMode(), "spot adapter should preserve the REST default")
+
+	perp, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDT, client)
+	require.NoError(t, err)
+	require.Equal(t, exchanges.OrderModeREST, perp.GetOrderMode(), "perp adapter should preserve the REST default")
+}
+
 func newRejectingRESTServer(t *testing.T, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

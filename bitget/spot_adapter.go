@@ -43,6 +43,7 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 
 func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*SpotAdapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, opts.logger())
+	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, categorySpot, "")
 	if err != nil {
