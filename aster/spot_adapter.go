@@ -34,13 +34,20 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 
 	client := spot.NewClient(opts.APIKey, opts.SecretKey)
 	wsMarket := spot.NewWsMarketClient(ctx)
 	wsAccount := spot.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 
+	base := exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypeSpot, opts.logger())
+	// Aster spot uses REST for private order placement and cancellation in this adapter.
+	base.SetOrderMode(exchanges.OrderModeREST)
+
 	a := &SpotAdapter{
-		BaseAdapter:   exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypeSpot, opts.logger()),
+		BaseAdapter:   base,
 		client:        client,
 		wsMarket:      wsMarket,
 		wsAccount:     wsAccount,
@@ -181,7 +188,7 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 }
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	return nil, fmt.Errorf("modify order not supported by aster spot")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -240,7 +247,7 @@ func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error 
 }
 
 func (a *SpotAdapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {
-	return fmt.Errorf("set leverage not supported for spot")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
@@ -421,7 +428,7 @@ func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBa
 }
 
 func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.TransferParams) error {
-	return fmt.Errorf("transfer asset not supported")
+	return exchanges.ErrNotSupported
 }
 
 // ================= WebSocket =================
@@ -639,11 +646,11 @@ func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol str
 }
 
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("subscribe kline not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
-	return fmt.Errorf("subscribe trades not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
@@ -659,11 +666,11 @@ func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) err
 }
 
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 // ================= Internal Methods =================
@@ -798,9 +805,9 @@ func (a *SpotAdapter) normalizeOrderResponse(r *spot.OrderResponse) (*exchanges.
 }
 
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {
-	return nil
+	return exchanges.ErrNotSupported
 }

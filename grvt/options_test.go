@@ -1,10 +1,36 @@
 package grvt
 
 import (
+	"errors"
 	"testing"
 
 	exchanges "github.com/QuantProcessing/exchanges"
 )
+
+func TestValidateCredentialsAllowsEmptySet(t *testing.T) {
+	if err := (Options{}).validateCredentials(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateCredentialsRejectsPartialSet(t *testing.T) {
+	testCases := []Options{
+		{APIKey: "key"},
+		{SubAccountID: "7"},
+		{PrivateKey: "private"},
+		{APIKey: "key", PrivateKey: "private"},
+	}
+
+	for _, opts := range testCases {
+		err := opts.validateCredentials()
+		if err == nil {
+			t.Fatal("expected partial credentials to be rejected")
+		}
+		if !errors.Is(err, exchanges.ErrAuthFailed) {
+			t.Fatalf("expected ErrAuthFailed, got %v", err)
+		}
+	}
+}
 
 func TestOptions_QuoteCurrency_Default(t *testing.T) {
 	opts := Options{}

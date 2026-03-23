@@ -38,12 +38,17 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 
 	client := perp.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
 	wsMarket := perp.NewWsMarketClient(ctx)
 	wsAccount := perp.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 
 	base := exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypePerp, opts.logger())
+	// Aster uses REST for private order placement and cancellation in this adapter.
+	base.SetOrderMode(exchanges.OrderModeREST)
 
 	a := &Adapter{
 		BaseAdapter:   base,
@@ -85,7 +90,7 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 	return nil
 }
 
-// aster not support ws place order
+// Aster does not support WS private order placement in this adapter.
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
 	return nil
 }

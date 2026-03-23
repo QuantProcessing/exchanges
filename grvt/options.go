@@ -40,3 +40,13 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 	}
 	return "", fmt.Errorf("grvt: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
 }
+
+func (o Options) validateCredentials() error {
+	if o.APIKey == "" && o.SubAccountID == "" && o.PrivateKey == "" {
+		return nil
+	}
+	if o.APIKey == "" || o.SubAccountID == "" || o.PrivateKey == "" {
+		return exchanges.NewExchangeError("GRVT", "", "api_key, sub_account_id, and private_key must be set together", exchanges.ErrAuthFailed)
+	}
+	return nil
+}

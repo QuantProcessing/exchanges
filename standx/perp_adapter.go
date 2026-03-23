@@ -40,10 +40,11 @@ func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
 
 	// 2. Initialize Clients
 	client := standx.NewClient()
+	// StandX allows public-market usage without credentials; a private key enables account and order flows.
 	if opts.PrivateKey != "" {
 		if _, err := client.WithCredentials(opts.PrivateKey); err != nil {
 			cancel()
-			return nil, fmt.Errorf("invalid credentials: %w", err)
+			return nil, exchanges.NewExchangeError("STANDX", "", fmt.Sprintf("invalid private_key: %v", err), exchanges.ErrAuthFailed)
 		}
 	}
 
@@ -54,7 +55,7 @@ func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
 		defer loginCancel()
 		if err := client.Login(loginCtx); err != nil {
 			cancel()
-			return nil, fmt.Errorf("login failed: %w", err)
+			return nil, exchanges.NewExchangeError("STANDX", "", fmt.Sprintf("login failed: %v", err), exchanges.ErrAuthFailed)
 		}
 	}
 
@@ -65,6 +66,7 @@ func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
 	wsApi := standx.NewWsApiClient(aCtx, client)
 
 	base := exchanges.NewBaseAdapter("STANDX", exchanges.MarketTypePerp, opts.logger())
+	// StandX is a controlled hybrid adapter: place/cancel switch on OrderMode, while some private setup stays WS-backed.
 
 	a := &Adapter{
 		BaseAdapter:  base,
@@ -373,7 +375,7 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	return nil, fmt.Errorf("modify order not supported by standx adapter")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -485,7 +487,7 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 	_ = start
 	_ = end
 	_ = limit
-	return nil, fmt.Errorf("get klines not supported yet")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
@@ -706,7 +708,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback ex
 }
 
 func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("subscribe kline not fully implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
@@ -730,7 +732,7 @@ func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
 	return nil
 }
 func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error { return nil }
 

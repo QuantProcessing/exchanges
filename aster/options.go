@@ -40,3 +40,13 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 	}
 	return "", fmt.Errorf("aster: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
 }
+
+func (o Options) validateCredentials() error {
+	if o.APIKey == "" && o.SecretKey == "" {
+		return nil
+	}
+	if o.APIKey == "" || o.SecretKey == "" {
+		return exchanges.NewExchangeError("ASTER", "", "api_key and secret_key must be set together", exchanges.ErrAuthFailed)
+	}
+	return nil
+}

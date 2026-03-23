@@ -47,6 +47,9 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
 
 	pk := strings.TrimPrefix(opts.PrivateKey, "0x")
 	client := grvt.NewClient()
@@ -65,8 +68,11 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	accountWs := grvt.NewAccountWebsocketClient(ctx, client)
 	tradeRpcWs := grvt.NewAccountRpcWebsocketClient(ctx, client)
 
+	base := exchanges.NewBaseAdapter("GRVT", exchanges.MarketTypePerp, opts.logger())
+	// GRVT currently switches only place/cancel/cancel-all order flows with OrderMode.
+
 	a := &Adapter{
-		BaseAdapter:   exchanges.NewBaseAdapter("GRVT", exchanges.MarketTypePerp, opts.logger()),
+		BaseAdapter:   base,
 		client:        client,
 		wsMarket:      marketWs,
 		wsAccount:     accountWs,
@@ -306,7 +312,7 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	return nil, fmt.Errorf("modify order not supported by grvt")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {

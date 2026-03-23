@@ -31,5 +31,5 @@ func (a *Adapter) FetchFundingRate(ctx context.Context, symbol string) (*exchang
 
 // GetAllFundingRates returns all funding rates
 func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.FundingRate, error) {
-	return nil, fmt.Errorf("scan all funding rates not implemented")
+	return nil, exchanges.ErrNotSupported
 }

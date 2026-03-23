@@ -55,10 +55,10 @@ func NewClient() *Client {
 // WithCredentials sets the EVM private key for authentication
 func (c *Client) WithCredentials(evmPrivateKeyHex string) (*Client, error) {
 	signer, err := NewSigner(evmPrivateKeyHex)
-	c.walletAddress = signer.evmAddress
 	if err != nil {
 		return nil, err
 	}
+	c.walletAddress = signer.evmAddress
 	c.signer = signer
 	return c, nil
 }
@@ -121,13 +121,13 @@ func (c *Client) GetToken(ctx context.Context) (string, error) {
 		if err := c.Login(ctx); err != nil {
 			return "", err
 		}
-		
+
 		// Return the new token after login
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		return c.token, nil
 	}
-	
+
 	return token, nil
 }
 
