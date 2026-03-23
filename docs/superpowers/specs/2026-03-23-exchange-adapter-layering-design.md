@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for initial rollout
+Approved and implemented for the initial rollout
 
 ## Problem
 
@@ -34,8 +34,8 @@ Initial rollout classifications:
 
 - `backpack`: explicit REST-only transport adapter in this pass
 - `bitget`: controlled hybrid transport adapter in this pass
-- `binance`: follow-up cleanup target for constructor/auth and sentinel-error convergence, not the final repository template
-- `okx`: follow-up cleanup target for constructor/auth and sentinel-error convergence, not the final repository template
+- `binance`: constructor credential policy and stable unsupported-path sentinel cleanup landed in this pass; still not the final repository template
+- `okx`: constructor credential policy and stable unsupported-path sentinel cleanup landed in this pass; still not the final repository template
 
 Repository-wide decisions that remain explicitly deferred beyond this pass:
 
@@ -135,8 +135,8 @@ Partial-credential behavior must never be accidental.
 
 Current repository drift is broader than one package:
 
-- `bitget` is already close to strict-completeness
-- `binance`, `okx`, and `backpack` still accept partial credential sets at construction time
+- `bitget` uses strict-completeness for its required private credentials
+- `binance`, `okx`, and `backpack` now reject partial credential sets for the private credential fields they require
 
 ### Symbol Semantics
 
@@ -413,7 +413,7 @@ Deviations must be:
 
 ## Current Package Assessment
 
-This section is a high-level snapshot for the initial rollout only. The package gap docs under `docs/superpowers/gaps/` are the source of truth for package-specific convergence status and acceptance conditions.
+This section is a high-level snapshot for the initial rollout only. For packages that have rollout gap docs under `docs/superpowers/gaps/` (currently Backpack and Bitget), those docs are the source of truth for package-specific convergence status and acceptance conditions.
 
 ### Binance
 
@@ -426,9 +426,8 @@ Strengths:
 
 Gaps against this standard:
 
-- constructor behavior is stricter than some packages and looser than others, so the repository lacks a consistent constructor policy
+- constructor credential handling now matches the rollout policy, but constructor metadata-loading behavior still differs from some packages
 - spot order transport behavior does not presently participate in a repository-wide `OrderMode` contract
-- several spot unsupported paths still use inconsistent behavior, including free-form errors and one `StopWatchPositions` path that returns `nil`
 - SDK/package naming is not yet the single repository standard
 
 Role in convergence:
@@ -446,8 +445,6 @@ Strengths:
 Gaps against this standard:
 
 - constructor failure policy is permissive where other packages are fail-fast
-- some credential behavior is inconsistent with other spot adapters
-- several unsupported or missing paths still return free-form errors instead of shared sentinel errors
 - naming and stream coverage still differ from Binance
 
 Role in convergence:
@@ -466,7 +463,7 @@ Gaps against this standard:
 
 - introduces a private-profile/classic-only local architecture that should be treated as a controlled exception, not a new package default
 - uses the initial-rollout controlled hybrid transport shape: REST-default with optional WS switching for a documented subset of order operations
-- funding and private-path placement should be normalized relative to the package standard
+- broader file-layout questions beyond the funding split remain deferred
 
 Role in convergence:
 
@@ -482,10 +479,8 @@ Strengths:
 
 Gaps against this standard:
 
-- currently behaves as a de facto REST-only adapter and should declare and test that explicitly in this pass unless full transport switching is added later
 - stream organization has drifted into a separate local pattern
-- SDK naming is farther from the repository norm
-- some stable failures still use free-form errors rather than shared sentinel errors
+- WS naming remains farther from the repository norm
 - package shape is more fragmented than needed for this repository
 
 Role in convergence:
@@ -494,7 +489,7 @@ Role in convergence:
 
 ## Phased Convergence Plan
 
-This phased plan is rollout guidance, not a second source of package-specific acceptance criteria. Package-level convergence detail belongs in the gap docs.
+This phased plan is rollout guidance, not a second source of package-specific acceptance criteria. For packages with rollout gap docs, package-level convergence detail belongs in those docs.
 
 ### Phase 1: Standardize The Rulebook
 
@@ -511,24 +506,24 @@ Priority order:
 3. `binance`
 4. `okx`
 
-#### Backpack Phase-2 Targets
+#### Backpack Phase-2 Outcomes
 
-- declare and enforce REST-only transport behavior in this pass; revisit only if full switching is introduced later
-- normalize SDK naming where practical without claiming repository-wide rename work is complete
-- reduce unnecessary structural fragmentation where it improves readability while keeping repository-wide stream-layout decisions deferred
-- expand SDK-level tests where runtime coverage is thin
+- REST-only transport behavior is declared and tested in this rollout; revisit only if full switching is introduced later
+- SDK naming now has compatibility shims for `GetOrderBook` and `PlaceOrder`, while broader WS naming remains deferred
+- targeted constructor and SDK-level tests were added in this rollout
+- broader stream/file-layout changes remain deferred
 
-#### Bitget Phase-2 Targets
+#### Bitget Phase-2 Outcomes
 
-- classify classic/private-profile layering as an approved exception with tighter boundaries
-- keep the controlled hybrid transport contract explicit and tested in this pass
-- align file placement for funding/private transport responsibilities without treating all future layout choices as settled
+- classic/private-profile layering is now documented as an approved exception with tighter boundaries
+- the controlled hybrid transport contract is explicit and tested in this rollout
+- perp funding behavior now lives in `funding.go`; broader file-layout choices remain deferred
 
-#### Binance And OKX Phase-2 Targets
+#### Binance And OKX Phase-2 Outcomes
 
-- align constructor failure policy
-- align naming and minor transport/documentation behavior
-- reduce historical inconsistencies without large churn
+- constructor credential policy now rejects partial credential sets while still allowing public-only construction
+- stable unsupported paths now use shared sentinel errors in the targeted adapters
+- broader naming, transport, and constructor metadata-loading differences remain deferred
 
 ### Phase 3: Enforce For All New Work
 
