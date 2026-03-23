@@ -879,11 +879,11 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 }
 
 func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) StopWatchOrders(ctx context.Context) error {
@@ -934,11 +934,11 @@ func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
 }
 
 func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchSymbolDetails(ctx context.Context, symbol string) (*exchanges.SymbolDetails, error) {

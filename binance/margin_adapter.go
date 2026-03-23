@@ -299,7 +299,7 @@ func (a *MarginAdapter) CancelOrder(ctx context.Context, orderID, symbol string)
 
 // Override SubscribeOrderUpdate
 func (a *MarginAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
-	return fmt.Errorf("margin websocket order update not supported yet")
+	return exchanges.ErrNotSupported
 }
 
 // Helper to map status
@@ -323,47 +323,47 @@ func (a *MarginAdapter) mapStatus(s string) exchanges.OrderStatus {
 }
 
 func (a *MarginAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) WatchTicker(ctx context.Context, symbol string, cb exchanges.TickerCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) WatchTrades(ctx context.Context, symbol string, cb exchanges.TradeCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, cb exchanges.KlineCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) StopWatchOrders(ctx context.Context) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) StopWatchPositions(ctx context.Context) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) StopWatchTicker(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *MarginAdapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBook {

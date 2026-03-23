@@ -343,7 +343,7 @@ func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBa
 }
 
 func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.TransferParams) error {
-	return fmt.Errorf("TransferAsset not supported by Binance Spot Adapter yet (requires Universal Transfer endpoint)")
+	return exchanges.ErrNotSupported
 }
 
 // ================= Market Data =================
@@ -986,9 +986,9 @@ func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exch
 }
 
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {
-	return nil
+	return exchanges.ErrNotSupported
 }

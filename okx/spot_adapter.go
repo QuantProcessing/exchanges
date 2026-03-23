@@ -238,7 +238,7 @@ func (a *SpotAdapter) FetchSpotBalances(ctx context.Context) ([]exchanges.SpotBa
 }
 
 func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.TransferParams) error {
-	return fmt.Errorf("transfer asset not supported for OKX yet")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
@@ -691,13 +691,11 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 }
 
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
-	// OKX SDK doesn't have Subscribe Candles yet
-	return fmt.Errorf("SubscribeKline not implemented for OKX spot")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
-	// OKX SDK doesn't have SubscribeTrades yet
-	return fmt.Errorf("SubscribeTrades not implemented for OKX spot")
+	return exchanges.ErrNotSupported
 }
 
 // Unsubscribe methods
@@ -715,11 +713,11 @@ func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error 
 }
 
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 // WaitOrderBookReady waits for orderbook to be ready
@@ -802,11 +800,11 @@ func mapOKXOrderType(t okx.OrderType) exchanges.OrderType {
 }
 
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
-	return fmt.Errorf("not implemented")
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {
-	return nil
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
