@@ -276,6 +276,13 @@ func roundSpotMarketBuyQuoteQty(ctx context.Context, adp exchanges.Exchange, sym
 		minNotional = detail.MinNotional
 	}
 
+	if isClassicBitgetSpot(adp) && minNotional.IsPositive() {
+		safetyFloor := minNotional.Mul(decimal.NewFromInt(2))
+		if qty.LessThan(safetyFloor) {
+			qty = safetyFloor
+		}
+	}
+
 	precision, ok := bitgetSpotQuotePrecision(adp, symbol)
 	if !ok || precision < 0 {
 		if minNotional.IsPositive() && !qty.GreaterThan(minNotional) {
@@ -314,4 +321,9 @@ func bitgetSpotQuotePrecision(adp exchanges.Exchange, symbol string) (int, bool)
 		return 0, false
 	}
 	return precision, true
+}
+
+func isClassicBitgetSpot(adp exchanges.Exchange) bool {
+	spot, ok := adp.(*SpotAdapter)
+	return ok && spot.accountMode == accountModeClassic
 }

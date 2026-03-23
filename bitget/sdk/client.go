@@ -134,7 +134,7 @@ func (c *Client) postPrivate(ctx context.Context, path string, body any, out any
 
 	if resp.StatusCode >= 300 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bitget sdk: POST %s returned %s: %s", path, resp.Status, string(bodyBytes))
+		return fmt.Errorf("bitget sdk: POST %s returned %s: %s (request=%s)", path, resp.Status, string(bodyBytes), string(payload))
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
