@@ -39,3 +39,13 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 	}
 	return "", fmt.Errorf("edgex: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
 }
+
+func (o Options) validateCredentials() error {
+	if o.PrivateKey == "" && o.AccountID == "" {
+		return nil
+	}
+	if o.PrivateKey == "" || o.AccountID == "" {
+		return exchanges.NewExchangeError("EDGEX", "", "private_key and account_id must be set together", exchanges.ErrAuthFailed)
+	}
+	return nil
+}

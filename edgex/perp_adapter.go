@@ -45,6 +45,13 @@ type Adapter struct {
 // APIKey -> AccountID
 // SecretKey -> StarkPrivateKey
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	if _, err := opts.quoteCurrency(); err != nil {
+		return nil, err
+	}
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
+
 	client := perp.NewClient()
 	if opts.PrivateKey != "" {
 		client.WithCredentials(opts.PrivateKey, opts.AccountID)
@@ -55,8 +62,12 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 		wsAccount = perp.NewWsAccountClient(ctx, opts.PrivateKey, opts.AccountID)
 	}
 
+	base := exchanges.NewBaseAdapter("EDGEX", exchanges.MarketTypePerp, opts.logger())
+	// EdgeX uses REST for private order placement and cancellation in this adapter.
+	base.SetOrderMode(exchanges.OrderModeREST)
+
 	a := &Adapter{
-		BaseAdapter:      exchanges.NewBaseAdapter("EDGEX", exchanges.MarketTypePerp, opts.logger()),
+		BaseAdapter:      base,
 		client:           client,
 		wsMarket:         wsMarket,
 		wsAccount:        wsAccount,
@@ -79,7 +90,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 
 func (a *Adapter) WsAccountConnected(ctx context.Context) error {
 	if a.wsAccount == nil {
-		return fmt.Errorf("ws account not available (no credentials configured)")
+		return exchanges.NewExchangeError("EDGEX", "", "ws account not available (no credentials configured)", exchanges.ErrAuthFailed)
 	}
 	if a.wsAccount.Conn == nil {
 		if err := a.wsAccount.Connect(); err != nil {
@@ -100,7 +111,7 @@ func (a *Adapter) WsMarketConnected(ctx context.Context) error {
 	return nil
 }
 
-// edgex not support ws order place
+// EdgeX does not support WS private order placement in this adapter.
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {
 	return nil
 }
@@ -353,7 +364,7 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	return nil, fmt.Errorf("modify order not supported by edgex sdk")
+	return nil, exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
