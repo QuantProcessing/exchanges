@@ -11,7 +11,7 @@ import (
 )
 
 type WsMarketClient struct {
-	WsClient *WsClient
+	WsClient *WSClient
 	IsAuth   bool
 
 	ctx    context.Context
@@ -27,7 +27,7 @@ func NewWsMarketClient(ctx context.Context) *WsMarketClient {
 	ctx, cancel := context.WithCancel(ctx)
 	logger := zap.NewNop().Sugar().Named("standx-ws-market")
 	return &WsMarketClient{
-		WsClient: NewWsClient(ctx, MarketStreamURL, logger),
+		WsClient: NewWSClient(ctx, MarketStreamURL, logger),
 		Logger:   logger,
 		ctx:      ctx,
 		cancel:   cancel,

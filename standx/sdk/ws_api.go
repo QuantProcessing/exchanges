@@ -12,7 +12,7 @@ import (
 
 type WsApiClient struct {
 	client         *Client
-	wsClient       *WsClient
+	wsClient       *WSClient
 	sessionID      string
 	LoginRequestID string
 	Logger         *zap.SugaredLogger
@@ -32,7 +32,7 @@ func NewWsApiClient(ctx context.Context, client *Client) *WsApiClient {
 	logger := zap.NewNop().Sugar().Named("standx-ws-api")
 	return &WsApiClient{
 		client:            client,
-		wsClient:          NewWsClient(ctx, APIStreamURL, logger),
+		wsClient:          NewWSClient(ctx, APIStreamURL, logger),
 		Logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,

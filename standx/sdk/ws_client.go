@@ -16,8 +16,8 @@ const (
 	APIStreamURL    = "wss://perps.standx.com/ws-api/v1"
 )
 
-// WsClient Base WebSocket client
-type WsClient struct {
+// WSClient is the base WebSocket client.
+type WSClient struct {
 	url    string
 	conn   *websocket.Conn
 	mu     sync.Mutex
@@ -41,8 +41,11 @@ type WsClient struct {
 	OnReconnect func() error
 }
 
-func NewWsClient(ctx context.Context, url string, logger *zap.SugaredLogger) *WsClient {
-	c := &WsClient{
+// WsClient is kept as a compatibility alias for older callers.
+type WsClient = WSClient
+
+func NewWSClient(ctx context.Context, url string, logger *zap.SugaredLogger) *WSClient {
+	c := &WSClient{
 		url:    url,
 		logger: logger,
 	}
@@ -51,12 +54,16 @@ func NewWsClient(ctx context.Context, url string, logger *zap.SugaredLogger) *Ws
 	return c
 }
 
-func (c *WsClient) SetCredentials(signer *Signer, token string) {
+func NewWsClient(ctx context.Context, url string, logger *zap.SugaredLogger) *WSClient {
+	return NewWSClient(ctx, url, logger)
+}
+
+func (c *WSClient) SetCredentials(signer *Signer, token string) {
 	c.signer = signer
 	c.token = token
 }
 
-func (c *WsClient) Connect() error {
+func (c *WSClient) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -106,13 +113,13 @@ func (c *WsClient) Connect() error {
 	return nil
 }
 
-func (c *WsClient) IsConnected() bool {
+func (c *WSClient) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.isConnected
 }
 
-func (c *WsClient) Close() {
+func (c *WSClient) Close() {
 	c.cancel()
 	c.mu.Lock()
 	if c.conn != nil {
@@ -123,7 +130,7 @@ func (c *WsClient) Close() {
 	c.mu.Unlock()
 }
 
-func (c *WsClient) readLoop() {
+func (c *WSClient) readLoop() {
 	// defer c.Close() // Do not close on exit, as it cancels context for the *new* connection if we are reconnecting
 
 	for {
@@ -152,7 +159,7 @@ func (c *WsClient) readLoop() {
 	}
 }
 
-func (c *WsClient) reconnect() {
+func (c *WSClient) reconnect() {
 	c.mu.Lock()
 	c.isConnected = false
 	if c.conn != nil {
@@ -192,7 +199,7 @@ func (c *WsClient) reconnect() {
 	}
 }
 
-func (c *WsClient) pingLoop() {
+func (c *WSClient) pingLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -215,7 +222,7 @@ func (c *WsClient) pingLoop() {
 	}
 }
 
-func (c *WsClient) WriteJSON(v interface{}) error {
+func (c *WSClient) WriteJSON(v interface{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.isConnected || c.conn == nil {
@@ -224,6 +231,6 @@ func (c *WsClient) WriteJSON(v interface{}) error {
 	return c.conn.WriteJSON(v)
 }
 
-func (c *WsClient) SetHandler(handler func([]byte)) {
+func (c *WSClient) SetHandler(handler func([]byte)) {
 	c.HandleMsg = handler
 }

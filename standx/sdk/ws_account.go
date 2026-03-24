@@ -12,7 +12,7 @@ import (
 
 type WsAccountClient struct {
 	client   *Client
-	wsClient *WsClient
+	wsClient *WSClient
 	token    string
 	IsAuth   bool
 
@@ -33,7 +33,7 @@ func NewWsAccountClient(ctx context.Context, client *Client) *WsAccountClient {
 		client:   client,
 		ctx:      ctx,
 		cancel:   cancel,
-		wsClient: NewWsClient(ctx, MarketStreamURL, logger),
+		wsClient: NewWSClient(ctx, MarketStreamURL, logger),
 		handlers: make(map[string]func([]byte)),
 		authDone: make(chan error, 1),
 		Logger:   logger,
@@ -49,7 +49,7 @@ func (c *WsAccountClient) Connect() error {
 
 func (c *WsAccountClient) onReconnect() error {
 	c.Logger.Info("Different from MarketClient, AccountClient must Re-Auth first")
-	
+
 	// 1. Re-Auth with Retry (Refresh token if needed)
 	c.mu.Lock()
 	c.IsAuth = false
@@ -75,27 +75,27 @@ func (c *WsAccountClient) onReconnect() error {
 		// Check performAuth implementation...
 		// Yes: Streams: []SubscribeAuthChannel{ {Channel: "order"} ... }
 		// So performAuth technically restores subscriptions IF the static list matches what we want.
-		
+
 		// But Wait, performAuth has HARDCODED list: order, position, balance, trade.
 		// And Subscribe() method just registers handler and sends single subscribe request.
 		// If user only subscribed to "order", performAuth subscribed all.
 		// This suggests Standx might auto-push all account updates if authenticated?
 		// Or performAuth explicitly requested them.
-		
+
 		// If performAuth already requests them, we might duplicate if we send again?
 		// But it's safer to rely on performAuth for the standard set.
-		
+
 		// Let's check performAuth code in original file...
 		// It sends SubscriptionAuthRequest with hardcoded streams.
 		// So re-auth handles resubscription for those 4 channels.
-		
+
 		// Are there any other channels?
 		// If handlers has custom channels not in performAuth, we need to resubscribe.
 		// But currently performAuth covers standard ones.
-		
+
 		// We can just skip manual resubscribe if channel is in the standard list.
 		// Standard: order, position, balance, trade.
-		
+
 		// If we support other channels later, we should check.
 		// For now, simple re-auth seems sufficient for standard usage.
 		// But let's log.
