@@ -25,4 +25,4 @@
 
 - Deferred: any future move from REST-only transport to full `OrderMode` switching.
 - Deferred: repository-wide decisions about whether stream logic should default back into the main adapter files.
-- Deferred: broader repository-wide websocket naming normalization beyond the active `WsClient -> WSClient` convergence pass, including families such as `WebsocketClient`, `BaseWsClient`, and `WsApiClient`.
+- Deferred: broader repository-wide websocket naming normalization beyond the landed generic `WsClient -> WSClient` convergence pass, including families such as `WebsocketClient`, `BaseWsClient`, and `WsApiClient`.

@@ -343,7 +343,7 @@ SDK layout may vary, but the following boundaries must remain clear:
 
 ### SDK Naming
 
-Backpack is now the landed repository precedent for SDK orderbook/query and private-order verbs: `GetOrderBook` and `PlaceOrder` are the preferred names for shared SDK query/order concepts, while legacy aliases remain available for compatibility. This SDK-focused baseline still does not settle a repository-wide rename campaign for every SDK type or websocket client family.
+Backpack is now the landed repository precedent for SDK orderbook/query and private-order verbs: `GetOrderBook` and `PlaceOrder` are the preferred names for shared SDK query/order concepts, while legacy aliases remain available for compatibility. The generic `WsClient -> WSClient` naming convergence is also landed for Aster, Binance, OKX, and StandX. This SDK-focused baseline still does not settle a repository-wide rename campaign for every SDK type or every websocket client family.
 
 SDK naming should converge on these verbs:
 
@@ -360,7 +360,7 @@ For example:
 
 - prefer `PlaceOrder` over `ExecuteOrder`
 - prefer `GetOrderBook` over legacy SDK query aliases such as `GetDepth` when the same orderbook concept is exposed
-- prefer `WSClient` for packages that implement the generic `WsClient` concept in the naming-convergence pass, while keeping `WebsocketClient`, `BaseWsClient`, and `WsApiClient` explicitly deferred for a later repository-wide decision
+- prefer `WSClient` for packages that implement the generic `WsClient` concept; this convergence is now landed in Aster, Binance, OKX, and StandX, while `WebsocketClient`, `BaseWsClient`, and `WsApiClient` remain explicitly deferred for a later repository-wide decision
 
 ### SDK Deviation Rule
 
@@ -542,7 +542,14 @@ Priority order:
 
 - constructor credential policy now rejects partial credential sets while still allowing public-only construction
 - stable unsupported paths now use shared sentinel errors in the targeted adapters
+- generic websocket base-client naming now uses `WSClient` with compatibility aliases retained for legacy `WsClient` call sites
 - broader naming, transport, and constructor metadata-loading differences remain deferred
+
+#### Repository Naming-Convergence Outcomes
+
+- Backpack now serves as the landed repository precedent for shared SDK `GetOrderBook` / `PlaceOrder` naming with compatibility aliases retained
+- Aster, Binance, OKX, and StandX now use `WSClient` as the preferred generic websocket base-client name while keeping `WsClient` constructor/type compatibility shims
+- remaining websocket naming families (`WebsocketClient`, `BaseWsClient`, and `WsApiClient`) remain deferred for a later repository-wide decision
 
 ### Phase 3: Enforce For All New Work
 
@@ -557,7 +564,7 @@ After the first convergence pass:
 1. Publish this document and the review checklist as the initial-rollout baseline while keeping the deferred repository-wide decisions open.
 2. Track per-package gap lists for `backpack` and `bitget` as the first-pass convergence records.
 3. Use the standard as the starting point for future adapter-generation and review workflows.
-4. Revisit the deferred repository-wide naming and file-layout questions after the first convergence pass lands.
+4. Revisit the remaining deferred repository-wide naming and file-layout questions in a later cleanup pass now that the generic `WsClient -> WSClient` convergence has landed.
 
 ## Open Decisions
 
@@ -566,4 +573,4 @@ These are explicitly deferred beyond the initial rollout:
 1. Should repository-standard constructor behavior be fail-fast for required market metadata in all adapters?
 2. Should repository-standard `OrderMode` default remain inherited from `BaseAdapter`, or should adapters be required to declare their transport default explicitly?
 3. Should stream logic remain in the main adapter files by default, with split files treated as exceptions?
-4. After the `WsClient` naming-convergence pass lands, should the remaining websocket naming families (`WebsocketClient`, `BaseWsClient`, and `WsApiClient`) be normalized further across the repository?
+4. Should the remaining websocket naming families (`WebsocketClient`, `BaseWsClient`, and `WsApiClient`) be normalized further across the repository now that the generic `WsClient -> WSClient` pass has landed?
