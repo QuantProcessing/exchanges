@@ -17,6 +17,8 @@ These drifts do not currently break behavior, but they continue to hurt cross-pa
 
 Establish one repository-preferred naming scheme for the most visible SDK entrypoints without forcing a breaking cleanup in one pass.
 
+This document is an amendment to the adapter-layering baseline, not a parallel naming policy. It narrows two previously deferred naming questions into one implementable pass and explicitly leaves the rest deferred.
+
 This design is intentionally narrow:
 
 - unify SDK query and private-order naming where there is already clear repository precedent
@@ -35,7 +37,7 @@ This design is intentionally narrow:
 
 ### In Scope
 
-- Backpack SDK query and private-order method naming
+- repository-preferred SDK query and private-order naming, using Backpack as the already-landed precedent package
 - `WsClient` to `WSClient` convergence in:
   - `aster/sdk/perp`
   - `aster/sdk/spot`
@@ -49,6 +51,7 @@ This design is intentionally narrow:
 
 - `grvt` and `hyperliquid` `WebsocketClient`
 - `nado` `BaseWsClient` and `WsApiClient`
+- `lighter` `WebsocketClient`
 - local-orderbook naming
 - any broader file-layout cleanup
 
@@ -56,12 +59,18 @@ This design is intentionally narrow:
 
 After this change, repository-preferred SDK naming is:
 
-- public query methods use `Get*`
-- private trading methods use `Place*`, `Cancel*`, and `Modify*`
-- websocket base-client types use `WSClient`
+- SDK public query methods use `Get*`
+- SDK private trading methods use `Place*`, `Cancel*`, and `Modify*`
+- websocket base-client types that follow the generic `WsClient` pattern use `WSClient`
 - role-specific websocket clients use `PublicWSClient` and `PrivateWSClient` where those roles exist
 
 The repository will continue to allow exchange-specific names when the concept is genuinely different. This task only changes names that represent the same concept and already have a clear preferred form elsewhere in the codebase.
+
+This does not close the broader question of whether every exchange-specific websocket type in the repository should eventually converge on one shared family of names. After this pass:
+
+- `WSClient` is the preferred casing for packages that currently expose the generic `WsClient` concept
+- `WebsocketClient`, `BaseWsClient`, and `WsApiClient` remain tolerated exchange-specific exceptions
+- the layering baseline should record those remaining families as deferred, with future convergence left to a separate task
 
 ## Compatibility Strategy
 
@@ -101,12 +110,11 @@ Rules:
 
 ### Backpack
 
-Change:
+Repository role:
 
-- move the actual orderbook-query implementation to `GetOrderBook`
-- move the actual private order submission implementation to `PlaceOrder`
-- keep `GetDepth` and `ExecuteOrder` as thin wrappers
-- update adapter-level call sites, helper interfaces, test stubs, and SDK tests to use `GetOrderBook` and `PlaceOrder`
+- Backpack is not new implementation scope in this task.
+- Backpack is the already-landed precedent for `GetOrderBook` and `PlaceOrder` as preferred SDK names.
+- This task only verifies that the layering baseline, checklist, and Backpack gap doc consistently describe that landed state.
 
 Do not change:
 
@@ -151,20 +159,27 @@ Change:
 
 ## Implementation Order
 
-1. Update Backpack SDK naming and its tests first.
-2. Update websocket base-client naming in Aster.
-3. Update websocket base-client naming in Binance.
-4. Update websocket base-client naming in OKX.
-5. Update websocket base-client naming in StandX.
-6. Update repository docs to mark naming convergence as landed and remove the related deferred item.
+1. Align the layering baseline, Backpack gap doc, and checklist so Backpack is recorded as the landed precedent and websocket naming deferral is narrowed to the remaining non-`WsClient` families.
+2. Run or refresh Backpack regression coverage only as verification for the already-landed `GetOrderBook` and `PlaceOrder` compatibility wrappers.
+3. Update websocket base-client naming in Aster.
+4. Update websocket base-client naming in Binance.
+5. Update websocket base-client naming in OKX.
+6. Update websocket base-client naming in StandX.
+7. Update repository docs to mark the naming convergence pass as landed and keep the remaining non-`WsClient` naming families explicitly deferred.
 
 ## Verification
 
 Minimum verification for the implementation phase:
 
-- targeted package tests for Backpack SDK naming
+- targeted Backpack SDK naming tests only as regression coverage for the already-landed compatibility wrappers
 - targeted package tests for each renamed websocket-client package
 - repository compile check
+
+Compatibility verification is mandatory. The implementation plan must require at least one deterministic compatibility test for each renamed family:
+
+- one compatibility test for Backpack `GetDepth -> GetOrderBook`
+- one compatibility test for Backpack `ExecuteOrder -> PlaceOrder`
+- one compatibility test per package family for `NewWsClient -> NewWSClient` or `WsClient -> WSClient`
 
 Credential-dependent live tests are not required for this naming task.
 
@@ -178,9 +193,10 @@ Credential-dependent live tests are not required for this naming task.
 
 This design is complete when:
 
-- Backpack uses `GetOrderBook` and `PlaceOrder` as the primary SDK method names
-- legacy Backpack names remain only as compatibility wrappers
+- the layering baseline explicitly treats Backpack as the landed precedent for `GetOrderBook` and `PlaceOrder`
+- legacy Backpack names remain only as documented compatibility wrappers
 - Aster, Binance, OKX, and StandX use `WSClient` as the primary websocket base-client type name
 - legacy `WsClient` names remain only as compatibility aliases or wrappers
 - new tests and updated internal call sites use the preferred names
-- the adapter-layering spec no longer treats websocket naming and preferred SDK query/order naming as deferred
+- compatibility wrappers are covered by deterministic tests
+- the adapter-layering spec no longer treats Backpack SDK query/order naming as deferred and narrows websocket naming deferral to the remaining non-`WsClient` families
