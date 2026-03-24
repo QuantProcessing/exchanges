@@ -42,7 +42,7 @@ Repository-wide decisions that remain explicitly deferred beyond this pass:
 - universal constructor failure policy for required market metadata
 - whether every adapter must declare an explicit transport default rather than inheriting `BaseAdapter` behavior
 - repository-wide default placement for stream logic and related file splits
-- repository-wide WS client naming normalization and other broad SDK rename work
+- whether the remaining non-`WsClient` websocket families (`WebsocketClient`, `BaseWsClient`, and `WsApiClient`) should converge later, along with any other broad SDK rename work
 
 The repository-wide convergence pass extended the same baseline to the remaining adapter packages:
 
@@ -343,7 +343,7 @@ SDK layout may vary, but the following boundaries must remain clear:
 
 ### SDK Naming
 
-This first pass only requires naming convergence where a package gap doc calls for it. It does not settle a repository-wide rename campaign for every SDK type or WS client.
+Backpack is now the landed repository precedent for SDK orderbook/query and private-order verbs: `GetOrderBook` and `PlaceOrder` are the preferred names for shared SDK query/order concepts, while legacy aliases remain available for compatibility. This SDK-focused baseline still does not settle a repository-wide rename campaign for every SDK type or websocket client family.
 
 SDK naming should converge on these verbs:
 
@@ -359,7 +359,8 @@ Avoid introducing new verbs for existing concepts where a repository-standard te
 For example:
 
 - prefer `PlaceOrder` over `ExecuteOrder`
-- prefer one consistent WS client naming style rather than mixing `WsClient`, `WSClient`, `PublicWSClient`, and unrelated variants without reason
+- prefer `GetOrderBook` over legacy SDK query aliases such as `GetDepth` when the same orderbook concept is exposed
+- prefer `WSClient` for packages that implement the generic `WsClient` concept in the naming-convergence pass, while keeping `WebsocketClient`, `BaseWsClient`, and `WsApiClient` explicitly deferred for a later repository-wide decision
 
 ### SDK Deviation Rule
 
@@ -489,12 +490,11 @@ Strengths:
 Gaps against this standard:
 
 - stream organization has drifted into a separate local pattern
-- WS naming remains farther from the repository norm
 - package shape is more fragmented than needed for this repository
 
 Role in convergence:
 
-- first package to prioritize for explicit REST-only classification and structural convergence
+- landed precedent for explicit REST-only classification and for preferred SDK `GetOrderBook` / `PlaceOrder` naming, while broader stream/file-layout cleanup remains separate
 
 ### Additional Packages Normalized In The Repository-Wide Pass
 
@@ -528,7 +528,7 @@ Priority order:
 #### Backpack Phase-2 Outcomes
 
 - REST-only transport behavior is declared and tested in this rollout; revisit only if full switching is introduced later
-- SDK naming now has compatibility shims for `GetOrderBook` and `PlaceOrder`, while broader WS naming remains deferred
+- SDK naming now treats `GetOrderBook` and `PlaceOrder` as the preferred Backpack entrypoints, with legacy names still retained for compatibility
 - targeted constructor and SDK-level tests were added in this rollout
 - broader stream/file-layout changes remain deferred
 
@@ -566,4 +566,4 @@ These are explicitly deferred beyond the initial rollout:
 1. Should repository-standard constructor behavior be fail-fast for required market metadata in all adapters?
 2. Should repository-standard `OrderMode` default remain inherited from `BaseAdapter`, or should adapters be required to declare their transport default explicitly?
 3. Should stream logic remain in the main adapter files by default, with split files treated as exceptions?
-4. Should SDK WS client naming be normalized to a single style across the repository?
+4. After the `WsClient` naming-convergence pass lands, should the remaining websocket naming families (`WebsocketClient`, `BaseWsClient`, and `WsApiClient`) be normalized further across the repository?
