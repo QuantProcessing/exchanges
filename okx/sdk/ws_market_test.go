@@ -18,8 +18,31 @@ func GetEnv() (string, string, string) {
 	return apiKey, secretKey, passphrase
 }
 
+func TestWSClientConstructorCompatibility(t *testing.T) {
+	ctx := context.Background()
+
+	modern := NewWSClient(ctx)
+	legacy := NewWsClient(ctx)
+
+	var modernFromLegacy *WSClient = legacy
+	var legacyFromModern *WsClient = modern
+
+	if modernFromLegacy != legacy {
+		t.Fatalf("legacy constructor returned incompatible type")
+	}
+	if legacyFromModern != modern {
+		t.Fatalf("modern constructor returned incompatible alias type")
+	}
+	if modern.URL != legacy.URL {
+		t.Fatalf("constructors should initialize the same URL: got %q and %q", modern.URL, legacy.URL)
+	}
+	if modern.Subs == nil || legacy.PendingReqs == nil {
+		t.Fatalf("constructors should initialize websocket client maps")
+	}
+}
+
 func TestSubscribeTicker(t *testing.T) {
-	wsClient := NewWsClient(context.Background())
+	wsClient := NewWSClient(context.Background())
 	err := wsClient.Connect()
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +55,7 @@ func TestSubscribeTicker(t *testing.T) {
 }
 
 func TestSubscribeOrderBook(t *testing.T) {
-	wsClient := NewWsClient(context.Background())
+	wsClient := NewWSClient(context.Background())
 	err := wsClient.Connect()
 	if err != nil {
 		t.Fatal(err)

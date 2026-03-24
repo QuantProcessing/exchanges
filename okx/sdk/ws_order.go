@@ -14,7 +14,7 @@ type WsOrderOp struct {
 }
 
 // PlaceOrderWS places an order via WebSocket.
-func (c *WsClient) PlaceOrderWS(req *OrderRequest) (*OrderId, error) {
+func (c *WSClient) PlaceOrderWS(req *OrderRequest) (*OrderId, error) {
 	// User should handle tracking via clOrdId.
 
 	// Use int64 for internal tracking
@@ -74,7 +74,7 @@ func (c *WsClient) PlaceOrderWS(req *OrderRequest) (*OrderId, error) {
 }
 
 // CancelOrderWS cancels an order via WebSocket.
-func (c *WsClient) CancelOrderWS(instId string, ordId, clOrdId *string) (*OrderId, error) {
+func (c *WSClient) CancelOrderWS(instId string, ordId, clOrdId *string) (*OrderId, error) {
 	req := map[string]string{
 		"instId": instId,
 	}
@@ -140,7 +140,7 @@ func (c *WsClient) CancelOrderWS(instId string, ordId, clOrdId *string) (*OrderI
 }
 
 // ModifyOrderWS amends an order via WebSocket.
-func (c *WsClient) ModifyOrderWS(req *ModifyOrderRequest) (*OrderId, error) {
+func (c *WSClient) ModifyOrderWS(req *ModifyOrderRequest) (*OrderId, error) {
 	// Use int64 for internal tracking
 	idInt := time.Now().UnixNano()
 	idStr := fmt.Sprintf("%d", idInt)
@@ -196,7 +196,7 @@ func (c *WsClient) ModifyOrderWS(req *ModifyOrderRequest) (*OrderId, error) {
 }
 
 // CancelOrdersWS cancels a batch of orders via WebSocket.
-func (c *WsClient) CancelOrdersWS(reqs []CancelOrderRequest) ([]OrderId, error) {
+func (c *WSClient) CancelOrdersWS(reqs []CancelOrderRequest) ([]OrderId, error) {
 	// Use int64 for internal tracking
 	idInt := time.Now().UnixNano()
 	idStr := fmt.Sprintf("%d", idInt)

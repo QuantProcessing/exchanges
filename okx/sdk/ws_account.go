@@ -6,7 +6,7 @@ import (
 )
 
 // SubscribeOrders subscribes to orders channel.
-func (c *WsClient) SubscribeOrders(instType string, instId *string, handler func(*Order)) error {
+func (c *WSClient) SubscribeOrders(instType string, instId *string, handler func(*Order)) error {
 	args := WsSubscribeArgs{
 		Channel:  "orders",
 		InstType: instType, // SPOT, SWAP, FUTURES, OPTION, ANY
@@ -29,7 +29,7 @@ func (c *WsClient) SubscribeOrders(instType string, instId *string, handler func
 }
 
 // SubscribePositions subscribes to positions channel.
-func (c *WsClient) SubscribePositions(instType string, handler func(*Position)) error {
+func (c *WSClient) SubscribePositions(instType string, handler func(*Position)) error {
 	args := WsSubscribeArgs{
 		Channel:  "positions",
 		InstType: instType,

@@ -20,8 +20,8 @@ type Adapter struct {
 	*exchanges.BaseAdapter
 
 	client    *okx.Client
-	wsPublic  *okx.WsClient
-	wsPrivate *okx.WsClient
+	wsPublic  *okx.WSClient
+	wsPrivate *okx.WSClient
 
 	// Symbol mapping: Token -> InstId (e.g. BTC -> BTC-USDT-SWAP)
 	symbolMap     map[string]string         // BTC -> BTC-USDT-SWAP
@@ -52,8 +52,8 @@ func newPerpAdapterWithClient(ctx context.Context, opts Options, quote exchanges
 	if err := opts.validateCredentials(); err != nil {
 		return nil, err
 	}
-	wsPublic := okx.NewWsClient(ctx)
-	wsPrivate := okx.NewWsClient(ctx)
+	wsPublic := okx.NewWSClient(ctx)
+	wsPrivate := okx.NewWSClient(ctx)
 
 	if opts.hasFullCredentials() {
 		client.WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)

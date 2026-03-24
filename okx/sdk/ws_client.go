@@ -17,7 +17,6 @@ import (
 
 	"go.uber.org/zap"
 
-
 	"github.com/gorilla/websocket"
 )
 
@@ -28,7 +27,7 @@ const (
 	WSPrivateBaseURL = "wss://ws.okx.com:8443/ws/v5/private"
 )
 
-type WsClient struct {
+type WSClient struct {
 	Conn        *websocket.Conn
 	mu          sync.Mutex
 	WriteMu     sync.Mutex
@@ -47,7 +46,9 @@ type WsClient struct {
 	Logger    *zap.SugaredLogger
 }
 
-func NewWsClient(ctx context.Context) *WsClient {
+type WsClient = WSClient
+
+func NewWSClient(ctx context.Context) *WSClient {
 	baseUrl := WSBaseURL
 
 	// Proxy check
@@ -68,7 +69,7 @@ func NewWsClient(ctx context.Context) *WsClient {
 	}
 
 	// Use provided context for lifecycle management
-	return &WsClient{
+	return &WSClient{
 		URL:         baseUrl,
 		Subs:        make(map[WsSubscribeArgs]func([]byte)),
 		PendingReqs: make(map[int64]*PendingRequest),
@@ -79,7 +80,11 @@ func NewWsClient(ctx context.Context) *WsClient {
 	}
 }
 
-func (c *WsClient) WithCredentials(apiKey, secretKey, passphrase string) *WsClient {
+func NewWsClient(ctx context.Context) *WSClient {
+	return NewWSClient(ctx)
+}
+
+func (c *WSClient) WithCredentials(apiKey, secretKey, passphrase string) *WSClient {
 	c.IsPrivate = true
 	c.URL = WSPrivateBaseURL
 	// keys
@@ -89,7 +94,7 @@ func (c *WsClient) WithCredentials(apiKey, secretKey, passphrase string) *WsClie
 	return c
 }
 
-func (c *WsClient) Connect() error {
+func (c *WSClient) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -137,7 +142,7 @@ func (c *WsClient) Connect() error {
 	return nil
 }
 
-func (c *WsClient) pingLoop() {
+func (c *WSClient) pingLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	for {
 		select {
@@ -156,7 +161,7 @@ func (c *WsClient) pingLoop() {
 	}
 }
 
-func (c *WsClient) Login() error {
+func (c *WSClient) Login() error {
 	// Docs say: timestamp as String, e.g. "1597026383.085" (seconds + decimal)
 	// Or just unix epoch seconds?
 	// OKX V5 WS login: timestamp in seconds as string
@@ -188,7 +193,7 @@ func (c *WsClient) Login() error {
 	return c.Conn.WriteJSON(req)
 }
 
-func (c *WsClient) Subscribe(args WsSubscribeArgs, handler func(data []byte)) error {
+func (c *WSClient) Subscribe(args WsSubscribeArgs, handler func(data []byte)) error {
 	c.mu.Lock()
 	c.Subs[args] = handler
 	c.mu.Unlock()
@@ -231,7 +236,7 @@ func (c *WsClient) Subscribe(args WsSubscribeArgs, handler func(data []byte)) er
 	}
 }
 
-func (c *WsClient) Unsubscribe(args WsSubscribeArgs) error {
+func (c *WSClient) Unsubscribe(args WsSubscribeArgs) error {
 	c.mu.Lock()
 	delete(c.Subs, args)
 	c.mu.Unlock()
@@ -272,7 +277,7 @@ func (c *WsClient) Unsubscribe(args WsSubscribeArgs) error {
 	}
 }
 
-func (c *WsClient) readLoop() {
+func (c *WSClient) readLoop() {
 	defer c.Conn.Close()
 	for {
 		select {
@@ -300,7 +305,7 @@ func (c *WsClient) readLoop() {
 	}
 }
 
-func (c *WsClient) handleMessage(msg []byte) {
+func (c *WSClient) handleMessage(msg []byte) {
 	c.Logger.Debugw("WS received msg", "msg", string(msg))
 
 	if string(msg) == "pong" {
@@ -396,7 +401,7 @@ type PendingRequest struct {
 }
 
 // AddPendingRequest adds a channel for a specific ID
-func (c *WsClient) AddPendingRequest(id int64) (chan []byte, chan []byte) {
+func (c *WSClient) AddPendingRequest(id int64) (chan []byte, chan []byte) {
 	successCh := make(chan []byte, 1)
 	errorCh := make(chan []byte, 1)
 
@@ -412,13 +417,13 @@ func (c *WsClient) AddPendingRequest(id int64) (chan []byte, chan []byte) {
 }
 
 // RemovePendingRequest removes the channel for a specific ID
-func (c *WsClient) RemovePendingRequest(id int64) {
+func (c *WSClient) RemovePendingRequest(id int64) {
 	c.mu.Lock()
 	delete(c.PendingReqs, id)
 	c.mu.Unlock()
 }
 
-func (c *WsClient) reconnect() {
+func (c *WSClient) reconnect() {
 	// Simple reconnect
 	c.mu.Lock()
 	if c.ctx.Err() != nil {

@@ -9,7 +9,7 @@ import (
 
 func TestPlaceMarketOrderWs(t *testing.T) {
 	apiKey, secretKey, passphrase := GetEnv()
-	wsClient := NewWsClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
+	wsClient := NewWSClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
 	err := wsClient.Connect()
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestPlaceMarketOrderWs(t *testing.T) {
 
 func TestPlaceLimitOrderWs(t *testing.T) {
 	apiKey, secretKey, passphrase := GetEnv()
-	wsClient := NewWsClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
+	wsClient := NewWSClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
 	err := wsClient.Connect()
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestPlaceLimitOrderWs(t *testing.T) {
 
 func TestCancelOrderWs(t *testing.T) {
 	apiKey, secretKey, passphrase := GetEnv()
-	wsClient := NewWsClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
+	wsClient := NewWSClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
 	err := wsClient.Connect()
 	if err != nil {
 		t.Fatal(err)

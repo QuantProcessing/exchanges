@@ -6,7 +6,7 @@ import (
 )
 
 // SubscribeTicker subscribes to ticker channel.
-func (c *WsClient) SubscribeTicker(instId string, handler func(*Ticker)) error {
+func (c *WSClient) SubscribeTicker(instId string, handler func(*Ticker)) error {
 	args := WsSubscribeArgs{
 		Channel: "tickers",
 		InstId:  instId,
@@ -27,7 +27,7 @@ func (c *WsClient) SubscribeTicker(instId string, handler func(*Ticker)) error {
 
 // SubscribeOrderBook subscribes to books channel.
 // Default depth is 400
-func (c *WsClient) SubscribeOrderBook(instId string, handler func(*OrderBook, string)) error {
+func (c *WSClient) SubscribeOrderBook(instId string, handler func(*OrderBook, string)) error {
 	args := WsSubscribeArgs{
 		Channel: "books",
 		InstId:  instId,
