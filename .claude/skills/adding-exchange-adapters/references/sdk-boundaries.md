@@ -27,7 +27,7 @@ Put low-level exchange mechanics in `sdk/`:
 Keep the adapter layer focused on the unified `exchanges` contract:
 
 - `FormatSymbol` and `ExtractSymbol`
-- choosing which low-level SDK method satisfies `FetchTicker`, `FetchOrder`, `WatchOrders`, and other shared methods
+- choosing which low-level SDK method satisfies `FetchTicker`, `FetchOrderByID`, `FetchOrders`, `WatchOrders`, and other shared methods
 - mapping validated SDK responses into unified models such as `exchanges.Order`, `exchanges.Position`, and `exchanges.Account`
 - shared adapter-side policy such as slippage handling, `ErrNotSupported`, and symbol-level filtering expected by `exchange.go`
 
@@ -52,7 +52,7 @@ Mapping helpers should sit at the seam between wire types and unified models:
 - keep wire-type parsing close to the adapter or in adapter-local mapping helpers
 - normalize symbols back to base symbols before returning unified models
 - validate incomplete or ambiguous wire payloads before populating `exchanges.Order`
-- use sentinel errors from [`errors.go`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/errors.go) at the adapter boundary, not exchange-specific string matching in callers
+- use sentinel errors from `errors.go` at the adapter boundary, not exchange-specific string matching in callers
 
 Do not populate `exchanges.Order` or `exchanges.Position` directly from unvalidated JSON or raw maps.
 

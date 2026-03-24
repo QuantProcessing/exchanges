@@ -2,33 +2,28 @@
 
 Live adapter integration is incomplete until `adapter_test.go` wires the shared `testsuite` coverage for the support level the adapter claims.
 
-Backpack is the current reference pattern: [`backpack/adapter_test.go`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/backpack/adapter_test.go).
+Backpack is the current reference pattern: `backpack/adapter_test.go`.
 
-## `.env` Lookup Pattern
+## Test Environment Pattern
 
-Prefer the Backpack-style helper in `adapter_test.go`:
+Prefer the current repository helper in `internal/testenv`:
 
 ```go
-func loadExchangeEnv() {
-    for _, path := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-        if err := godotenv.Load(path); err == nil {
-            return
-        }
-    }
-}
+testenv.RequireFull(t, "EXCHANGE_API_KEY", "EXCHANGE_SECRET_KEY")
 ```
 
 Why this pattern:
 
-- works from a git worktree
-- works when tests are launched from different package directories
-- avoids brittle `../../.env` assumptions still present in older adapters
+- loads repo-root `.env` automatically
+- respects shell-exported variables over `.env`
+- applies repository legacy env aliases consistently
+- honors `-short`, `RUN_FULL`, and `RUN_SOAK` gating
 
-Do not hard-code one relative path when adding a new adapter.
+Do not add new ad hoc `.env` lookup helpers when the repository helper already fits.
 
 ## `.env.example` Additions
 
-Update the repository root [`.env.example`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/.env.example) when a new adapter is added.
+Update the repository root `.env.example` when a new adapter is added.
 
 Add:
 
@@ -89,6 +84,17 @@ Prefer targeted skip flags in `testsuite.OrderSuiteConfig` only for real exchang
 
 Do not skip a suite just because the adapter implementation is incomplete. Fix the adapter or reduce the support claim.
 
+## Verification Entry Points
+
+New adapter work should align with the repository verification model:
+
+- quick verify: `go test -short ./...`
+- exchange verify: `scripts/verify_exchange.sh <exchange>`
+- full regression: `bash scripts/verify_full.sh`
+- soak validation: `RUN_SOAK=1 bash scripts/verify_soak.sh`
+
+When a new adapter adds live/private coverage, make sure it fits this layered gate instead of assuming plain `go test ./...` is the canonical path.
+
 ## Stable Symbol And Quote Selection
 
 Choose live-test defaults that are stable over time:
@@ -105,7 +111,7 @@ When spot and perp need different symbols, name them separately and wire them se
 Live integration is complete only when all of these are true:
 
 - `.env.example` documents the required env vars
-- `adapter_test.go` loads `.env` with the resilient helper
+- `adapter_test.go` uses `internal/testenv` for env loading and gate control
 - setup helpers construct the real adapter using env-backed options
 - the shared `testsuite` matrix in `adapter_test.go` matches the claimed capability level
 - unsupported capabilities are reflected by missing suite wiring or explicit suite-level skip flags with a real reason

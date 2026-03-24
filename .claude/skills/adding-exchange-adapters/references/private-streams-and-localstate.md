@@ -1,6 +1,6 @@
 # Private Streams And LocalState
 
-[`LocalState`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/local_state.go) is built on adapter behavior. It is not a separate adapter interface.
+`LocalState` is built on adapter behavior. It is not a separate adapter interface.
 
 The practical inputs are:
 
@@ -13,7 +13,7 @@ The practical inputs are:
 - `WatchOrders` is mandatory for LocalState readiness.
 - `WatchOrders` is also mandatory for any real lifecycle claim.
 - `WatchPositions` is additive coverage, not the universal gate.
-- unsupported shared stream surfaces must return [`exchanges.ErrNotSupported`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/errors.go), not no-op success.
+- unsupported shared stream surfaces must return `exchanges.ErrNotSupported`, not no-op success.
 
 `LocalState.Start` does this today:
 

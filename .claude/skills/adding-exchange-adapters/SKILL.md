@@ -29,11 +29,11 @@ If you skip peer selection or capability classification, stop. You are guessing.
 | Capability | Shared suites to wire in `adapter_test.go` | Minimum support claim | Load these references |
 |------------|--------------------------------------------|-----------------------|-----------------------|
 | `public-data-only` | `RunAdapterComplianceTests` | Private/account/trading surfaces return `exchanges.ErrNotSupported` | `references/live-test-wiring.md` |
-| `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` | `references/order-semantics.md`, `references/live-test-wiring.md` |
-| `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it | `references/order-semantics.md`, `references/private-streams-and-localstate.md`, `references/live-test-wiring.md` |
-| `local-state-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunLocalStateSuite`; also `RunLifecycleSuite` if lifecycle correctness is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate | `references/order-semantics.md`, `references/private-streams-and-localstate.md`, `references/live-test-wiring.md` |
+| `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` | `references/order-semantics.md`, `references/live-test-wiring.md` |
+| `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it | `references/order-semantics.md`, `references/private-streams-and-localstate.md`, `references/live-test-wiring.md` |
+| `local-state-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLocalStateSuite`; also `RunLifecycleSuite` if lifecycle correctness is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate | `references/order-semantics.md`, `references/private-streams-and-localstate.md`, `references/live-test-wiring.md` |
 
-`FetchOrder` and open-order listing are separate contracts. Read `references/order-semantics.md` before implementing either one. Do not invent adapter-level history-order APIs or other order-query surfaces that do not exist on the current shared interface; if the shared interface cannot express a behavior yet, stop at the shared boundary and evolve the skill later.
+`FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate contracts. Read `references/order-semantics.md` before implementing any of them. Do not invent adapter-level history-order APIs or other order-query surfaces that do not exist on the current shared interface; if the shared interface cannot express a behavior yet, stop at the shared boundary and evolve the skill later.
 
 ## Architecture Decisions
 
@@ -89,7 +89,7 @@ Minimum live-test expectations:
 
 - update `.env.example` with exchange-specific credentials and test symbols
 - use stable symbols and quote defaults that match the adapter's real options
-- add resilient `.env` lookup in `adapter_test.go`; follow `backpack/adapter_test.go` and try `.env`, `../.env`, `../../.env`, then `../../../.env` instead of hard-coding one relative path
+- use `internal/testenv` for repo-root `.env` loading and `RUN_FULL` / `RUN_SOAK` gate control instead of adding a new ad hoc lookup helper
 - use clear skips when credentials, symbols, or unsupported capabilities are missing
 
 Use `references/live-test-wiring.md` for the exact env-var and `testsuite` wiring pattern.
@@ -104,7 +104,7 @@ Stop immediately if any of these are true:
 - `WatchOrders` is missing but lifecycle or local-state support is claimed
 - `WatchPositions` is treated as required everywhere instead of additive where unsupported
 - unsupported shared surfaces return no-op success instead of `exchanges.ErrNotSupported`
-- `FetchOrder` is implemented by scanning only open orders
+- `FetchOrderByID` is implemented by scanning only open orders
 - adapter files own signing, raw REST construction, wire structs, or WebSocket lifecycle internals that belong in `sdk/`
 - stream methods report success while doing nothing
 - local orderbook is claimed as supported but never reaches a non-`nil` synced state

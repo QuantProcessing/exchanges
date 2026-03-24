@@ -1,24 +1,37 @@
 # Order Semantics
 
-This reference covers only the current shared order-query surfaces from [`exchange.go`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/exchange.go):
+This reference covers only the current shared order-query surfaces from `exchange.go`:
 
-- `FetchOrder(ctx, orderID, symbol string) (*Order, error)`
+- `FetchOrderByID(ctx, orderID, symbol string) (*Order, error)`
+- `FetchOrders(ctx, symbol string) ([]Order, error)`
 - `FetchOpenOrders(ctx, symbol string) ([]Order, error)`
 
 Do not invent adapter-level history-order APIs, closed-order APIs, or other order-query helpers that are not on the shared interface today.
 
-## `FetchOrder` Contract
+## `FetchOrderByID` Contract
 
-`FetchOrder` is single-order lookup by ID within the current shared interface. It is not "find an open order if convenient".
+`FetchOrderByID` is single-order lookup by ID within the current shared interface. It is not "find an open order if convenient".
 
 Required behavior:
 
 - accept the shared base symbol, not the exchange-native symbol
 - return the matching unified `exchanges.Order` when the exchange can still resolve that order
 - support terminal-order lookup when the exchange provides enough low-level data to do so
-- return [`exchanges.ErrOrderNotFound`](/home/xiguajun/Documents/GitHub/Exchanges/.worktrees/skill-adding-exchange-adapters/errors.go) when the order truly cannot be found
+- return `exchanges.ErrOrderNotFound` when the order truly cannot be found
 
 If the exchange has a dedicated order-detail endpoint, use it first. That is the clean path.
+
+## `FetchOrders` Contract
+
+`FetchOrders` returns the visible order set for the requested symbol according to what the exchange can actually expose.
+
+Required behavior:
+
+- apply symbol filtering to the requested base symbol
+- document whether the result includes terminal orders, open orders only, or exchange-limited recent history
+- return unified `exchanges.Order` values, not wire types
+
+If the exchange cannot expose a broader order list beyond open orders, document that limitation explicitly and keep `FetchOrders` behavior stable.
 
 ## `FetchOpenOrders` Contract
 
@@ -45,7 +58,7 @@ Rules:
 
 Do not mix exchange-native symbols like `BTCUSDT` or `BTC-USD-SWAP` into the adapter contract.
 
-## Acceptable `FetchOrder` Fallbacks
+## Acceptable `FetchOrderByID` Fallbacks
 
 If the exchange lacks a direct order-detail endpoint, acceptable fallbacks are limited:
 
@@ -55,7 +68,7 @@ If the exchange lacks a direct order-detail endpoint, acceptable fallbacks are l
 
 Last-resort fallback:
 
-- if the exchange truly exposes no historical or terminal order lookup at all, do not pretend full `FetchOrder` semantics exist
+- if the exchange truly exposes no historical or terminal order lookup at all, do not pretend full `FetchOrderByID` semantics exist
 - document the limitation in code comments and return `exchanges.ErrOrderNotFound` when the order is no longer open
 
 Open-order scanning alone is a degraded limitation path, not adapter-complete behavior and not the preferred implementation.
@@ -78,10 +91,10 @@ Do not do this:
 
 Avoid these:
 
-- implementing `FetchOrder` by scanning only `FetchOpenOrders` and treating that as complete behavior
+- implementing `FetchOrderByID` by scanning only `FetchOpenOrders` and treating that as complete behavior
 - returning an open-order result for the wrong symbol because the adapter skipped filtering
 - adding adapter-only "fetch order history" methods outside the shared interface
 - returning `nil, nil` when an order is missing
 - using exchange-native symbols at the adapter boundary
 
-Current repo contract: `FetchOrder` and `FetchOpenOrders` are separate semantics. Preserve that distinction.
+Current repo contract: `FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate semantics. Preserve that distinction.

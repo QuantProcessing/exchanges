@@ -573,29 +573,43 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 
 ## 测试
 
-复制环境变量模板并填入你的 API 凭证：
+仓库现在采用分层验证模型。普通 `go test ./...` 不再是规范化验证入口，因为部分包包含依赖凭证或较长时间 WebSocket 观察的实盘测试。
+
+当你需要实盘/私有接口验证时，先复制环境变量模板并填入凭证：
 ```bash
 cp .env.example .env
 ```
 
-运行单元测试（无需 API Key）：
+运行默认快速验证：
 ```bash
-go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -v  # 报价币种测试
+go test -short ./...
 ```
 
-运行集成测试（需要 `.env` 中的 API Key）：
+针对单个交易所运行短验证：
 ```bash
-go test ./binance/ -v      # 若未配置 Key 会自动跳过
-go test ./grvt/ -v
-go test ./edgex/ -v
+scripts/verify_exchange.sh backpack
+scripts/verify_exchange.sh okx
+scripts/verify_exchange.sh hyperliquid
 ```
 
-运行 LocalState 集成测试（实盘下单 + 追踪）：
+运行完整回归验证：
 ```bash
-go test -v -run TestPerpAdapter_LocalState ./binance/
-go test -v -run TestPerpAdapter_LocalState ./okx/
-go test -v -run TestPerpAdapter_LocalState ./hyperliquid/
+GOCACHE=/tmp/exchanges-gocache bash scripts/verify_full.sh
 ```
+
+`verify_full.sh` 会从仓库根目录加载 `.env`，保留已导出的 shell 环境变量，并自动管理 `RUN_FULL=1`。它同时兼容以下历史变量别名：
+
+- `EDGEX_PRIVATE_KEY -> EDGEX_STARK_PRIVATE_KEY`
+- `NADO_SUB_ACCOUNT_NAME -> NADO_SUBACCOUNT_NAME`
+- `OKX_SECRET_KEY -> OKX_API_SECRET`
+- `OKX_PASSPHRASE -> OKX_API_PASSPHRASE`
+
+运行长时间订阅检查：
+```bash
+GOCACHE=/tmp/exchanges-gocache RUN_SOAK=1 bash scripts/verify_soak.sh
+```
+
+当前 soak 套件运行指定包的 3 分钟流稳定性检查。`RUN_FULL` 和 `RUN_SOAK` 是这些专用验证脚本的控制开关，不是默认测试入口。
 
 ## 许可证
 
