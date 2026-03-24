@@ -5,19 +5,15 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("EDGEX_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: EDGEX keys not set")
-	}
+	testenv.RequireFull(t, "EDGEX_STARK_PRIVATE_KEY", "EDGEX_ACCOUNT_ID")
 	adp, err := NewAdapter(context.Background(), Options{
-		PrivateKey: os.Getenv("EDGEX_PRIVATE_KEY"),
+		PrivateKey: os.Getenv("EDGEX_STARK_PRIVATE_KEY"),
 		AccountID:  os.Getenv("EDGEX_ACCOUNT_ID"),
 	})
 	if err != nil {

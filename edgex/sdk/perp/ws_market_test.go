@@ -9,6 +9,9 @@ import (
 )
 
 func TestSubMarketData(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping realtime websocket test under -short")
+	}
 	wsClient := NewWsMarketClient(context.Background())
 	err := wsClient.Connect()
 	if err != nil {

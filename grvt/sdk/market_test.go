@@ -12,14 +12,16 @@ func TestGetFundingRate(t *testing.T) {
 		t.Skip("Skipping integration test")
 	}
 
-	client := NewClient()
+	client := newLiveClient()
 	ctx := context.Background()
 
 	// Test with BTC_USDT_Perp (GRVT uses this format)
-	rate, err := client.GetFundingRate(ctx, "BTC_USDT_Perp")
-	if err != nil {
-		t.Fatalf("Failed to get funding rate: %v", err)
-	}
+	var rate *FundingRateData
+	retryGRVTLive(t, "GetFundingRate", func() error {
+		var err error
+		rate, err = client.GetFundingRate(ctx, "BTC_USDT_Perp")
+		return err
+	})
 
 	if rate == nil {
 		t.Fatal("Expected funding rate, got nil")
@@ -44,13 +46,15 @@ func TestGetAllFundingRates(t *testing.T) {
 		t.Skip("Skipping integration test")
 	}
 
-	client := NewClient()
+	client := newLiveClient()
 	ctx := context.Background()
 
-	rates, err := client.GetAllFundingRates(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get all funding rates: %v", err)
-	}
+	var rates []FundingRateData
+	retryGRVTLive(t, "GetAllFundingRates", func() error {
+		var err error
+		rates, err = client.GetAllFundingRates(ctx)
+		return err
+	})
 
 	if len(rates) == 0 {
 		t.Fatal("Expected at least one funding rate, got empty array")

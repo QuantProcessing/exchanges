@@ -8,26 +8,14 @@ import (
 	"testing"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-	"github.com/joho/godotenv"
 	"github.com/shopspring/decimal"
 )
 
-func loadBitgetEnv() {
-	for _, path := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-		if err := godotenv.Load(path); err == nil {
-			return
-		}
-	}
-}
-
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	loadBitgetEnv()
-
-	if os.Getenv("BITGET_API_KEY") == "" || os.Getenv("BITGET_SECRET_KEY") == "" || os.Getenv("BITGET_PASSPHRASE") == "" {
-		t.Skip("Skipping: BITGET credentials not set")
-	}
+	testenv.RequireFull(t, "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_PASSPHRASE")
 
 	opts := Options{
 		APIKey:     os.Getenv("BITGET_API_KEY"),
@@ -49,19 +37,15 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupPerpAdapterWS(t *testing.T) *Adapter {
 	t.Helper()
-	requireBitgetWSTests(t)
 	adp := setupPerpAdapter(t)
+	requireBitgetWSTests(t)
 	adp.SetOrderMode(exchanges.OrderModeWS)
 	return adp
 }
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
-	loadBitgetEnv()
-
-	if os.Getenv("BITGET_API_KEY") == "" || os.Getenv("BITGET_SECRET_KEY") == "" || os.Getenv("BITGET_PASSPHRASE") == "" {
-		t.Skip("Skipping: BITGET credentials not set")
-	}
+	testenv.RequireFull(t, "BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_PASSPHRASE")
 
 	opts := Options{
 		APIKey:     os.Getenv("BITGET_API_KEY"),
@@ -87,14 +71,17 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 
 func setupSpotAdapterWS(t *testing.T) *SpotAdapter {
 	t.Helper()
-	requireBitgetWSTests(t)
 	adp := setupSpotAdapter(t)
+	requireBitgetWSTests(t)
 	adp.SetOrderMode(exchanges.OrderModeWS)
 	return adp
 }
 
 func requireBitgetWSTests(t *testing.T) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("Skipping: Bitget WS order tests are excluded by -short")
+	}
 	if os.Getenv("BITGET_ENABLE_WS_ORDER_TESTS") != "1" {
 		t.Skip("Skipping: set BITGET_ENABLE_WS_ORDER_TESTS=1 to run Bitget classic WS order transport live tests")
 	}

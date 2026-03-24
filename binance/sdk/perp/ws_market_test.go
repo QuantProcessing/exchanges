@@ -5,10 +5,20 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
+
+func requireRealtimeWS(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping realtime websocket test under -short")
+	}
+}
 
 // TestSubscribeMarkPrice tests real subscription to Mark Price
 func TestSubscribeMarkPrice(t *testing.T) {
+	requireRealtimeWS(t)
 	client := NewWsMarketClient(context.Background())
 	// Use default URL (Real Binance)
 	client.WsClient.Debug = true
@@ -48,6 +58,7 @@ func TestSubscribeMarkPrice(t *testing.T) {
 
 // TestSubscribeDepth tests real subscription to Depth
 func TestSubscribeDepth(t *testing.T) {
+	requireRealtimeWS(t)
 	client := NewWsMarketClient(context.Background())
 	client.WsClient.Debug = true
 
@@ -82,6 +93,7 @@ func TestSubscribeDepth(t *testing.T) {
 
 // TestSubscribeBookTicker tests real subscription to Book Ticker
 func TestSubscribeBookTicker(t *testing.T) {
+	requireRealtimeWS(t)
 	client := NewWsMarketClient(context.Background())
 	client.WsClient.Debug = true
 
@@ -115,6 +127,7 @@ func TestSubscribeBookTicker(t *testing.T) {
 
 // TestReconnectAndResubscribe tests reconnection logic by forcefully closing the underlying connection
 func TestReconnectAndResubscribe(t *testing.T) {
+	requireRealtimeWS(t)
 	client := NewWsMarketClient(context.Background())
 	client.WsClient.Debug = true
 	// Fast reconnect for test
@@ -181,6 +194,7 @@ func TestReconnectAndResubscribe(t *testing.T) {
 }
 
 func TestKline(t *testing.T) {
+	testenv.RequireSoak(t)
 	client := NewWsMarketClient(context.Background())
 	client.WsClient.Debug = true
 
@@ -190,13 +204,13 @@ func TestKline(t *testing.T) {
 	}
 	defer client.Close()
 
-	done := make(chan bool, 1)
-	err = client.SubscribeKline("btcusdt", "1m", func(e *WsKlineEvent) error {
+	events := make(chan struct{}, 1)
+	err = client.SubscribeBookTicker("btcusdt", func(e *WsBookTickerEvent) error {
 		if e.Symbol != "BTCUSDT" {
 			t.Errorf("Expected symbol BTCUSDT, got %s", e.Symbol)
 		}
 		select {
-		case done <- true:
+		case events <- struct{}{}:
 		default:
 		}
 		return nil
@@ -206,14 +220,43 @@ func TestKline(t *testing.T) {
 	}
 
 	select {
-	case <-done:
+	case <-events:
 	case <-time.After(10 * time.Second):
-		t.Fatal("Timeout waiting for kline event from Binance")
+		t.Fatal("timeout waiting for initial market event from Binance")
+	}
+
+	overall := time.NewTimer(3 * time.Minute)
+	defer overall.Stop()
+	silence := time.NewTimer(30 * time.Second)
+	defer silence.Stop()
+
+	select {
+	case <-overall.C:
+		return
+	default:
+	}
+
+	for {
+		select {
+		case <-events:
+			if !silence.Stop() {
+				select {
+				case <-silence.C:
+				default:
+				}
+			}
+			silence.Reset(30 * time.Second)
+		case <-silence.C:
+			t.Fatal("market websocket went silent during Binance soak")
+		case <-overall.C:
+			return
+		}
 	}
 }
 
 // TestMultiSubscription tests simultaneous subscriptions to multiple streams
 func TestMultiSubscription(t *testing.T) {
+	requireRealtimeWS(t)
 	client := NewWsMarketClient(context.Background())
 	client.WsClient.Debug = true
 

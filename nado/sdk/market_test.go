@@ -4,19 +4,48 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
+func requireFullEnv(t *testing.T) {
+	t.Helper()
+	testenv.RequireFull(t, "NADO_PRIVATE_KEY", "NADO_SUBACCOUNT_NAME")
+}
+
 func GetEnv() (string, string) {
-	godotenv.Load("../../../.env")
 	pk := os.Getenv("NADO_PRIVATE_KEY")
 	subaccount := os.Getenv("NADO_SUBACCOUNT_NAME")
 	return pk, subaccount
 }
 
+func retryNadoPublic[T any](t *testing.T, op string, fn func() (T, error)) T {
+	t.Helper()
+
+	var zero T
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		value, err := fn()
+		if err == nil {
+			return value
+		}
+		lastErr = err
+		lower := strings.ToLower(err.Error())
+		if !strings.Contains(lower, "eof") && !strings.Contains(lower, "timeout") {
+			t.Fatalf("%s failed: %v", op, err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	t.Fatalf("%s failed after retries: %v", op, lastErr)
+	return zero
+}
+
 func TestGetNonces(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, subaccount := GetEnv()
 	client, err := NewClient().WithCredentials(privateKey, subaccount)
 	if err != nil {
@@ -30,21 +59,21 @@ func TestGetNonces(t *testing.T) {
 }
 
 func TestGetCandlesticks(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, subaccount := GetEnv()
 	client, err := NewClient().WithCredentials(privateKey, subaccount)
 	if err != nil {
 		t.Fatal(err)
 	}
-	candlesticks, err := client.GetCandlesticks(context.Background(), CandlestickRequest{
-		Candlesticks: Candlesticks{
-			ProductID:   1,
-			Granularity: 60,
-			Limit:       10,
-		},
+	candlesticks := retryNadoPublic(t, "GetCandlesticks", func() ([]ArchiveCandlestick, error) {
+		return client.GetCandlesticks(context.Background(), CandlestickRequest{
+			Candlesticks: Candlesticks{
+				ProductID:   1,
+				Granularity: 60,
+				Limit:       10,
+			},
+		})
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	fmt.Println(candlesticks)
 }
 

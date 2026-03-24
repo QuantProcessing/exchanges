@@ -7,14 +7,19 @@ import (
 	"os"
 	"testing"
 
-	"github.com/joho/godotenv"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
+func requireFullEnv(t *testing.T) {
+	t.Helper()
+	testenv.RequireFull(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
+}
+
 func GetEnv() (string, string, string) {
-	godotenv.Load("../../.env")
 	return os.Getenv("HYPERLIQUID_PRIVATE_KEY"), os.Getenv("HYPERLIQUID_VAULT"), os.Getenv("HYPERLIQUID_ACCOUNT_ADDR")
 }
 func TestGetUserFees(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, vault, accountAddr := GetEnv()
 	client := NewClient().WithCredentials(privateKey, &vault).WithAccount(accountAddr)
 	fees, err := client.GetUserFees(context.Background())

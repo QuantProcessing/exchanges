@@ -10,6 +10,9 @@ import (
 )
 
 func TestSubscribeL2Book(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping realtime websocket test under -short")
+	}
 	baseClient := hyperliquid.NewWebsocketClient(context.Background())
 	wsClient := NewWebsocketClient(baseClient)
 	err := wsClient.Connect()
@@ -26,6 +29,9 @@ func TestSubscribeL2Book(t *testing.T) {
 }
 
 func TestSubscribeBbo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping realtime websocket test under -short")
+	}
 	baseClient := hyperliquid.NewWebsocketClient(context.Background())
 	wsClient := NewWebsocketClient(baseClient)
 	err := wsClient.Connect()

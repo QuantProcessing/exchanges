@@ -5,17 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("LIGHTER_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: LIGHTER keys not set")
-	}
+	testenv.RequireFull(t, "LIGHTER_PRIVATE_KEY", "LIGHTER_ACCOUNT_INDEX", "LIGHTER_KEY_INDEX")
 	adp, err := NewAdapter(context.Background(), Options{
 		PrivateKey:   os.Getenv("LIGHTER_PRIVATE_KEY"),
 		AccountIndex: os.Getenv("LIGHTER_ACCOUNT_INDEX"),
@@ -30,10 +26,7 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("LIGHTER_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: LIGHTER keys not set")
-	}
+	testenv.RequireFull(t, "LIGHTER_PRIVATE_KEY", "LIGHTER_ACCOUNT_INDEX", "LIGHTER_KEY_INDEX")
 	adp, err := NewSpotAdapter(context.Background(), Options{
 		PrivateKey:   os.Getenv("LIGHTER_PRIVATE_KEY"),
 		AccountIndex: os.Getenv("LIGHTER_ACCOUNT_INDEX"),

@@ -7,6 +7,9 @@ import (
 )
 
 func Test_SubscribeIncrementOrderBook(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping realtime websocket test under -short")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 

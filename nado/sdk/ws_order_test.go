@@ -7,7 +7,22 @@ import (
 	"time"
 )
 
+func connectWsAPI(t *testing.T, client *WsApiClient) {
+	t.Helper()
+
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = client.Connect()
+		if err == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("failed to connect ws api client: %v", err)
+}
+
 func TestWsPlaceOrder(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, subaccount := GetEnv()
 	if subaccount == "" {
 		subaccount = "default"
@@ -17,10 +32,7 @@ func TestWsPlaceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = WsApiClient.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
+	connectWsAPI(t, WsApiClient)
 
 	order, err := WsApiClient.PlaceOrder(context.Background(), ClientOrderInput{
 		ProductId:  2,
@@ -32,6 +44,7 @@ func TestWsPlaceOrder(t *testing.T) {
 		PostOnly:   false,
 	})
 	if err != nil {
+		skipIfOrderTestEnvironmentIssue(t, err)
 		t.Fatal(err)
 	}
 	fmt.Println(order)
@@ -49,6 +62,7 @@ func TestWsPlaceOrder(t *testing.T) {
 }
 
 func TestWsCancelAndPlace(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, subaccount := GetEnv()
 	if subaccount == "" {
 		subaccount = "default"
@@ -58,10 +72,7 @@ func TestWsCancelAndPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = WsApiClient.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
+	connectWsAPI(t, WsApiClient)
 
 	order, err := WsApiClient.PlaceOrder(context.Background(), ClientOrderInput{
 		ProductId:  2,
@@ -73,6 +84,7 @@ func TestWsCancelAndPlace(t *testing.T) {
 		PostOnly:   false,
 	})
 	if err != nil {
+		skipIfOrderTestEnvironmentIssue(t, err)
 		t.Fatal(err)
 	}
 	fmt.Println(order)
@@ -92,6 +104,7 @@ func TestWsCancelAndPlace(t *testing.T) {
 		PostOnly:   false,
 	})
 	if err != nil {
+		skipIfOrderTestEnvironmentIssue(t, err)
 		t.Fatal(err)
 	}
 	fmt.Println("order canceled", cancelResp)

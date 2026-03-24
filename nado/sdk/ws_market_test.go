@@ -8,6 +8,9 @@ import (
 )
 
 func TestSubscribeBookDepth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping realtime websocket test under -short")
+	}
 	// Create a lifecycle context for the client
 	ctx := context.Background()
 	subscriptionClient := NewWsMarketClient(ctx)
@@ -26,7 +29,7 @@ func TestSubscribeBookDepth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	timeout := time.NewTimer(1 * time.Minute)
+	timeout := time.NewTimer(10 * time.Second)
 
 	<-timeout.C
 }

@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
 func TestOrderUpdate(t *testing.T) {
+	testenv.RequireSoak(t, "EDGEX_STARK_PRIVATE_KEY", "EDGEX_ACCOUNT_ID")
 	starkPrivateKey, accountID := GetEnv()
 	client := NewWsAccountClient(context.Background(), starkPrivateKey, accountID)
 	client.Connect()
@@ -17,13 +20,14 @@ func TestOrderUpdate(t *testing.T) {
 		fmt.Println(orders)
 	})
 
-	timeout := time.NewTimer(300 * time.Second)
+	timeout := time.NewTimer(3 * time.Minute)
 
 	<-timeout.C
 	client.Close()
 }
 
 func TestPositionUpdate(t *testing.T) {
+	testenv.RequireSoak(t, "EDGEX_STARK_PRIVATE_KEY", "EDGEX_ACCOUNT_ID")
 	starkPrivateKey, accountID := GetEnv()
 	client := NewWsAccountClient(context.Background(), starkPrivateKey, accountID)
 	client.Connect()
@@ -32,7 +36,7 @@ func TestPositionUpdate(t *testing.T) {
 		fmt.Println(positions)
 	})
 
-	timeout := time.NewTimer(30 * time.Second)
+	timeout := time.NewTimer(3 * time.Minute)
 	<-timeout.C
 	client.Close()
 

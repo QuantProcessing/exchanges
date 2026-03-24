@@ -8,6 +8,7 @@ import (
 )
 
 func TestOrderUpdate(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, _ := GetEnv()
 	// Create a lifecycle context for the client
 	ctx := context.Background()

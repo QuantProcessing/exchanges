@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
-func GetEnv() (string, string, string) {
-	godotenv.Load("../../.env")
+func GetEnv(t *testing.T) (string, string, string) {
+	t.Helper()
+	testenv.RequireFull(t, "OKX_API_KEY", "OKX_API_SECRET", "OKX_API_PASSPHRASE")
 	apiKey := os.Getenv("OKX_API_KEY")
 	secretKey := os.Getenv("OKX_API_SECRET")
 	passphrase := os.Getenv("OKX_API_PASSPHRASE")
@@ -42,6 +43,7 @@ func TestWSClientConstructorCompatibility(t *testing.T) {
 }
 
 func TestSubscribeTicker(t *testing.T) {
+	testenv.RequireFull(t)
 	wsClient := NewWSClient(context.Background())
 	err := wsClient.Connect()
 	if err != nil {
@@ -50,11 +52,12 @@ func TestSubscribeTicker(t *testing.T) {
 	wsClient.SubscribeTicker("BTC-USDT-SWAP", func(ticker *Ticker) {
 		fmt.Println(ticker)
 	})
-	timeout := time.NewTimer(1 * time.Minute)
+	timeout := time.NewTimer(10 * time.Second)
 	<-timeout.C
 }
 
 func TestSubscribeOrderBook(t *testing.T) {
+	testenv.RequireFull(t)
 	wsClient := NewWSClient(context.Background())
 	err := wsClient.Connect()
 	if err != nil {
@@ -66,6 +69,6 @@ func TestSubscribeOrderBook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubscribeOrderBook failed: %v", err)
 	}
-	timeout := time.NewTimer(1 * time.Minute)
+	timeout := time.NewTimer(10 * time.Second)
 	<-timeout.C
 }

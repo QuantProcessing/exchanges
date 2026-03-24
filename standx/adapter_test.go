@@ -5,17 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("STANDX_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: STANDX keys not set")
-	}
+	testenv.RequireFull(t, "STANDX_PRIVATE_KEY")
 	adp, err := NewAdapter(context.Background(), Options{
 		PrivateKey: os.Getenv("STANDX_PRIVATE_KEY"),
 	})

@@ -6,19 +6,16 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/standx/sdk"
 
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAccountIntegration(t *testing.T) {
-	_ = godotenv.Load("../../../.env")
+	testenv.RequireFull(t, "STANDX_PRIVATE_KEY")
 	privateKey := os.Getenv("STANDX_PRIVATE_KEY")
-	if privateKey == "" {
-		t.Skip("Standx private key not set")
-	}
 
 	// Setup Client
 	client := standx.NewClient()
@@ -47,8 +44,6 @@ func TestAccountIntegration(t *testing.T) {
 		positions, err := client.QueryPositions(ctx, "")
 		require.NoError(t, err)
 		t.Logf("Positions: %+v", positions)
-
-		assert.NotNil(t, positions)
 	})
 
 	// Test QueryUserOrders

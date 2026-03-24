@@ -6,6 +6,7 @@ import (
 )
 
 func TestOrder_PlaceMarketOrder(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, accountIndex, keyIndex := GetEnv()
 	client := NewClient().WithCredentials(privateKey, accountIndex, uint8(keyIndex))
 	orderID, err := client.PlaceOrder(context.Background(), CreateOrderRequest{

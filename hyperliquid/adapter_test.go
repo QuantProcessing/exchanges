@@ -5,17 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("HYPERLIQUID_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: HYPERLIQUID keys not set")
-	}
+	testenv.RequireFull(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
 	adp, err := NewAdapter(context.Background(), Options{
 		PrivateKey:  os.Getenv("HYPERLIQUID_PRIVATE_KEY"),
 		AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
@@ -28,10 +24,7 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("HYPERLIQUID_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: HYPERLIQUID keys not set")
-	}
+	testenv.RequireFull(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
 	adp, err := NewSpotAdapter(context.Background(), Options{
 		PrivateKey:  os.Getenv("HYPERLIQUID_PRIVATE_KEY"),
 		AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),

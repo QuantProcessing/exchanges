@@ -5,17 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("BINANCE_API_KEY") == "" {
-		t.Skip("Skipping: BINANCE keys not set")
-	}
+	testenv.RequireFull(t, "BINANCE_API_KEY", "BINANCE_SECRET_KEY")
 	adp, err := NewAdapter(context.Background(), Options{
 		APIKey:    os.Getenv("BINANCE_API_KEY"),
 		SecretKey: os.Getenv("BINANCE_SECRET_KEY"),
@@ -28,10 +24,7 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("BINANCE_API_KEY") == "" {
-		t.Skip("Skipping: BINANCE keys not set")
-	}
+	testenv.RequireFull(t, "BINANCE_API_KEY", "BINANCE_SECRET_KEY")
 	adp, err := NewSpotAdapter(context.Background(), Options{
 		APIKey:    os.Getenv("BINANCE_API_KEY"),
 		SecretKey: os.Getenv("BINANCE_SECRET_KEY"),

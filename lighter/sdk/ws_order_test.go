@@ -10,6 +10,7 @@ import (
 )
 
 func TestPlaceOrder(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, accountIndex, keyIndex := GetEnv()
 
 	client := NewClient().WithCredentials(privateKey, accountIndex, uint8(keyIndex))
@@ -65,20 +66,22 @@ func TestPlaceOrder(t *testing.T) {
 	t.Log("orderID", orderID)
 
 	timeout := time.NewTimer(time.Second * 10)
+	defer timeout.Stop()
 	for {
 		select {
 		case <-timeout.C:
 			t.Fatal("timeout")
 		case order := <-orderCh:
 			t.Log(string(order))
+			return
 		}
 	}
-
 }
 
 // TestPlaceOrderInsufficientMargin tests that order rejection errors (e.g., insufficient margin)
 // are properly captured and propagated when placing an order that exceeds available margin
 func TestPlaceOrderInsufficientMargin(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, accountIndex, keyIndex := GetEnv()
 
 	client := NewClient().WithCredentials(privateKey, accountIndex, uint8(keyIndex))

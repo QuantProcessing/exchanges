@@ -7,13 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
-
-	"github.com/joho/godotenv"
 )
 
+func requireSoakEnv(t *testing.T) {
+	t.Helper()
+	testenv.RequireSoak(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
+}
+
 func GetEnv() (string, string, string) {
-	godotenv.Load("../../../.env")
 	privateKey := os.Getenv("HYPERLIQUID_PRIVATE_KEY")
 	vault := os.Getenv("HYPERLIQUID_VAULT")
 	accountAddr := os.Getenv("HYPERLIQUID_ACCOUNT_ADDR")
@@ -21,6 +24,7 @@ func GetEnv() (string, string, string) {
 }
 
 func TestSubscribeOrderUpdates(t *testing.T) {
+	requireSoakEnv(t)
 	privateKey, _, accountAddr := GetEnv()
 	baseClient := hyperliquid.NewWebsocketClient(context.Background())
 	wsClient := NewWebsocketClient(baseClient).WithCredentials(privateKey, accountAddr)
@@ -38,11 +42,12 @@ func TestSubscribeOrderUpdates(t *testing.T) {
 		return
 	}
 
-	timeout := time.NewTimer(30 * time.Minute)
+	timeout := time.NewTimer(3 * time.Minute)
 	<-timeout.C
 }
 
 func TestSubscribeWebData2(t *testing.T) {
+	requireSoakEnv(t)
 	privateKey, _, accountAddr := GetEnv()
 	baseClient := hyperliquid.NewWebsocketClient(context.Background())
 	wsClient := NewWebsocketClient(baseClient).WithCredentials(privateKey, accountAddr)
@@ -60,6 +65,6 @@ func TestSubscribeWebData2(t *testing.T) {
 		return
 	}
 
-	timeout := time.NewTimer(30 * time.Minute)
+	timeout := time.NewTimer(3 * time.Minute)
 	<-timeout.C
 }

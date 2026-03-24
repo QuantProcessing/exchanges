@@ -7,17 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOrderIntegration(t *testing.T) {
-	_ = godotenv.Load("../../../.env")
+	testenv.RequireFull(t, "STANDX_PRIVATE_KEY")
 	privateKey := os.Getenv("STANDX_PRIVATE_KEY")
-	if privateKey == "" {
-		t.Skip("Standx private key not set")
-	}
 
 	client := NewClient()
 	_, err := client.WithCredentials(privateKey)

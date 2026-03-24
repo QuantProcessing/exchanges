@@ -6,26 +6,14 @@ import (
 	"testing"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-	"github.com/joho/godotenv"
 	"github.com/shopspring/decimal"
 )
 
-func loadBackpackEnv() {
-	for _, path := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-		if err := godotenv.Load(path); err == nil {
-			return
-		}
-	}
-}
-
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	loadBackpackEnv()
-
-	if os.Getenv("BACKPACK_API_KEY") == "" || os.Getenv("BACKPACK_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: BACKPACK credentials not set")
-	}
+	testenv.RequireFull(t, "BACKPACK_API_KEY", "BACKPACK_PRIVATE_KEY")
 
 	opts := Options{
 		APIKey:     os.Getenv("BACKPACK_API_KEY"),
@@ -44,11 +32,7 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
-	loadBackpackEnv()
-
-	if os.Getenv("BACKPACK_API_KEY") == "" || os.Getenv("BACKPACK_PRIVATE_KEY") == "" {
-		t.Skip("Skipping: BACKPACK credentials not set")
-	}
+	testenv.RequireFull(t, "BACKPACK_API_KEY", "BACKPACK_PRIVATE_KEY")
 
 	opts := Options{
 		APIKey:     os.Getenv("BACKPACK_API_KEY"),

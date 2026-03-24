@@ -5,17 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("GRVT_API_KEY") == "" {
-		t.Skip("Skipping: GRVT keys not set")
-	}
+	testenv.RequireFull(t, "GRVT_API_KEY", "GRVT_SUB_ACCOUNT_ID", "GRVT_PRIVATE_KEY")
 	adp, err := NewAdapter(context.Background(), Options{
 		APIKey:       os.Getenv("GRVT_API_KEY"),
 		SubAccountID: os.Getenv("GRVT_SUB_ACCOUNT_ID"),

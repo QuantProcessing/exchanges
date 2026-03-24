@@ -573,29 +573,43 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 
 ## Testing
 
-Copy the example environment file and fill in your credentials:
+The repository uses a layered verification model. Plain `go test ./...` is not the canonical gate because some packages include live exchange coverage that depends on credentials or longer-running WebSocket sessions.
+
+Copy the example environment file and fill in your credentials when you need live/private verification:
 ```bash
 cp .env.example .env
 ```
 
-Run unit tests (no API keys needed):
+Run the default quick gate:
 ```bash
-go test -run "Test(Options|Format|Extract)" ./binance/ ./okx/ ./aster/ ./grvt/ -v  # QuoteCurrency tests
+go test -short ./...
 ```
 
-Run integration tests (requires API keys in `.env`):
+Run a focused short verification for one exchange:
 ```bash
-go test ./binance/ -v      # Tests skip automatically if keys are missing
-go test ./grvt/ -v
-go test ./edgex/ -v
+scripts/verify_exchange.sh backpack
+scripts/verify_exchange.sh okx
+scripts/verify_exchange.sh hyperliquid
 ```
 
-Run LocalState integration tests (live order placement + tracking):
+Run the full regression suite:
 ```bash
-go test -v -run TestPerpAdapter_LocalState ./binance/
-go test -v -run TestPerpAdapter_LocalState ./okx/
-go test -v -run TestPerpAdapter_LocalState ./hyperliquid/
+GOCACHE=/tmp/exchanges-gocache bash scripts/verify_full.sh
 ```
+
+`verify_full.sh` loads `.env` from the repository root, preserves already-exported shell variables, and manages `RUN_FULL=1` internally. It also accepts these legacy aliases:
+
+- `EDGEX_PRIVATE_KEY -> EDGEX_STARK_PRIVATE_KEY`
+- `NADO_SUB_ACCOUNT_NAME -> NADO_SUBACCOUNT_NAME`
+- `OKX_SECRET_KEY -> OKX_API_SECRET`
+- `OKX_PASSPHRASE -> OKX_API_PASSPHRASE`
+
+Run the soak suite for longer-lived subscription checks:
+```bash
+GOCACHE=/tmp/exchanges-gocache RUN_SOAK=1 bash scripts/verify_soak.sh
+```
+
+The current soak suite runs 3-minute stream checks for the designated packages. `RUN_FULL` and `RUN_SOAK` are script-managed toggles for the dedicated verification entrypoints above; they are not the default repository gate.
 
 ## License
 

@@ -7,11 +7,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/joho/godotenv"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
+func requireFullEnv(t *testing.T) {
+	t.Helper()
+	testenv.RequireFull(t, "GRVT_API_KEY", "GRVT_SUB_ACCOUNT_ID", "GRVT_PRIVATE_KEY")
+}
+
 func GetEnv() (string, string, string) {
-	godotenv.Load("../../../.env")
 	apiKey := os.Getenv("GRVT_API_KEY")
 	subaccount := os.Getenv("GRVT_SUB_ACCOUNT_ID")
 	privateKey := os.Getenv("GRVT_PRIVATE_KEY")
@@ -19,11 +23,14 @@ func GetEnv() (string, string, string) {
 }
 
 func TestGetFundingAccountSummary(t *testing.T) {
+	requireFullEnv(t)
 	apiKey, subAccountID, privateKey := GetEnv()
-	client := NewClient().WithCredentials(apiKey, subAccountID, privateKey)
-	fundingAccountSummary, err := client.GetFundingAccountSummary(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newLiveClient().WithCredentials(apiKey, subAccountID, privateKey)
+	var fundingAccountSummary *GetFundingAccountSummaryResponse
+	retryGRVTLive(t, "GetFundingAccountSummary", func() error {
+		var err error
+		fundingAccountSummary, err = client.GetFundingAccountSummary(context.Background())
+		return err
+	})
 	fmt.Printf("%+v\n", fundingAccountSummary)
 }

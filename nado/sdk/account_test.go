@@ -8,6 +8,7 @@ import (
 )
 
 func TestFeeRates(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, subaccount := GetEnv()
 	client, err := NewClient().WithCredentials(privateKey, subaccount)
 	if err != nil {
@@ -21,6 +22,7 @@ func TestFeeRates(t *testing.T) {
 }
 
 func TestGetAccount(t *testing.T) {
+	requireFullEnv(t)
 	privateKey, subaccount := GetEnv()
 	client, err := NewClient().WithCredentials(privateKey, subaccount)
 	if err != nil {

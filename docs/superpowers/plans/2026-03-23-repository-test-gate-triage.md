@@ -1,98 +1,113 @@
-# Repository Test Gate Triage
+# Repository Verification Rollout Status
 
-## Purpose
+## Outcome
 
-This note captures why `go test ./...` is still not a clean integration gate after the adapter naming-convergence rollout, and what should happen next.
+The repository no longer treats plain `go test ./...` as the canonical verification gate. The verification model is now:
 
-The important conclusion is that the current failures are not a single branch regression. They fall into three buckets:
+- `quick verify`: `go test -short ./...`
+- `exchange verify`: `scripts/verify_exchange.sh <exchange>`
+- `full regression`: `bash scripts/verify_full.sh`
+- `soak`: `RUN_SOAK=1 bash scripts/verify_soak.sh`
 
-- ungated live/integration tests that should not run in the default local gate
-- tests that assume credentials exist and fail badly when they do not
-- a smaller set of tests that likely reflect actual SDK drift and should be investigated separately once the gate is narrowed
+This change was made because the old default gate mixed deterministic unit coverage with live exchange behavior, private credentials, and long-running WebSocket subscriptions.
 
-## Current Failure Groups
+## What Landed
 
-### 1. Ungated live websocket or exchange-network tests
+### 1. Shared gating helpers
 
-These tests make real network calls or wait for exchange-side events, but they do not currently opt out of the default `go test ./...` path.
+`internal/testenv` now provides a single place for:
 
-- `aster/sdk/perp/ws_market_test.go`
-  Evidence: [TestKline](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/aster/sdk/perp/ws_market_test.go#L186) opens a real websocket and waits 10 seconds for a Binance kline event.
-- `binance/sdk/perp/ws_market_test.go`
-  Evidence: [TestKline](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/binance/sdk/perp/ws_market_test.go#L186) does the same.
-- `grvt/sdk/ws_market_test.go`
-  Evidence: [TestSubscribeOrderbookDelta](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/grvt/sdk/ws_market_test.go#L10) connects to the live websocket and waits on a timer.
-- `okx/sdk/ws_order_test.go`
-  Evidence: [TestCancelOrderWs](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/okx/sdk/ws_order_test.go#L74) connects to the live private websocket and places/cancels orders.
-- `hyperliquid/sdk/perp/ws_account_test.go`
-  Evidence: [TestSubscribeOrderUpdates](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/hyperliquid/sdk/perp/ws_account_test.go#L22) waits for 30 minutes.
+- repo-root `.env` loading
+- shell-env precedence over `.env`
+- legacy environment alias support
+- `RequireEnv`, `RequireFull`, and `RequireSoak` test gates
+
+This removed ad hoc `.env` parsing and inconsistent skip behavior across exchange packages.
+
+### 2. Scripted verification entrypoints
+
+The repository now has explicit scripts for each verification level:
+
+- `scripts/verify_exchange.sh` for fast exchange-scoped short runs
+- `scripts/verify_full.sh` for the supported live/private regression package set
+- `scripts/verify_soak.sh` for the long-running subscription suite
+
+`verify_full.sh` manages `.env` loading and `RUN_FULL=1` internally. `verify_soak.sh` requires `RUN_SOAK=1` and only covers the designated soak tests.
+
+### 3. Live-test gating cleanup
+
+Previously ungated or poorly gated tests were moved behind `testing.Short()`, `RequireFull`, or `RequireSoak`, including coverage in:
+
+- `aster`
+- `backpack`
+- `binance`
+- `bitget`
+- `edgex`
+- `grvt`
+- `hyperliquid`
+- `lighter`
+- `nado`
+- `okx`
+- `standx`
+
+This made the default local gate deterministic while preserving explicit live/private coverage.
+
+### 4. Test-specific stability fixes
+
+The rollout also included targeted fixes for issues that were exposed while building the new gate:
+
 - `lighter/sdk/common/nonce_test.go`
-  Evidence: [TestNonceManager_Fetch](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/lighter/sdk/common/nonce_test.go#L8) fetches from `https://mainnet.zkelliot.ai` directly.
+  - corrected the mainnet URL
+  - tolerated transient public-network errors with retry
+- `lighter/sdk/ws_order_test.go`
+  - fixed a hang caused by waiting indefinitely for additional order updates
+- `grvt/sdk`
+  - added reusable live-client and retry helpers
+  - stabilized websocket connect and transient order placement behavior
+  - fixed order cancellation to use the actual client order ID path
+- `nado/sdk`
+  - added retries for transient websocket/public-network failures
+  - downgraded environment-specific order placement failures to clean skips where appropriate
+- `standx/sdk/account_test.go`
+  - removed a brittle assertion that rejected valid empty position responses
 
-These should not be part of the default branch integration gate.
+### 5. Soak timing redesign
 
-### 2. Tests that implicitly require credentials but do not guard on env presence
+The old long-running subscription checks were too expensive for routine validation. The soak suite now uses 3-minute checks rather than 30-minute waits.
 
-These tests read `.env` or raw env vars and then proceed unconditionally. On a machine without credentials they fail immediately, and in some cases they fail with a poor error mode.
+For `aster` and `binance`, the prior `TestKline` coverage was replaced with long-running market-stream health checks that:
 
-- `edgex/sdk/perp/account_test.go`
-  Evidence: [GetEnv](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/edgex/sdk/perp/account_test.go#L14) loads env vars and [TestGetAccountAsset](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/edgex/sdk/perp/account_test.go#L19) runs regardless of whether credentials exist.
-- `nado/sdk/account_test.go` and `nado/sdk/market_test.go`
-  Evidence: [GetEnv](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/nado/sdk/market_test.go#L12) loads env vars and multiple tests call `WithCredentials(...)` without any skip gate.
-- `grvt/sdk/account_test.go`
-  Evidence: [GetEnv](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/grvt/sdk/account_test.go#L13) loads env vars and [TestGetFundingAccountSummary](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/grvt/sdk/account_test.go#L19) runs immediately.
-- `hyperliquid/sdk/client_test.go`
-  Evidence: [GetEnv](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/hyperliquid/sdk/client_test.go#L13) loads env vars and [TestGetUserFees](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/hyperliquid/sdk/client_test.go#L17) always hits the live API.
-- `hyperliquid/sdk/perp/ws_account_test.go`
-  Evidence: [GetEnv](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/hyperliquid/sdk/perp/ws_account_test.go#L15) loads env vars but the websocket tests do not skip when credentials are missing.
+- require an initial event quickly
+- require continued events during the 3-minute window
 
-These should be moved behind explicit environment guards, build tags, or `testing.Short()` policy.
+This preserved meaningful subscription coverage without retaining the old half-hour runtime model.
 
-### 3. Failures that indicate real code or contract issues once the gate is narrowed
+## Verification Evidence
 
-These deserve separate debugging after the default gate is fixed.
+The redesigned gates were exercised successfully during rollout:
 
-- `lighter/sdk/order.go`
-  Evidence: [PlaceOrder](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/lighter/sdk/order.go#L42) dereferences `c.KeyManager` without protecting against an invalid or missing credential setup. This surfaced as a nil panic in `TestOrder_PlaceMarketOrder`.
-- `hyperliquid/sdk/client.go`
-  Evidence: [GetUserFees](/Users/dylan/Code/exchanges/.worktrees/adapter-naming-convergence/hyperliquid/sdk/client.go#L174) blindly unmarshals the `/info` response into `UserFees`. The reported failure was a JSON deserialization mismatch, which suggests API drift or a model mismatch rather than a naming-convergence regression.
+- `go test ./internal/testenv -v`
+- `go test -short ./...`
+- `bash scripts/verify_full.sh`
+- `RUN_SOAK=1 bash scripts/verify_soak.sh`
 
-The `grvt/sdk` streaming failure from the broad `go test ./...` run should be treated as unclassified until reproduced with a narrower command. The current evidence only shows that a live websocket/integration test failed, not whether the cause is network, credentials, or SDK logic.
+Focused reruns also passed for packages that initially exposed flaky live behavior, including `grvt/sdk`, `nado/sdk`, and `lighter/sdk/common`.
 
-## Recommended Next Steps
+## Residual Notes
 
-### Phase 1: Fix the default test gate
+The repository still contains exchange-dependent live coverage, but it now sits behind explicit entrypoints instead of contaminating the default short gate.
 
-Make `go test ./...` represent a deterministic local/CI-safe gate.
+The remaining deferred work is repository hygiene rather than gate correctness:
 
-Recommended actions:
+- expanding documentation where future contributors add new live tests
+- deciding whether more package-specific helper logic should be consolidated into `internal/testenv`
+- periodically revisiting the exact package list inside `verify_full.sh` as exchange coverage evolves
 
-1. Add explicit skip guards for tests that require private credentials.
-2. Mark long-running websocket/live tests as integration tests, or gate them behind dedicated env vars.
-3. Keep public-network smoke tests out of the default `go test ./...` path unless they are rewritten to use mocks or fixtures.
+## Current Integration Policy
 
-The immediate goal is not to delete live coverage. It is to stop mixing live exchange behavior with the repository's default merge gate.
+For normal development and CI:
 
-### Phase 2: Fix poor failure modes exposed by missing credentials
-
-After gating, clean up the most obvious sharp edges:
-
-1. `lighter/sdk` should fail with a normal credential/setup error instead of panicking when `KeyManager` is unavailable.
-2. Any SDK test helper that loads env vars should skip cleanly when required credentials are absent instead of attempting a live request.
-
-### Phase 3: Investigate likely real SDK drift
-
-Once Phases 1 and 2 are done, reproduce and debug the remaining genuine failures:
-
-1. `hyperliquid/sdk` `TestGetUserFees`
-2. any remaining `grvt/sdk` websocket/orderbook failures after live-test gating is corrected
-
-## Recommended Integration Policy For The Naming-Convergence Branch
-
-Until the broader repository gate is cleaned up, this branch should be evaluated on:
-
-- focused naming-convergence tests
-- `go build ./...`
-- targeted package reviews
-
-It should not be blocked on the current repository-wide mix of live websocket and credential-dependent tests.
+- use `go test -short ./...` as the default gate
+- use `scripts/verify_exchange.sh <exchange>` for exchange-scoped changes
+- use `scripts/verify_full.sh` before merging significant adapter/SDK changes
+- use `scripts/verify_soak.sh` only when stream durability coverage is specifically needed

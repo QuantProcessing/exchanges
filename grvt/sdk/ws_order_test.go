@@ -4,68 +4,139 @@ package grvt
 import (
 	"context"
 	"fmt"
-	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
-// TestLimitOrderLifecycle: 0.1 ETH Limit Buy @ 3000 -> Cancel
-func TestLimitOrderLifecycle(t *testing.T) {
-	apiKey, subaccount, privateKey := GetEnv()
-	if apiKey == "" {
-		t.Skip("Skipping test: credentials not set")
+func limitBuyPrice(t *testing.T, client *Client, instrument string) string {
+	t.Helper()
+
+	instruments, err := client.GetInstruments(context.Background())
+	if err != nil {
+		t.Fatalf("GetInstruments failed: %v", err)
 	}
 
-	client := NewClient().WithCredentials(apiKey, subaccount, privateKey)
-	wsClient := NewAccountRpcWebsocketClient(context.Background(), client)
-	err := wsClient.Connect()
-	if err != nil {
-		t.Fatal(err)
+	var tickSize decimal.Decimal
+	found := false
+	for _, inst := range instruments {
+		if inst.Instrument != instrument {
+			continue
+		}
+		tickSize, err = decimal.NewFromString(inst.TickSize)
+		if err != nil {
+			t.Fatalf("invalid tick size %q for %s: %v", inst.TickSize, instrument, err)
+		}
+		found = true
+		break
 	}
+	if !found {
+		t.Fatalf("instrument %s not found", instrument)
+	}
+
+	ticker, err := client.GetTicker(context.Background(), instrument)
+	if err != nil {
+		t.Fatalf("GetTicker failed: %v", err)
+	}
+	if ticker.Result.BestBidPrice == "" {
+		t.Fatalf("ticker missing best bid price for %s", instrument)
+	}
+
+	bestBid, err := decimal.NewFromString(ticker.Result.BestBidPrice)
+	if err != nil {
+		t.Fatalf("invalid best bid price %q: %v", ticker.Result.BestBidPrice, err)
+	}
+	price := bestBid.Sub(tickSize.Mul(decimal.NewFromInt(2)))
+	if !price.IsPositive() {
+		t.Fatalf("invalid derived limit price %s from best bid %s", price.String(), ticker.Result.BestBidPrice)
+	}
+
+	precision := int32(0)
+	if tickSize.Exponent() < 0 {
+		precision = -tickSize.Exponent()
+	}
+	price = price.Div(tickSize).Floor().Mul(tickSize)
+	return price.StringFixed(precision)
+}
+
+func orderNonce() uint32 {
+	return uint32(time.Now().UnixNano())
+}
+
+func retryPlaceOrder(t *testing.T, wsClient *WebsocketClient, build func() *OrderRequest) (*CreateOrderResponse, *OrderRequest) {
+	t.Helper()
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req := build()
+		resp, err := wsClient.PlaceOrder(context.Background(), req)
+		if err == nil {
+			return resp, req
+		}
+		lastErr = err
+		if !strings.Contains(strings.ToLower(err.Error()), "signature does not match payload") {
+			t.Fatalf("PlaceOrder failed: %v", err)
+		}
+		time.Sleep(time.Second)
+	}
+
+	t.Fatalf("PlaceOrder failed after retries: %v", lastErr)
+	return nil, nil
+}
+
+// TestLimitOrderLifecycle places a post-only order just below the live best bid so it
+// stays inside the protection band while remaining non-marketable.
+func TestLimitOrderLifecycle(t *testing.T) {
+	requireFullEnv(t)
+	apiKey, subaccount, privateKey := GetEnv()
+
+	client := newLiveClient().WithCredentials(apiKey, subaccount, privateKey)
+	wsClient := NewAccountRpcWebsocketClient(context.Background(), client)
+	connectWithRetry(t, wsClient)
 	defer wsClient.Close()
 	time.Sleep(2 * time.Second) // Wait for connection
 
 	// Parse subaccount
 	var sa uint64
 	fmt.Sscan(subaccount, &sa)
-
-	// 1. Place Limit Buy Order
-	limitReq := &OrderRequest{
-		SubAccountID: sa,
-		IsMarket:     false,
-		TimeInForce:  GTT,
-		PostOnly:     true, // Post only for limit
-		ReduceOnly:   false,
-		Legs: []OrderLeg{
-			{
-				Instrument:    "ETH_USDT_Perp",
-				Size:          "0.1",
-				LimitPrice:    "3000",
-				IsBuyintAsset: true,
-			},
-		},
-		Metadata: OrderMetadata{
-			ClientOrderID: fmt.Sprintf("%d", time.Now().UnixNano()),
-		},
-		Signature: OrderSignature{
-			Expiration: strconv.FormatInt(time.Now().Add(5*time.Minute).UnixNano(), 10),
-			Nonce:      uint32(time.Now().Unix()),
-		},
-	}
+	limitPrice := limitBuyPrice(t, client, "ETH_USDT_Perp")
 
 	t.Log("Placing Limit Order...")
-	resp, err := wsClient.PlaceOrder(context.Background(), limitReq)
-	if err != nil {
-		t.Fatalf("PlaceOrder failed: %v", err)
-	}
+	resp, limitReq := retryPlaceOrder(t, wsClient, func() *OrderRequest {
+		return &OrderRequest{
+			SubAccountID: sa,
+			IsMarket:     false,
+			TimeInForce:  GTT,
+			PostOnly:     false,
+			ReduceOnly:   false,
+			Legs: []OrderLeg{
+				{
+					Instrument:    "ETH_USDT_Perp",
+					Size:          "0.1",
+					LimitPrice:    limitPrice,
+					IsBuyintAsset: true,
+				},
+			},
+			Metadata: OrderMetadata{
+				ClientOrderID: fmt.Sprintf("%d", time.Now().UnixNano()),
+			},
+			Signature: OrderSignature{
+				Expiration: fmt.Sprintf("%d", time.Now().Add(5*time.Minute).UnixNano()),
+				Nonce:      orderNonce(),
+			},
+		}
+	})
 	t.Logf("PlaceOrder success: OrderID=%s", resp.Result.OrderID)
 
 	// 2. Cancel Order
 	time.Sleep(1 * time.Second)
 	t.Log("Cancelling Order...")
+	cancelClientOrderID := limitReq.Metadata.ClientOrderID
 	cancelReq := &CancelOrderRequest{
-		SubAccountID: subaccount, // CancelOrder takes string subaccount? Check types.go. Yes, CancelOrderRequest.SubAccountID is string.
-		OrderID:      &resp.Result.OrderID,
+		SubAccountID:  subaccount,
+		ClientOrderID: &cancelClientOrderID,
 	}
 	cancelResp, err := wsClient.CancelOrder(context.Background(), cancelReq)
 	if err != nil {
@@ -76,17 +147,12 @@ func TestLimitOrderLifecycle(t *testing.T) {
 
 // TestMarketOrderLifecycle: 0.1 ETH Market Buy -> Market Sell (Close)
 func TestMarketOrderLifecycle(t *testing.T) {
+	requireFullEnv(t)
 	apiKey, subaccount, privateKey := GetEnv()
-	if apiKey == "" {
-		t.Skip("Skipping test: credentials not set")
-	}
 
-	client := NewClient().WithCredentials(apiKey, subaccount, privateKey)
+	client := newLiveClient().WithCredentials(apiKey, subaccount, privateKey)
 	wsClient := NewAccountRpcWebsocketClient(context.Background(), client)
-	err := wsClient.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
+	connectWithRetry(t, wsClient)
 	defer wsClient.Close()
 	time.Sleep(2 * time.Second)
 
@@ -112,8 +178,8 @@ func TestMarketOrderLifecycle(t *testing.T) {
 			ClientOrderID: fmt.Sprintf("%d", time.Now().UnixNano()),
 		},
 		Signature: OrderSignature{
-			Expiration: strconv.FormatInt(time.Now().Add(1*time.Minute).UnixNano(), 10),
-			Nonce:      uint32(time.Now().Unix()),
+			Expiration: fmt.Sprintf("%d", time.Now().Add(1*time.Minute).UnixNano()),
+			Nonce:      orderNonce(),
 		},
 	}
 
@@ -146,8 +212,8 @@ func TestMarketOrderLifecycle(t *testing.T) {
 			ClientOrderID: fmt.Sprintf("%d", time.Now().UnixNano()),
 		},
 		Signature: OrderSignature{
-			Expiration: strconv.FormatInt(time.Now().Add(1*time.Minute).UnixNano(), 10),
-			Nonce:      uint32(time.Now().Unix()),
+			Expiration: fmt.Sprintf("%d", time.Now().Add(1*time.Minute).UnixNano()),
+			Nonce:      orderNonce(),
 		},
 	}
 

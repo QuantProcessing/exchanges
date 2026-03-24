@@ -8,7 +8,7 @@ import (
 )
 
 func TestPlaceMarketOrderWs(t *testing.T) {
-	apiKey, secretKey, passphrase := GetEnv()
+	apiKey, secretKey, passphrase := GetEnv(t)
 	wsClient := NewWSClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
 	err := wsClient.Connect()
 	if err != nil {
@@ -38,12 +38,12 @@ func TestPlaceMarketOrderWs(t *testing.T) {
 	}
 	fmt.Printf("Place Order success: %+v\n", order)
 
-	timeout := time.NewTicker(50 * time.Second)
+	timeout := time.NewTicker(10 * time.Second)
 	<-timeout.C
 }
 
 func TestPlaceLimitOrderWs(t *testing.T) {
-	apiKey, secretKey, passphrase := GetEnv()
+	apiKey, secretKey, passphrase := GetEnv(t)
 	wsClient := NewWSClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
 	err := wsClient.Connect()
 	if err != nil {
@@ -75,12 +75,12 @@ func TestPlaceLimitOrderWs(t *testing.T) {
 	}
 	fmt.Printf("Place Order success: %+v\n", order)
 
-	timeout := time.NewTicker(50 * time.Second)
+	timeout := time.NewTicker(10 * time.Second)
 	<-timeout.C
 }
 
 func TestCancelOrderWs(t *testing.T) {
-	apiKey, secretKey, passphrase := GetEnv()
+	apiKey, secretKey, passphrase := GetEnv(t)
 	wsClient := NewWSClient(context.Background()).WithCredentials(apiKey, secretKey, passphrase)
 	err := wsClient.Connect()
 	if err != nil {
@@ -101,6 +101,6 @@ func TestCancelOrderWs(t *testing.T) {
 	}
 	fmt.Printf("Cancel Order success: %+v\n", order)
 
-	timeout := time.NewTicker(10 * time.Second)
+	timeout := time.NewTicker(5 * time.Second)
 	<-timeout.C
 }

@@ -5,18 +5,14 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-
-	"github.com/joho/godotenv"
 	"github.com/shopspring/decimal"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("ASTER_API_KEY") == "" {
-		t.Skip("Skipping: ASTER keys not set")
-	}
+	testenv.RequireFull(t, "ASTER_API_KEY", "ASTER_SECRET_KEY")
 	adp, err := NewAdapter(context.Background(), Options{
 		APIKey:    os.Getenv("ASTER_API_KEY"),
 		SecretKey: os.Getenv("ASTER_SECRET_KEY"),
@@ -29,10 +25,7 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	if os.Getenv("ASTER_API_KEY") == "" {
-		t.Skip("Skipping: ASTER keys not set")
-	}
+	testenv.RequireFull(t, "ASTER_API_KEY", "ASTER_SECRET_KEY")
 	adp, err := NewSpotAdapter(context.Background(), Options{
 		APIKey:    os.Getenv("ASTER_API_KEY"),
 		SecretKey: os.Getenv("ASTER_SECRET_KEY"),
