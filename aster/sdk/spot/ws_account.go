@@ -8,17 +8,17 @@ import (
 
 type WsAccountClient struct {
 	*WsClient
-	APIKey      string
-	SecretKey   string
-	ListenKey   string
-	StreamMgr   *UserStreamManager
-	restClient  *Client
+	APIKey     string
+	SecretKey  string
+	ListenKey  string
+	StreamMgr  *UserStreamManager
+	restClient *Client
 }
 
 func NewWsAccountClient(ctx context.Context, apiKey, secretKey string) *WsAccountClient {
 	// Initial URL is base, will be updated when listen key is generated
-	client := NewWsClient(ctx, WSBaseURL)
-	
+	client := NewWSClient(ctx, WSBaseURL)
+
 	restClient := NewClient(apiKey, secretKey)
 	streamMgr := NewUserStreamManager(restClient)
 
@@ -29,7 +29,7 @@ func NewWsAccountClient(ctx context.Context, apiKey, secretKey string) *WsAccoun
 		StreamMgr:  streamMgr,
 		restClient: restClient,
 	}
-	
+
 	client.Handler = ac.handleMessage
 	return ac
 }

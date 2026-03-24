@@ -15,7 +15,7 @@ type WsMarketClient struct {
 func NewWsMarketClient(ctx context.Context) *WsMarketClient {
 	// Market data is public, no auth needed usually
 	// Use Combined Stream URL for multiplexing
-	client := NewWsClient(ctx, WSBaseURL)
+	client := NewWSClient(ctx, WSBaseURL)
 	mc := &WsMarketClient{WsClient: client}
 
 	client.Handler = mc.handleMessage

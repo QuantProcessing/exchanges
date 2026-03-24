@@ -16,7 +16,7 @@ type WsMarketClient struct {
 
 func NewWsMarketClient(ctx context.Context) *WsMarketClient {
 	client := &WsMarketClient{
-		WsClient: NewWsClient(ctx, WSBaseURL+"/public/ws"),
+		WsClient: NewWSClient(ctx, WSBaseURL+"/public/ws"),
 	}
 	client.WsClient.Logger = zap.NewNop().Sugar().Named("aster-market")
 	client.Handler = client.handleMessage
