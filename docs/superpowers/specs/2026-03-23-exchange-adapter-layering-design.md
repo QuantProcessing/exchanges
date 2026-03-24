@@ -473,7 +473,7 @@ Gaps against this standard:
 
 - introduces a private-profile/classic-only local architecture that should be treated as a controlled exception, not a new package default
 - uses the initial-rollout controlled hybrid transport shape: REST-default with optional WS switching for a documented subset of order operations
-- broader file-layout questions beyond the funding split remain deferred
+- broader file-layout questions beyond the targeted Backpack, Aster, and Binance convergence pass remain deferred
 
 Role in convergence:
 
@@ -494,7 +494,7 @@ Gaps against this standard:
 
 Role in convergence:
 
-- landed precedent for explicit REST-only classification and for preferred SDK `GetOrderBook` / `PlaceOrder` naming, while broader stream/file-layout cleanup remains separate
+- landed precedent for explicit REST-only classification, preferred SDK `GetOrderBook` / `PlaceOrder` naming, and a single `streams.go` auxiliary file
 
 ### Additional Packages Normalized In The Repository-Wide Pass
 
@@ -530,13 +530,13 @@ Priority order:
 - REST-only transport behavior is declared and tested in this rollout; revisit only if full switching is introduced later
 - SDK naming now treats `GetOrderBook` and `PlaceOrder` as the preferred Backpack entrypoints, with legacy names still retained for compatibility
 - targeted constructor and SDK-level tests were added in this rollout
-- broader stream/file-layout changes remain deferred
+- stream behavior is now organized under a single `streams.go`; only broader repository-wide helper-placement questions remain deferred
 
 #### Bitget Phase-2 Outcomes
 
 - classic/private-profile layering is now documented as an approved exception with tighter boundaries
 - the controlled hybrid transport contract is explicit and tested in this rollout
-- perp funding behavior now lives in `funding.go`; broader file-layout choices remain deferred
+- perp funding behavior now lives in `funding.go`; `private_profile.go` remains the accepted controlled exception for durable private-path splits
 
 #### Binance And OKX Phase-2 Outcomes
 
@@ -564,7 +564,7 @@ After the first convergence pass:
 1. Publish this document and the review checklist as the initial-rollout baseline while keeping the deferred repository-wide decisions open.
 2. Track per-package gap lists for `backpack` and `bitget` as the first-pass convergence records.
 3. Use the standard as the starting point for future adapter-generation and review workflows.
-4. Revisit the remaining deferred repository-wide naming and file-layout questions in a later cleanup pass now that the generic `WsClient -> WSClient` convergence has landed.
+4. Revisit only the remaining repository-wide helper-placement questions after the targeted naming and file-layout convergence passes.
 
 ## Open Decisions
 
