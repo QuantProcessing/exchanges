@@ -17,7 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type WsClient struct {
+type WSClient struct {
 	URL     string
 	Conn    *websocket.Conn
 	Mu      sync.RWMutex
@@ -51,9 +51,11 @@ type Subscription struct {
 	callback func([]byte) error
 }
 
-func NewWsClient(ctx context.Context, url string) *WsClient {
+type WsClient = WSClient
+
+func NewWSClient(ctx context.Context, url string) *WSClient {
 	ctx, cancel := context.WithCancel(ctx)
-	return &WsClient{
+	return &WSClient{
 		URL:                  url,
 		ReconnectWait:        1 * time.Second,
 		Logger:               zap.NewNop().Sugar().Named("binance-perp"),
@@ -66,7 +68,11 @@ func NewWsClient(ctx context.Context, url string) *WsClient {
 	}
 }
 
-func (c *WsClient) Connect() error {
+func NewWsClient(ctx context.Context, url string) *WSClient {
+	return NewWSClient(ctx, url)
+}
+
+func (c *WSClient) Connect() error {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 	if c.isClosed {
@@ -110,7 +116,7 @@ func (c *WsClient) Connect() error {
 	return nil
 }
 
-func (c *WsClient) setupPingHandlers() {
+func (c *WSClient) setupPingHandlers() {
 	defer c.wg.Done()
 
 	c.Mu.RLock()
@@ -132,7 +138,7 @@ func (c *WsClient) setupPingHandlers() {
 
 // keepAlive sends unsolicited Pongs as heartbeats if needed, or just relies on reacting to Pings?
 // The original code had a loop sending Pongs. We'll strict copy that behavior.
-func (c *WsClient) keepAlive() {
+func (c *WSClient) keepAlive() {
 	defer c.wg.Done()
 
 	ticker := time.NewTicker(c.pongInterval)
@@ -161,7 +167,7 @@ func (c *WsClient) keepAlive() {
 	}
 }
 
-func (c *WsClient) readLoop() {
+func (c *WSClient) readLoop() {
 	defer c.wg.Done()
 	connectedAt := time.Now()
 
@@ -221,7 +227,7 @@ func (c *WsClient) readLoop() {
 	}
 }
 
-func (c *WsClient) reconnect() {
+func (c *WSClient) reconnect() {
 	c.Mu.Lock()
 	if c.isClosed {
 		c.Mu.Unlock()
@@ -287,7 +293,7 @@ func (c *WsClient) reconnect() {
 	}
 }
 
-func (c *WsClient) WriteJSON(v interface{}) error {
+func (c *WSClient) WriteJSON(v interface{}) error {
 	c.WriteMu.Lock()
 	defer c.WriteMu.Unlock()
 
@@ -304,7 +310,7 @@ func (c *WsClient) WriteJSON(v interface{}) error {
 	return conn.WriteJSON(v)
 }
 
-func (c *WsClient) Close() {
+func (c *WSClient) Close() {
 	c.Mu.Lock()
 	if c.isClosed {
 		c.Mu.Unlock()
@@ -325,7 +331,7 @@ func (c *WsClient) Close() {
 }
 
 // Subscribe sends a subscription request
-func (c *WsClient) Subscribe(stream string, handler func([]byte) error) error {
+func (c *WSClient) Subscribe(stream string, handler func([]byte) error) error {
 	id := common.GenerateRandomID()
 	c.Mu.Lock()
 	c.subs[stream] = Subscription{
@@ -343,7 +349,7 @@ func (c *WsClient) Subscribe(stream string, handler func([]byte) error) error {
 }
 
 // Unsubscribe sends an unsubscribe request
-func (c *WsClient) Unsubscribe(stream string) error {
+func (c *WSClient) Unsubscribe(stream string) error {
 	c.Mu.Lock()
 	sub, ok := c.subs[stream]
 	if !ok {
@@ -362,7 +368,7 @@ func (c *WsClient) Unsubscribe(stream string) error {
 }
 
 // SetHandler registers a local handler (no network request)
-func (c *WsClient) SetHandler(stream string, handler func([]byte) error) {
+func (c *WSClient) SetHandler(stream string, handler func([]byte) error) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 	c.subs[stream] = Subscription{
@@ -371,7 +377,7 @@ func (c *WsClient) SetHandler(stream string, handler func([]byte) error) {
 	}
 }
 
-func (c *WsClient) CallSubscription(key string, message []byte) {
+func (c *WSClient) CallSubscription(key string, message []byte) {
 	c.Mu.RLock()
 	sub, exist := c.subs[key]
 	c.Mu.RUnlock()
@@ -383,7 +389,7 @@ func (c *WsClient) CallSubscription(key string, message []byte) {
 	}
 }
 
-func (c *WsClient) IsConnected() bool {
+func (c *WSClient) IsConnected() bool {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
 	return c.Conn != nil && !c.isClosed

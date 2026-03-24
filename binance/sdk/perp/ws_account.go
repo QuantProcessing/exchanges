@@ -25,7 +25,7 @@ type WsAccountClient struct {
 func NewWsAccountClient(ctx context.Context, apiKey, apiSecret string) *WsAccountClient {
 	client := &WsAccountClient{
 		Client:       NewClient().WithCredentials(apiKey, apiSecret),
-		WsClient:     NewWsClient(ctx, WSBaseURL),
+		WsClient:     NewWSClient(ctx, WSBaseURL),
 		KeepAliveInt: 50 * time.Minute,
 	}
 	client.WsClient.Logger = zap.NewNop().Sugar().Named("binance-account")

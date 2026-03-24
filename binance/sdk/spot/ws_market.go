@@ -16,7 +16,7 @@ type WsMarketClient struct {
 
 func NewWsMarketClient(ctx context.Context) *WsMarketClient {
 	client := &WsMarketClient{
-		WsClient: NewWsClient(ctx, WSBaseURL),
+		WsClient: NewWSClient(ctx, WSBaseURL),
 	}
 	client.WsClient.Logger = zap.NewNop().Sugar().Named("binance-spot-market")
 	client.Handler = client.handleMessage
