@@ -200,7 +200,6 @@ The required Full Regression variables are:
 - `GRVT_SUB_ACCOUNT_ID`
 - `GRVT_PRIVATE_KEY`
 - `HYPERLIQUID_PRIVATE_KEY`
-- `HYPERLIQUID_VAULT`
 - `HYPERLIQUID_ACCOUNT_ADDR`
 - `LIGHTER_PRIVATE_KEY`
 - `LIGHTER_ACCOUNT_INDEX`
@@ -211,6 +210,8 @@ The required Full Regression variables are:
 - `OKX_API_SECRET`
 - `OKX_API_PASSPHRASE`
 - `STANDX_PRIVATE_KEY`
+
+`HYPERLIQUID_VAULT` is not part of the Full Regression required set. It is only needed for the specific Hyperliquid websocket account coverage that remains outside the default full-regression package gate.
 
 ### Soak Validation
 

@@ -503,8 +503,8 @@ Role in convergence:
 - `standx`: now maps constructor-time credential failures to `ErrAuthFailed`, fixes an SDK invalid-key panic path, and keeps its controlled hybrid classification explicit
 - `edgex`: now validates quote/auth inputs in the constructor, declares REST-only private order transport explicitly, and normalizes stable unsupported/auth sentinel behavior
 - `nado`: now guards private account/order paths with `ErrAuthFailed` instead of relying on nil client state, while keeping its exchange-specific transport split explicit
-- `lighter`: now has an explicit account/read/write permission model, validated constructor credential combinations, and stable sentinel behavior for unsupported paths
-- `hyperliquid`: now validates quote/auth inputs in the constructor, preserves private-key-only account derivation, separates read-only account access from write access, and normalizes stable unsupported sentinel behavior
+- `lighter`: now has an explicit account/read/write permission model, validated constructor credential combinations, and stable sentinel behavior for unsupported paths; read-only account access intentionally does not populate active orders because the active-order endpoint requires write-side signed auth
+- `hyperliquid`: now validates quote/auth inputs in the constructor, preserves private-key-only account derivation, separates read-only account access from write access, normalizes stable unsupported sentinel behavior, and treats spot `FetchAccount` balance-fetch failures as real errors instead of partial success
 
 ## Phased Convergence Plan
 

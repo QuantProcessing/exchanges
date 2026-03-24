@@ -273,6 +273,10 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 	}
 	a.metaMu.RUnlock()
 
+	// Active-order queries require write credentials because the Lighter endpoint
+	// depends on a signed auth token rather than the read-only token path.
+	// Read-only accounts therefore return balances and holdings here, but leave
+	// Account.Orders empty by design.
 	if a.hasWriteAccess {
 		for _, marketId := range marketIds {
 			orderRes, err := a.client.GetAccountActiveOrders(ctx, marketId)
