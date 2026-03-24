@@ -20,7 +20,7 @@ func (c *Client) GetTicker(ctx context.Context, symbol string) (*Ticker, error) 
 	return &out, nil
 }
 
-func (c *Client) GetDepth(ctx context.Context, symbol string, limit int) (*Depth, error) {
+func (c *Client) GetOrderBook(ctx context.Context, symbol string, limit int) (*Depth, error) {
 	var out Depth
 	query := map[string]string{"symbol": symbol}
 	if limit > 0 {
@@ -33,8 +33,9 @@ func (c *Client) GetDepth(ctx context.Context, symbol string, limit int) (*Depth
 	return &out, nil
 }
 
-func (c *Client) GetOrderBook(ctx context.Context, symbol string, limit int) (*Depth, error) {
-	return c.GetDepth(ctx, symbol, limit)
+// GetDepth is a compatibility wrapper for the preferred GetOrderBook name.
+func (c *Client) GetDepth(ctx context.Context, symbol string, limit int) (*Depth, error) {
+	return c.GetOrderBook(ctx, symbol, limit)
 }
 
 func (c *Client) GetTrades(ctx context.Context, symbol string, limit int) ([]Trade, error) {

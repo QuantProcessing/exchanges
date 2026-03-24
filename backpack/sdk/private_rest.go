@@ -104,7 +104,7 @@ func (c *Client) GetOpenPositions(ctx context.Context, symbol string) ([]Positio
 	return out, err
 }
 
-func (c *Client) ExecuteOrder(ctx context.Context, req CreateOrderRequest) (*Order, error) {
+func (c *Client) PlaceOrder(ctx context.Context, req CreateOrderRequest) (*Order, error) {
 	signParams := map[string]string{
 		"symbol":    req.Symbol,
 		"side":      req.Side,
@@ -132,8 +132,9 @@ func (c *Client) ExecuteOrder(ctx context.Context, req CreateOrderRequest) (*Ord
 	return &out, nil
 }
 
-func (c *Client) PlaceOrder(ctx context.Context, req CreateOrderRequest) (*Order, error) {
-	return c.ExecuteOrder(ctx, req)
+// ExecuteOrder is a compatibility wrapper for the preferred PlaceOrder name.
+func (c *Client) ExecuteOrder(ctx context.Context, req CreateOrderRequest) (*Order, error) {
+	return c.PlaceOrder(ctx, req)
 }
 
 func (c *Client) CancelOrder(ctx context.Context, req CancelOrderRequest) (*Order, error) {

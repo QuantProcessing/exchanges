@@ -9,9 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var _ adapterRESTClient = (*backpackStubClient)(nil)
+
 func TestNewPerpAdapterWithClientDefaultsToRESTOrderMode(t *testing.T) {
 	adp, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDC, &backpackStubClient{
-		getMarkets: func(context.Context) ([]sdk.Market, error) {
+		marketsFn: func(context.Context) ([]sdk.Market, error) {
 			return []sdk.Market{testBackpackPerpMarket()}, nil
 		},
 	})
@@ -21,7 +23,7 @@ func TestNewPerpAdapterWithClientDefaultsToRESTOrderMode(t *testing.T) {
 
 func TestNewAdapterWithClientAllowsPublicOnlyConstruction(t *testing.T) {
 	adp, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDC, &backpackStubClient{
-		getMarkets: func(context.Context) ([]sdk.Market, error) {
+		marketsFn: func(context.Context) ([]sdk.Market, error) {
 			return []sdk.Market{testBackpackPerpMarket()}, nil
 		},
 	})
@@ -36,7 +38,7 @@ func TestNewAdapterWithClientRejectsPartialCredentials(t *testing.T) {
 
 func TestNewSpotAdapterWithClientDefaultsToRESTOrderMode(t *testing.T) {
 	adp, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDC, &backpackStubClient{
-		getMarkets: func(context.Context) ([]sdk.Market, error) {
+		marketsFn: func(context.Context) ([]sdk.Market, error) {
 			return []sdk.Market{testBackpackSpotMarket()}, nil
 		},
 	})
@@ -90,6 +92,22 @@ func testBackpackPerpMarket() sdk.Market {
 }
 
 type backpackStubClient struct {
+	marketsFn          func(context.Context) ([]sdk.Market, error)
+	tickerFn           func(context.Context, string) (*sdk.Ticker, error)
+	orderBookFn        func(context.Context, string, int) (*sdk.Depth, error)
+	tradesFn           func(context.Context, string, int) ([]sdk.Trade, error)
+	fundingRatesFn     func(context.Context) ([]sdk.FundingRate, error)
+	klinesFn           func(context.Context, string, string, int64, int64, string) ([]sdk.Kline, error)
+	accountFn          func(context.Context) (*sdk.AccountSettings, error)
+	balancesFn         func(context.Context) (map[string]sdk.CapitalBalance, error)
+	openOrdersFn       func(context.Context, string, string) ([]sdk.Order, error)
+	openPositionsFn    func(context.Context, string) ([]sdk.Position, error)
+	placeOrderFn       func(context.Context, sdk.CreateOrderRequest) (*sdk.Order, error)
+	cancelOrderFn      func(context.Context, sdk.CancelOrderRequest) (*sdk.Order, error)
+	cancelOpenOrdersFn func(context.Context, string, string) error
+
+	// Legacy fallback hooks keep older package tests compiling while the
+	// preferred names above remain the primary constructor-test surface.
 	getMarkets       func(context.Context) ([]sdk.Market, error)
 	getTicker        func(context.Context, string) (*sdk.Ticker, error)
 	getOrderBook     func(context.Context, string, int) (*sdk.Depth, error)
@@ -106,6 +124,9 @@ type backpackStubClient struct {
 }
 
 func (c *backpackStubClient) GetMarkets(ctx context.Context) ([]sdk.Market, error) {
+	if c.marketsFn != nil {
+		return c.marketsFn(ctx)
+	}
 	if c.getMarkets == nil {
 		panic("unexpected GetMarkets call")
 	}
@@ -113,6 +134,9 @@ func (c *backpackStubClient) GetMarkets(ctx context.Context) ([]sdk.Market, erro
 }
 
 func (c *backpackStubClient) GetTicker(ctx context.Context, symbol string) (*sdk.Ticker, error) {
+	if c.tickerFn != nil {
+		return c.tickerFn(ctx, symbol)
+	}
 	if c.getTicker == nil {
 		panic("unexpected GetTicker call")
 	}
@@ -120,6 +144,9 @@ func (c *backpackStubClient) GetTicker(ctx context.Context, symbol string) (*sdk
 }
 
 func (c *backpackStubClient) GetOrderBook(ctx context.Context, symbol string, limit int) (*sdk.Depth, error) {
+	if c.orderBookFn != nil {
+		return c.orderBookFn(ctx, symbol, limit)
+	}
 	if c.getOrderBook == nil {
 		panic("unexpected GetOrderBook call")
 	}
@@ -127,6 +154,9 @@ func (c *backpackStubClient) GetOrderBook(ctx context.Context, symbol string, li
 }
 
 func (c *backpackStubClient) GetTrades(ctx context.Context, symbol string, limit int) ([]sdk.Trade, error) {
+	if c.tradesFn != nil {
+		return c.tradesFn(ctx, symbol, limit)
+	}
 	if c.getTrades == nil {
 		panic("unexpected GetTrades call")
 	}
@@ -134,6 +164,9 @@ func (c *backpackStubClient) GetTrades(ctx context.Context, symbol string, limit
 }
 
 func (c *backpackStubClient) GetFundingRates(ctx context.Context) ([]sdk.FundingRate, error) {
+	if c.fundingRatesFn != nil {
+		return c.fundingRatesFn(ctx)
+	}
 	if c.getFundingRates == nil {
 		panic("unexpected GetFundingRates call")
 	}
@@ -141,6 +174,9 @@ func (c *backpackStubClient) GetFundingRates(ctx context.Context) ([]sdk.Funding
 }
 
 func (c *backpackStubClient) GetKlines(ctx context.Context, symbol, interval string, startTime, endTime int64, priceType string) ([]sdk.Kline, error) {
+	if c.klinesFn != nil {
+		return c.klinesFn(ctx, symbol, interval, startTime, endTime, priceType)
+	}
 	if c.getKlines == nil {
 		panic("unexpected GetKlines call")
 	}
@@ -148,6 +184,9 @@ func (c *backpackStubClient) GetKlines(ctx context.Context, symbol, interval str
 }
 
 func (c *backpackStubClient) GetAccount(ctx context.Context) (*sdk.AccountSettings, error) {
+	if c.accountFn != nil {
+		return c.accountFn(ctx)
+	}
 	if c.getAccount == nil {
 		panic("unexpected GetAccount call")
 	}
@@ -155,6 +194,9 @@ func (c *backpackStubClient) GetAccount(ctx context.Context) (*sdk.AccountSettin
 }
 
 func (c *backpackStubClient) GetBalances(ctx context.Context) (map[string]sdk.CapitalBalance, error) {
+	if c.balancesFn != nil {
+		return c.balancesFn(ctx)
+	}
 	if c.getBalances == nil {
 		panic("unexpected GetBalances call")
 	}
@@ -162,6 +204,9 @@ func (c *backpackStubClient) GetBalances(ctx context.Context) (map[string]sdk.Ca
 }
 
 func (c *backpackStubClient) GetOpenOrders(ctx context.Context, marketType, symbol string) ([]sdk.Order, error) {
+	if c.openOrdersFn != nil {
+		return c.openOrdersFn(ctx, marketType, symbol)
+	}
 	if c.getOpenOrders == nil {
 		panic("unexpected GetOpenOrders call")
 	}
@@ -169,6 +214,9 @@ func (c *backpackStubClient) GetOpenOrders(ctx context.Context, marketType, symb
 }
 
 func (c *backpackStubClient) GetOpenPositions(ctx context.Context, symbol string) ([]sdk.Position, error) {
+	if c.openPositionsFn != nil {
+		return c.openPositionsFn(ctx, symbol)
+	}
 	if c.getOpenPositions == nil {
 		panic("unexpected GetOpenPositions call")
 	}
@@ -176,6 +224,9 @@ func (c *backpackStubClient) GetOpenPositions(ctx context.Context, symbol string
 }
 
 func (c *backpackStubClient) PlaceOrder(ctx context.Context, req sdk.CreateOrderRequest) (*sdk.Order, error) {
+	if c.placeOrderFn != nil {
+		return c.placeOrderFn(ctx, req)
+	}
 	if c.placeOrder == nil {
 		panic("unexpected PlaceOrder call")
 	}
@@ -183,6 +234,9 @@ func (c *backpackStubClient) PlaceOrder(ctx context.Context, req sdk.CreateOrder
 }
 
 func (c *backpackStubClient) CancelOrder(ctx context.Context, req sdk.CancelOrderRequest) (*sdk.Order, error) {
+	if c.cancelOrderFn != nil {
+		return c.cancelOrderFn(ctx, req)
+	}
 	if c.cancelOrder == nil {
 		panic("unexpected CancelOrder call")
 	}
@@ -190,6 +244,9 @@ func (c *backpackStubClient) CancelOrder(ctx context.Context, req sdk.CancelOrde
 }
 
 func (c *backpackStubClient) CancelOpenOrders(ctx context.Context, symbol, marketType string) error {
+	if c.cancelOpenOrdersFn != nil {
+		return c.cancelOpenOrdersFn(ctx, symbol, marketType)
+	}
 	if c.cancelOpenOrders == nil {
 		panic("unexpected CancelOpenOrders call")
 	}
