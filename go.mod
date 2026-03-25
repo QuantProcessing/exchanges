@@ -3,6 +3,7 @@ module github.com/QuantProcessing/exchanges
 go 1.26.0
 
 require (
+	github.com/aptos-labs/aptos-go-sdk v1.10.0
 	github.com/coder/websocket v1.8.14
 	github.com/elliottech/poseidon_crypto v0.0.15
 	github.com/ethereum/go-ethereum v1.17.1
