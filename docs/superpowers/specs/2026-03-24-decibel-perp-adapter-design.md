@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed and approved for planning.
+Implemented and merged to `main`.
 
 ## Problem
 
@@ -54,6 +54,21 @@ These decisions were explicitly confirmed during brainstorming and are fixed for
 - spot structure may be reserved, but spot behavior is not implemented in this phase
 - first-release success is measured by `compliance + order + lifecycle` rather than maximal feature coverage
 - adding Aptos-related Go dependencies is allowed where needed
+
+## Final Implementation Notes
+
+The merged implementation followed the approved design, with a few live-behavior clarifications that are worth recording explicitly:
+
+- constructor auth stayed `api_key + private_key + subaccount_addr`
+- `private_key` is the Decibel API wallet private key
+- `subaccount_addr` is the Decibel trading account address
+- the Aptos wallet address derived from `private_key` is stored internally and used for private WebSocket topics
+- account, position, open-order, order-history, and single-order REST reads use the configured trading account / subaccount address
+- single-order reconciliation uses `GET /api/v1/orders` and must pass exactly one of `order_id` or `client_order_id`
+- private order updates use wallet-address `order_updates` plus wallet-address `user_order_history`
+- `user_order_history` is treated as terminal-history support, not as the sole source of active order transitions
+- `open_orders` and `order_history` pagination use `limit` / `offset` with `total_count`
+- Aptos transaction hashes are not exposed as stable Decibel `OrderID` values when reconciliation times out
 
 ## Design Principles
 
@@ -162,6 +177,8 @@ All partial or empty credential states are rejected in the constructor with `Err
 - `accountAddr` is derived from the Aptos private key and stored internally
 - `subaccountAddr` remains the runtime target for account queries and trading
 - `marketAddr` values come from market metadata and are never required from callers
+
+In the merged adapter, `accountAddr` is specifically the API wallet address used for private WebSocket subscriptions, while `subaccountAddr` remains the REST and trading target.
 
 ### Quote currency policy
 
@@ -481,3 +498,10 @@ Mitigation:
 ## Planning Readiness
 
 This design covers one implementation target: a Decibel perpetual adapter with split REST, WebSocket, and Aptos SDK layers. It does not combine unrelated subsystems. The implementation can therefore be planned as a single focused workstream with phased tasks for package scaffolding, metadata and auth handling, read paths, write paths, and live-test enablement.
+
+## Final Verification
+
+The merged implementation was verified with:
+
+- `go test -mod=mod ./decibel/... -count=1`
+- `GOCACHE=/tmp/exchanges-gocache RUN_FULL=1 go test -mod=mod ./decibel -run "TestPerpAdapter_(Compliance|Orders|Lifecycle)$" -count=1 -v`
