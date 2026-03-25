@@ -130,6 +130,7 @@ Do not invent constructor names. In the current codebase, perp constructors are 
 | StandX | `standx` | `STANDX` | `NewAdapter` | perp only | `private_key`, `quote_currency` | `DUSD` | No spot adapter |
 | GRVT | `grvt` | `GRVT` | `NewAdapter` | perp only | `api_key`, `sub_account_id`, `private_key`, `quote_currency` | `USDT` | No spot adapter |
 | EdgeX | `edgex` | `EDGEX` | `NewAdapter` | perp only | `private_key`, `account_id`, `quote_currency` | `USDC` | No spot adapter |
+| Decibel | `decibel` | `DECIBEL` | `NewAdapter` | perp only | `api_key`, `private_key`, `subaccount_addr`, `quote_currency` | `USDC` | Hybrid adapter: authenticated REST/WS reads + Aptos write path |
 
 ### Quote currency rules
 
@@ -146,6 +147,7 @@ Always verify in `<exchange>/options.go` before answering or changing quote beha
 | StandX | `DUSD` |
 | GRVT | `USDT` |
 | EdgeX | `USDC` |
+| Decibel | `USDC` |
 
 ## Construction Patterns
 

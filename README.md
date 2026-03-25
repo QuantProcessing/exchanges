@@ -29,11 +29,13 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 | StandX      | ✅    | —    | —      | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —      | USDT             | USDT    |
 | EdgeX       | ✅    | —    | —      | USDC             | USDC    |
+| Decibel     | ✅    | —    | —      | USDC             | USDC    |
 
 ### Exchange Notes
 
 - Bitget currently supports the classic private API surface only.
 - Bitget defaults to `OrderModeREST`. Explicit `OrderModeWS` is opt-in and requires Bitget to enable classic WebSocket trade access for the API key.
+- Decibel is perp-only in this repository. It uses authenticated REST/WebSocket reads plus Aptos-signed on-chain trading writes, with credentials `api_key + private_key + subaccount_addr`.
 
 ## Installation
 
