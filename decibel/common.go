@@ -1,13 +1,17 @@
 package decibel
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	exchanges "github.com/QuantProcessing/exchanges"
 	decibelrest "github.com/QuantProcessing/exchanges/decibel/sdk/rest"
+	decibelws "github.com/QuantProcessing/exchanges/decibel/sdk/ws"
 	"github.com/shopspring/decimal"
 )
 
@@ -22,6 +26,14 @@ type marketMetadata struct {
 	TickSize      decimal.Decimal
 	PriceDecimals int32
 	SizeDecimals  int32
+}
+
+func (m marketMetadata) EncodePrice(price decimal.Decimal) (uint64, error) {
+	return m.encodePrice(price)
+}
+
+func (m marketMetadata) EncodeSize(size decimal.Decimal) (uint64, error) {
+	return m.encodeSize(size)
 }
 
 type marketMetadataCache struct {
@@ -81,12 +93,22 @@ func newMarketMetadata(market decibelrest.Market) (marketMetadata, error) {
 		BaseSymbol:    baseSymbol,
 		MarketAddr:    market.MarketAddr,
 		MarketName:    market.MarketName,
-		LotSize:       market.LotSize,
-		MinSize:       market.MinSize,
-		TickSize:      market.TickSize,
+		LotSize:       normalizePrecisionValue(market.LotSize, market.SzDecimals),
+		MinSize:       normalizePrecisionValue(market.MinSize, market.SzDecimals),
+		TickSize:      normalizePrecisionValue(market.TickSize, market.PxDecimals),
 		PriceDecimals: market.PxDecimals,
 		SizeDecimals:  market.SzDecimals,
 	}, nil
+}
+
+func normalizePrecisionValue(value decimal.Decimal, precision int32) decimal.Decimal {
+	if precision <= 0 {
+		return value
+	}
+	if !value.Equal(value.Truncate(0)) {
+		return value
+	}
+	return value.Shift(-precision)
 }
 
 func extractBaseSymbol(name string) (string, error) {
@@ -98,10 +120,17 @@ func extractBaseSymbol(name string) (string, error) {
 }
 
 func isPerpMode(mode string) bool {
-	if strings.TrimSpace(mode) == "" {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	if normalized == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(mode), "perp")
+	if strings.Contains(normalized, "spot") {
+		return false
+	}
+	return strings.Contains(normalized, "perp") ||
+		normalized == "open" ||
+		normalized == "reduceonly" ||
+		normalized == "closeonly"
 }
 
 func normalizeMarketAlias(value string) string {
@@ -161,6 +190,22 @@ func (c *marketMetadataCache) symbolDetails(symbol string) (*exchanges.SymbolDet
 	return meta.symbolDetails(), nil
 }
 
+func symbolDetailsFromMetadataCache(cache *marketMetadataCache) map[string]*exchanges.SymbolDetails {
+	if cache == nil {
+		return nil
+	}
+
+	details := make(map[string]*exchanges.SymbolDetails, len(cache.bySymbol))
+	for _, symbol := range cache.symbols() {
+		detail, err := cache.symbolDetails(symbol)
+		if err != nil {
+			continue
+		}
+		details[symbol] = detail
+	}
+	return details
+}
+
 func (m marketMetadata) symbolDetails() *exchanges.SymbolDetails {
 	return &exchanges.SymbolDetails{
 		Symbol:            m.BaseSymbol,
@@ -183,6 +228,10 @@ func (m marketMetadata) quantizePrice(price decimal.Decimal) (decimal.Decimal, e
 
 func (m marketMetadata) quantizeSize(size decimal.Decimal) (decimal.Decimal, error) {
 	size = size.Truncate(m.SizeDecimals)
+	if m.LotSize.IsPositive() {
+		steps := size.Div(m.LotSize).Floor()
+		size = steps.Mul(m.LotSize).Truncate(m.SizeDecimals)
+	}
 	if m.MinSize.IsPositive() && size.LessThan(m.MinSize) {
 		return decimal.Zero, exchanges.NewExchangeError(
 			"DECIBEL",
@@ -210,6 +259,93 @@ func (m marketMetadata) sizeToChainUnits(size decimal.Decimal) (decimal.Decimal,
 	return scaleToUnits(size, m.SizeDecimals), nil
 }
 
+func (m marketMetadata) encodePrice(price decimal.Decimal) (uint64, error) {
+	return m.encodeChainValue(price, m.TickSize, m.PriceDecimals, decimal.Zero, exchanges.ErrInvalidPrecision)
+}
+
+func (m marketMetadata) encodeSize(size decimal.Decimal) (uint64, error) {
+	return m.encodeChainValue(size, m.LotSize, m.SizeDecimals, m.MinSize, exchanges.ErrMinQuantity)
+}
+
+func (m marketMetadata) encodeChainValue(
+	value decimal.Decimal,
+	step decimal.Decimal,
+	precision int32,
+	min decimal.Decimal,
+	minErr error,
+) (uint64, error) {
+	if value.IsNegative() {
+		return 0, newPrecisionError("value must be non-negative")
+	}
+
+	if !value.Equal(value.Truncate(precision)) {
+		return 0, newPrecisionError(
+			fmt.Sprintf("value %s exceeds %d decimal places", value, precision),
+		)
+	}
+
+	if min.IsPositive() && value.LessThan(min) {
+		return 0, exchanges.NewExchangeError(
+			"DECIBEL",
+			"",
+			fmt.Sprintf("value %s below minimum %s", value, min),
+			minErr,
+		)
+	}
+
+	if step.IsPositive() {
+		steps := value.Div(step)
+		if !steps.Equal(steps.Truncate(0)) {
+			return 0, newPrecisionError(
+				fmt.Sprintf("value %s is not a multiple of %s", value, step),
+			)
+		}
+	}
+
+	scaled := scaleToUnits(value, precision)
+	if !scaled.Equal(scaled.Truncate(0)) {
+		return 0, newPrecisionError(
+			fmt.Sprintf("value %s cannot be represented in chain units", value),
+		)
+	}
+
+	units, err := decimalToUint64(scaled)
+	if err != nil {
+		return 0, err
+	}
+	return units, nil
+}
+
 func scaleToUnits(value decimal.Decimal, precision int32) decimal.Decimal {
 	return value.Mul(decimal.New(1, precision)).Truncate(0)
+}
+
+func decimalToUint64(value decimal.Decimal) (uint64, error) {
+	if value.IsNegative() {
+		return 0, newPrecisionError("value must be non-negative")
+	}
+
+	str := value.String()
+	if strings.Contains(str, ".") {
+		return 0, newPrecisionError(fmt.Sprintf("value %s is not an integer", value))
+	}
+
+	units, err := strconv.ParseUint(str, 10, 64)
+	if err == nil {
+		return units, nil
+	}
+	if errors.Is(err, strconv.ErrRange) {
+		return 0, newPrecisionError(
+			fmt.Sprintf("value %s exceeds max uint64 %d", value, uint64(math.MaxUint64)),
+		)
+	}
+	return 0, newPrecisionError(fmt.Sprintf("invalid encoded value %s", value))
+}
+
+func newPrecisionError(message string) error {
+	return exchanges.NewExchangeError("DECIBEL", "", message, exchanges.ErrInvalidPrecision)
+}
+
+func normalizeOrderStatus(status string) exchanges.OrderStatus {
+	return decibelws.NormalizeOrderStatus(status)
 }

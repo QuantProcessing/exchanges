@@ -49,6 +49,8 @@ type AccountOverview struct {
 
 type AccountPosition struct {
 	Market                    string          `json:"market"`
+	User                      string          `json:"user"`
+	Side                      string          `json:"side"`
 	Size                      decimal.Decimal `json:"size"`
 	EntryPrice                decimal.Decimal `json:"entry_price"`
 	EstimatedLiquidationPrice decimal.Decimal `json:"estimated_liquidation_price"`
@@ -56,20 +58,53 @@ type AccountPosition struct {
 	UserLeverage              decimal.Decimal `json:"user_leverage"`
 }
 
+type Ticker struct {
+	Market    string          `json:"market"`
+	LastPrice decimal.Decimal `json:"last_price"`
+	MarkPrice decimal.Decimal `json:"mark_price"`
+	BidPrice  decimal.Decimal `json:"bid_price"`
+	AskPrice  decimal.Decimal `json:"ask_price"`
+	Timestamp int64           `json:"timestamp"`
+}
+
+type OrderBookLevel struct {
+	Price decimal.Decimal `json:"price"`
+	Size  decimal.Decimal `json:"size"`
+}
+
+type OrderBookSnapshot struct {
+	Market    string           `json:"market"`
+	Bids      []OrderBookLevel `json:"bids"`
+	Asks      []OrderBookLevel `json:"asks"`
+	Timestamp int64            `json:"timestamp"`
+}
+
 type OpenOrdersResponse struct {
 	Items      []OpenOrder `json:"items"`
-	NextCursor string      `json:"next_cursor"`
+	TotalCount int         `json:"total_count"`
+}
+
+type OrderResponse struct {
+	Status  string    `json:"status"`
+	Details string    `json:"details"`
+	Order   OpenOrder `json:"order"`
 }
 
 type OpenOrder struct {
-	ClientOrderID string          `json:"client_order_id"`
-	Market        string          `json:"market"`
-	OrderID       string          `json:"order_id"`
-	OrderType     string          `json:"order_type"`
-	Status        string          `json:"status"`
-	UnixMS        int64           `json:"unix_ms"`
-	OrigSize      decimal.Decimal `json:"orig_size"`
-	Price         decimal.Decimal `json:"price"`
-	RemainingSize decimal.Decimal `json:"remaining_size"`
-	SizeDelta     decimal.Decimal `json:"size_delta"`
+	ClientOrderID      string          `json:"client_order_id"`
+	Market             string          `json:"market"`
+	OrderID            string          `json:"order_id"`
+	OrderType          string          `json:"order_type"`
+	OrderDirection     string          `json:"order_direction"`
+	Side               string          `json:"side"`
+	IsBuy              bool            `json:"is_buy"`
+	Status             string          `json:"status"`
+	Details            string          `json:"details"`
+	CancellationReason string          `json:"cancellation_reason"`
+	IsReduceOnly       bool            `json:"is_reduce_only"`
+	UnixMS             int64           `json:"unix_ms"`
+	OrigSize           decimal.Decimal `json:"orig_size"`
+	Price              decimal.Decimal `json:"price"`
+	RemainingSize      decimal.Decimal `json:"remaining_size"`
+	SizeDelta          decimal.Decimal `json:"size_delta"`
 }

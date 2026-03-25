@@ -109,3 +109,94 @@ func TestDecibelMetadataQuantizesAndConvertsChainUnitsWithDecimal(t *testing.T) 
 	_, err = meta.quantizeSize(decimal.RequireFromString("0.0009"))
 	require.ErrorIs(t, err, exchanges.ErrMinQuantity)
 }
+
+func TestDecibelPrecisionRejectsInvalidValuesBeforeChainEncoding(t *testing.T) {
+	meta := marketMetadata{
+		BaseSymbol:    "BTC",
+		MarketAddr:    "0xbtc",
+		MarketName:    "BTC-USDC-PERP",
+		LotSize:       decimal.RequireFromString("0.0005"),
+		MinSize:       decimal.RequireFromString("0.0010"),
+		TickSize:      decimal.RequireFromString("0.125"),
+		PriceDecimals: 3,
+		SizeDecimals:  4,
+	}
+
+	priceUnits, err := meta.encodePrice(decimal.RequireFromString("12.375"))
+	require.NoError(t, err)
+	require.Equal(t, uint64(12375), priceUnits)
+
+	sizeUnits, err := meta.encodeSize(decimal.RequireFromString("1.2345"))
+	require.NoError(t, err)
+	require.Equal(t, uint64(12345), sizeUnits)
+
+	_, err = meta.encodePrice(decimal.RequireFromString("12.387"))
+	require.ErrorIs(t, err, exchanges.ErrInvalidPrecision)
+
+	_, err = meta.encodeSize(decimal.RequireFromString("1.23459"))
+	require.ErrorIs(t, err, exchanges.ErrInvalidPrecision)
+
+	_, err = meta.encodeSize(decimal.RequireFromString("1.2346"))
+	require.ErrorIs(t, err, exchanges.ErrInvalidPrecision)
+
+	_, err = meta.encodeSize(decimal.RequireFromString("0.0009"))
+	require.ErrorIs(t, err, exchanges.ErrMinQuantity)
+}
+
+func TestDecibelPrecisionQuantizeSizeUsesLotSizeStep(t *testing.T) {
+	meta := marketMetadata{
+		BaseSymbol:    "BTC",
+		MarketAddr:    "0xbtc",
+		MarketName:    "BTC-USDC-PERP",
+		LotSize:       decimal.RequireFromString("0.0005"),
+		MinSize:       decimal.RequireFromString("0.0010"),
+		TickSize:      decimal.RequireFromString("0.125"),
+		PriceDecimals: 3,
+		SizeDecimals:  4,
+	}
+
+	size, err := meta.quantizeSize(decimal.RequireFromString("1.2346"))
+	require.NoError(t, err)
+	require.True(t, decimal.RequireFromString("1.2345").Equal(size))
+
+	sizeUnits, err := meta.sizeToChainUnits(decimal.RequireFromString("1.2346"))
+	require.NoError(t, err)
+	require.True(t, decimal.RequireFromString("12345").Equal(sizeUnits))
+}
+
+func TestDecibelWSNormalizesOrderStatuses(t *testing.T) {
+	require.Equal(t, exchanges.OrderStatusNew, normalizeOrderStatus("Placed"))
+	require.Equal(t, exchanges.OrderStatusNew, normalizeOrderStatus("Open"))
+	require.Equal(t, exchanges.OrderStatusPartiallyFilled, normalizeOrderStatus("PartiallyFilled"))
+	require.Equal(t, exchanges.OrderStatusFilled, normalizeOrderStatus("Filled"))
+	require.Equal(t, exchanges.OrderStatusCancelled, normalizeOrderStatus("Cancelled"))
+	require.Equal(t, exchanges.OrderStatusCancelled, normalizeOrderStatus("Expired"))
+	require.Equal(t, exchanges.OrderStatusRejected, normalizeOrderStatus("Rejected"))
+	require.Equal(t, exchanges.OrderStatusUnknown, normalizeOrderStatus("mystery"))
+}
+
+func TestDecibelMetadataRecognizesLiveMarketModes(t *testing.T) {
+	require.True(t, isPerpMode(""))
+	require.True(t, isPerpMode("perp"))
+	require.True(t, isPerpMode("Open"))
+	require.True(t, isPerpMode("ReduceOnly"))
+	require.True(t, isPerpMode("CloseOnly"))
+	require.False(t, isPerpMode("spot"))
+}
+
+func TestDecibelMetadataScalesLiveIntegerPrecisionFields(t *testing.T) {
+	meta, err := newMarketMetadata(decibelrest.Market{
+		MarketAddr: "0xbtc",
+		MarketName: "BTC/USD",
+		Mode:       "Open",
+		MinSize:    decimal.RequireFromString("2000"),
+		LotSize:    decimal.RequireFromString("1000"),
+		TickSize:   decimal.RequireFromString("5000"),
+		PxDecimals: 6,
+		SzDecimals: 8,
+	})
+	require.NoError(t, err)
+	require.True(t, decimal.RequireFromString("0.00002").Equal(meta.MinSize))
+	require.True(t, decimal.RequireFromString("0.00001").Equal(meta.LotSize))
+	require.True(t, decimal.RequireFromString("0.005").Equal(meta.TickSize))
+}
