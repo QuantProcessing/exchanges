@@ -37,6 +37,12 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 - Bitget defaults to `OrderModeREST`. Explicit `OrderModeWS` is opt-in and requires Bitget to enable classic WebSocket trade access for the API key.
 - Decibel is perp-only in this repository. It uses authenticated REST/WebSocket reads plus Aptos-signed on-chain trading writes, with credentials `api_key + private_key + subaccount_addr`.
 
+## Adding New Exchanges
+
+Repository-specific guidance for new adapters lives in `docs/contributing/adding-exchange-adapters.md`.
+
+Treat that guide as the source of truth for package layout, capability claims, private-stream readiness, and live test wiring. It is intentionally repo-owned guidance, not a reusable global skill.
+
 ## Installation
 
 ```bash

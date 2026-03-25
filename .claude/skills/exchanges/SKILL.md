@@ -18,6 +18,8 @@ The most important rule for this project:
 
 Several docs in this repo ecosystem have drifted before. Future agents should verify constructor names, test helpers, option fields, and supported markets from the source files listed below before answering or editing.
 
+For brand-new exchange adapters or support-level upgrades, the repository-owned guide at `docs/contributing/adding-exchange-adapters.md` is the source of truth for capability classification, `sdk/` boundaries, and live-test completion gates.
+
 ## Source of Truth
 
 When answering a question or making a change, start from the smallest set of authoritative files:
@@ -68,7 +70,7 @@ Use this table to decide what to load first instead of reading the entire repo.
 | Fix order status / partial-fill behavior | `models.go`, `utils.go` | target `WatchOrders`, response mapping helpers, `testsuite/helpers.go` |
 | Fix local orderbook behavior | `local_state.go` | target `WatchOrderBook`, local orderbook file, `testsuite/compliance.go` |
 | Fix account sync / local state | `local_state.go`, `event_bus.go` | target WS account handlers, `FetchAccount`, `WatchOrders`, `WatchPositions` |
-| Add a new exchange adapter | `registry.go`, `exchange.go`, `testsuite/*` | copy a similar exchange package structure |
+| Add a new exchange adapter | `docs/contributing/adding-exchange-adapters.md` | then `registry.go`, `exchange.go`, `testsuite/*`, and the nearest peer package |
 | Answer "what auth/options does exchange X need?" | `<exchange>/options.go` | `<exchange>/register.go` |
 | Answer "what markets does exchange X support?" | `<exchange>/register.go` | presence of `spot_adapter.go` / `perp_adapter.go` |
 | Use Binance margin | `binance/margin_adapter.go` | `binance/sdk/margin/*` |
@@ -426,11 +428,12 @@ Future agents should follow this sequence instead of answering from memory.
 
 ### If the task is "add a new exchange adapter"
 
-1. Read `exchange.go`, `utils.go`, `registry.go`, `testsuite/*`
-2. Pick the closest existing exchange package as reference
-3. Mirror package structure
-4. Implement the smallest viable adapter first
-5. Add tests by copying the nearest `adapter_test.go`
+1. Read `docs/contributing/adding-exchange-adapters.md`
+2. Read `exchange.go`, `utils.go`, `registry.go`, `testsuite/*`
+3. Pick the closest existing exchange package as reference per concern
+4. Classify the adapter capability level before choosing file layout
+5. Implement the smallest viable adapter first
+6. Wire `adapter_test.go` to the shared suites that match the claimed support level
 
 ### If the task is "what does the unified SDK guarantee?"
 
