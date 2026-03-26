@@ -37,14 +37,22 @@ type Adapter struct {
 
 	sender string
 
-	// Order state tracking for "remaining" amount conversion
-	// Digest -> OriginalQuantity
+	// Order state tracking: Digest -> orderMeta
+	// Tracks original quantity (for fill calculation) and ClientOrderID (for upstream matching)
 	orderMap sync.Map
 
 	// Cached fee rates (fetched once via GetFeeRates)
 	feeOnce      sync.Once
 	feeCache     map[string]*exchanges.FeeRate // symbol -> fee rate
 	cachedFeeErr error
+}
+
+// orderMeta tracks per-order state cached locally by the adapter.
+// Nado protocol identifies orders by Digest (deterministic hash), not client-assigned IDs,
+// so we maintain this mapping at the adapter level for architecture-level consistency.
+type orderMeta struct {
+	OriginalQty   decimal.Decimal
+	ClientOrderID string
 }
 
 // NewAdapter 创建 Nado 适配器
@@ -411,15 +419,23 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		if err != nil {
 			return nil, err
 		}
+		// Cache mapping for WatchOrders to resolve ClientOrderID
+		if params.ClientID != "" {
+			a.orderMap.Store(resp.Digest, orderMeta{
+				OriginalQty:   params.Quantity,
+				ClientOrderID: params.ClientID,
+			})
+		}
 		return &exchanges.Order{
-			OrderID:   resp.Digest,
-			Symbol:    params.Symbol,
-			Side:      params.Side,
-			Type:      params.Type,
-			Quantity:  params.Quantity,
-			Price:     params.Price,
-			Status:    exchanges.OrderStatusPending,
-			Timestamp: time.Now().UnixMilli(),
+			OrderID:       resp.Digest,
+			ClientOrderID: params.ClientID,
+			Symbol:        params.Symbol,
+			Side:          params.Side,
+			Type:          params.Type,
+			Quantity:      params.Quantity,
+			Price:         params.Price,
+			Status:        exchanges.OrderStatusPending,
+			Timestamp:     time.Now().UnixMilli(),
 		}, nil
 	}
 
@@ -434,8 +450,11 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		return nil, err
 	}
 
-	// Cache original quantity for WS update calculation - BEFORE execution to avoid race
-	a.orderMap.Store(prepared.Digest, params.Quantity)
+	// Cache order metadata for WS update calculation - BEFORE execution to avoid race
+	a.orderMap.Store(prepared.Digest, orderMeta{
+		OriginalQty:   params.Quantity,
+		ClientOrderID: params.ClientID,
+	})
 
 	// Execute
 	resp, err := a.apiClient.ExecutePreparedOrder(ctx, prepared)
@@ -446,14 +465,15 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}
 
 	return &exchanges.Order{
-		OrderID:   resp.Digest,
-		Symbol:    params.Symbol,
-		Side:      params.Side,
-		Type:      params.Type,
-		Quantity:  params.Quantity,
-		Price:     params.Price,
-		Status:    exchanges.OrderStatusPending,
-		Timestamp: time.Now().UnixMilli(),
+		OrderID:       resp.Digest,
+		ClientOrderID: params.ClientID,
+		Symbol:        params.Symbol,
+		Side:          params.Side,
+		Type:          params.Type,
+		Quantity:      params.Quantity,
+		Price:         params.Price,
+		Status:        exchanges.OrderStatusPending,
+		Timestamp:     time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -773,14 +793,25 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 		remaining := parseX18(d.Amount)
 		var filled decimal.Decimal
 
+		var clientOrderID string
 		if nado.OrderUpdateReason(d.Reason) == nado.OrderReasonPlaced {
-			// Cache total amount
-			a.orderMap.Store(d.Digest, remaining)
+			// On "placed", preserve existing meta if we cached it from PlaceOrder,
+			// otherwise create a new entry (order placed outside this adapter).
+			if val, ok := a.orderMap.Load(d.Digest); ok {
+				meta := val.(orderMeta)
+				clientOrderID = meta.ClientOrderID
+				// Update quantity from the exchange's confirmed amount
+				meta.OriginalQty = remaining
+				a.orderMap.Store(d.Digest, meta)
+			} else {
+				a.orderMap.Store(d.Digest, orderMeta{OriginalQty: remaining})
+			}
 			filled = decimal.Zero
 		} else {
 			if val, ok := a.orderMap.Load(d.Digest); ok {
-				original := val.(decimal.Decimal)
-				filled = original.Sub(remaining)
+				meta := val.(orderMeta)
+				clientOrderID = meta.ClientOrderID
+				filled = meta.OriginalQty.Sub(remaining)
 				if filled.IsNegative() {
 					filled = decimal.Zero
 				}
@@ -797,6 +828,7 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 
 		callback(&exchanges.Order{
 			OrderID:        d.Digest,
+			ClientOrderID:  clientOrderID,
 			Symbol:         symbol,
 			Status:         status,
 			Timestamp:      ts,

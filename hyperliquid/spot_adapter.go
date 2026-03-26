@@ -349,12 +349,17 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 
 	isBuy := params.Side == exchanges.OrderSideBuy
 
+	var cloid *string
+	if params.ClientID != "" {
+		cloid = &params.ClientID
+	}
+
 	req := spot.PlaceOrderRequest{
 		AssetID:       assetID,
 		IsBuy:         isBuy,
 		Price:         params.Price.InexactFloat64(),
 		Size:          params.Quantity.InexactFloat64(),
-		ClientOrderID: nil,
+		ClientOrderID: cloid,
 		OrderType:     a.mapOrderType(params),
 	}
 
@@ -412,27 +417,29 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 
 			if oid > 0 {
 				return &exchanges.Order{
-					OrderID:   fmt.Sprintf("%d", oid),
-					Symbol:    params.Symbol,
-					Side:      params.Side,
-					Type:      params.Type,
-					Quantity:  params.Quantity,
-					Price:     params.Price,
-					Status:    exchanges.OrderStatusPending,
-					Timestamp: time.Now().UnixMilli(),
+					OrderID:       fmt.Sprintf("%d", oid),
+					ClientOrderID: params.ClientID,
+					Symbol:        params.Symbol,
+					Side:          params.Side,
+					Type:          params.Type,
+					Quantity:      params.Quantity,
+					Price:         params.Price,
+					Status:        exchanges.OrderStatusPending,
+					Timestamp:     time.Now().UnixMilli(),
 				}, nil
 			}
 		}
 	}
 
 	return &exchanges.Order{
-		Symbol:    params.Symbol,
-		Side:      params.Side,
-		Type:      params.Type,
-		Quantity:  params.Quantity,
-		Price:     params.Price,
-		Status:    exchanges.OrderStatusPending,
-		Timestamp: time.Now().UnixMilli(),
+		ClientOrderID: params.ClientID,
+		Symbol:        params.Symbol,
+		Side:          params.Side,
+		Type:          params.Type,
+		Quantity:      params.Quantity,
+		Price:         params.Price,
+		Status:        exchanges.OrderStatusPending,
+		Timestamp:     time.Now().UnixMilli(),
 	}, nil
 }
 

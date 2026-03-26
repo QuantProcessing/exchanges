@@ -82,6 +82,7 @@ func buildPlaceOrderAction(orders ...PlaceOrderRequest) (hyperliquid.CreateOrder
 			Size:       size,
 			ReduceOnly: false, // Spot doesn't have ReduceOnly
 			OrderType:  orderType,
+			Cloid:      order.ClientOrderID,
 		}
 	}
 

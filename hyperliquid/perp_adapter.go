@@ -294,13 +294,18 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 
 	isBuy := params.Side == exchanges.OrderSideBuy
 
+	var cloid *string
+	if params.ClientID != "" {
+		cloid = &params.ClientID
+	}
+
 	req := perp.PlaceOrderRequest{
 		AssetID:       assetID,
 		IsBuy:         isBuy,
 		Price:         params.Price.InexactFloat64(),
 		Size:          params.Quantity.InexactFloat64(),
 		ReduceOnly:    params.ReduceOnly,
-		ClientOrderID: nil,
+		ClientOrderID: cloid,
 		OrderType:     a.mapOrderType(params),
 	}
 
@@ -318,7 +323,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		}
 		return &exchanges.Order{
 			OrderID:       fmt.Sprintf("%d", oid),
-			ClientOrderID: fmt.Sprintf("%d", oid),
+			ClientOrderID: params.ClientID,
 			Symbol:        params.Symbol,
 			Side:          params.Side,
 			Type:          params.Type,
@@ -392,7 +397,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 				// Return success with OID
 				return &exchanges.Order{
 					OrderID:       fmt.Sprintf("%d", oid),
-					ClientOrderID: fmt.Sprintf("%d", oid),
+					ClientOrderID: params.ClientID,
 					Symbol:        params.Symbol,
 					Side:          params.Side,
 					Type:          params.Type,
@@ -410,13 +415,14 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 
 	// Fallback if parsing fails or structure mismatches (shouldn't happen on success)
 	return &exchanges.Order{
-		Symbol:    params.Symbol,
-		Side:      params.Side,
-		Type:      params.Type,
-		Quantity:  params.Quantity,
-		Price:     params.Price,
-		Status:    exchanges.OrderStatusPending,
-		Timestamp: time.Now().UnixMilli(),
+		ClientOrderID: params.ClientID,
+		Symbol:        params.Symbol,
+		Side:          params.Side,
+		Type:          params.Type,
+		Quantity:      params.Quantity,
+		Price:         params.Price,
+		Status:        exchanges.OrderStatusPending,
+		Timestamp:     time.Now().UnixMilli(),
 	}, nil
 }
 
