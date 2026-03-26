@@ -375,8 +375,8 @@ func TestDecibelAdapterFetchesUseExpectedSDKSeams(t *testing.T) {
 
 	feeRate, err := adp.FetchFeeRate(ctx, "BTC")
 	require.NoError(t, err)
-	require.True(t, feeRate.Maker.IsZero())
-	require.True(t, feeRate.Taker.IsZero())
+	require.True(t, decimal.RequireFromString("0.00011").Equal(feeRate.Maker))
+	require.True(t, decimal.RequireFromString("0.00034").Equal(feeRate.Taker))
 }
 
 func TestDecibelAdapterWatchOrderBookWaitsForInitialSync(t *testing.T) {

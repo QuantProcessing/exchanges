@@ -497,9 +497,13 @@ func (a *Adapter) FetchFeeRate(_ context.Context, symbol string) (*exchanges.Fee
 	if _, err := a.metadataForSymbol(symbol); err != nil {
 		return nil, err
 	}
-	// Decibel fee tiers are not surfaced by the current metadata bootstrap, so v1
-	// returns a deterministic zero-fee fallback to satisfy repository reads.
-	return &exchanges.FeeRate{Maker: decimal.Zero, Taker: decimal.Zero}, nil
+	// Decibel does not expose an API endpoint to query account fee tiers.
+	// Hardcode Tier 0 (lowest volume tier) rates as a conservative default.
+	// Taker: 0.0340%, Maker: 0.0110%
+	return &exchanges.FeeRate{
+		Maker: decimal.RequireFromString("0.00011"),
+		Taker: decimal.RequireFromString("0.00034"),
+	}, nil
 }
 
 func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
