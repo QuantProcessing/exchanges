@@ -351,10 +351,11 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}
 
 	return &exchanges.Order{
-		OrderID:   res.OrderId,
-		Symbol:    params.Symbol,
-		Status:    exchanges.OrderStatusPending,
-		Timestamp: time.Now().UnixMilli(),
+		OrderID:       res.OrderId,
+		ClientOrderID: params.ClientID,
+		Symbol:        params.Symbol,
+		Status:        exchanges.OrderStatusPending,
+		Timestamp:     time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -896,6 +897,7 @@ func (a *Adapter) mapOrder(o *perp.Order) *exchanges.Order {
 
 	order := &exchanges.Order{
 		OrderID:        o.Id,
+		ClientOrderID:  o.ClientOrderId,
 		Symbol:         a.contractToSymbol[o.ContractId],
 		Side:           side,
 		Type:           orderType,
