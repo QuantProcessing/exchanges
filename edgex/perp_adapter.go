@@ -323,10 +323,11 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}
 
 	req := perp.PlaceOrderParams{
-		ContractId: c.ContractId,
-		Side:       side,
-		Type:       string(params.Type),
-		Quantity:   params.Quantity.String(),
+		ContractId:    c.ContractId,
+		Side:          side,
+		Type:          string(params.Type),
+		Quantity:      params.Quantity.String(),
+		ClientOrderId: params.ClientID,
 	}
 
 	req.Type = a.mapOrderType(params.Type)
