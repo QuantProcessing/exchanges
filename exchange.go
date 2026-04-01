@@ -70,8 +70,9 @@ type Exchange interface {
 	// === Local OrderBook (WS-maintained) ===
 	// WatchOrderBook subscribes to orderbook updates and maintains a local copy.
 	// The callback is called on every update; pass nil for pull-only mode.
+	// depth controls the callback snapshot size. Use depth <= 0 for full depth.
 	// This method blocks until the initial snapshot is synced.
-	WatchOrderBook(ctx context.Context, symbol string, cb OrderBookCallback) error
+	WatchOrderBook(ctx context.Context, symbol string, depth int, cb OrderBookCallback) error
 	GetLocalOrderBook(symbol string, depth int) *OrderBook
 	StopWatchOrderBook(ctx context.Context, symbol string) error
 

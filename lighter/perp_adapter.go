@@ -914,7 +914,7 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 func (a *Adapter) StopWatchOrders(ctx context.Context) error                { return nil }
 func (a *Adapter) StopWatchPositions(ctx context.Context) error             { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -956,7 +956,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 				return
 			case <-ticker.C:
 				if cb != nil {
-					snap := ob.ToAdapterOrderBook(20)
+					snap := ob.ToAdapterOrderBook(depth)
 					cb(snap)
 				}
 			}

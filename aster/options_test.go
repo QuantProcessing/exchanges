@@ -36,9 +36,8 @@ func TestOptions_QuoteCurrency_Default_DEX(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// DEX default is USDC
-	if q != exchanges.QuoteCurrencyUSDC {
-		t.Errorf("default quote = %q, want %q (DEX default)", q, exchanges.QuoteCurrencyUSDC)
+	if q != exchanges.QuoteCurrencyUSDT {
+		t.Errorf("default quote = %q, want %q", q, exchanges.QuoteCurrencyUSDT)
 	}
 }
 

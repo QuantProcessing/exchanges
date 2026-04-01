@@ -330,7 +330,7 @@ func (a *MarginAdapter) WatchTicker(ctx context.Context, symbol string, cb excha
 	return exchanges.ErrNotSupported
 }
 
-func (a *MarginAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *MarginAdapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	return exchanges.ErrNotSupported
 }
 

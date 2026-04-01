@@ -25,12 +25,30 @@ func refreshOrderBookSnapshot(client depthSnapshotClient, symbol string, ob *Ord
 	return ob.ApplySnapshot(snapshot)
 }
 
-func emitOrderBookUpdate(cb exchanges.OrderBookCallback, ob *OrderBook, symbol string, eventTime int64) {
+func waitForInitialOrderBookSnapshot(ctx context.Context, client depthSnapshotClient, symbol string, ob *OrderBook) error {
+	for {
+		if ob.IsInitialized() {
+			return nil
+		}
+
+		if err := refreshOrderBookSnapshot(client, symbol, ob); err == nil {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+func emitOrderBookUpdate(cb exchanges.OrderBookCallback, ob *OrderBook, symbol string, eventTime int64, depth int) {
 	if cb == nil || !ob.IsInitialized() {
 		return
 	}
 
-	bids, asks := ob.GetDepth(20)
+	bids, asks := ob.GetDepth(depth)
 	cb(&exchanges.OrderBook{
 		Symbol:    strings.ToUpper(symbol),
 		Timestamp: microsToMillis(eventTime),

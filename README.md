@@ -21,7 +21,7 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 |-------------|------|------|--------|------------------|---------|
 | Binance     | ✅    | ✅    | ✅      | USDT, USDC       | USDT    |
 | OKX         | ✅    | ✅    | —      | USDT, USDC       | USDT    |
-| Aster       | ✅    | ✅    | —      | USDT, USDC       | USDC    |
+| Aster       | ✅    | ✅    | —      | USDT, USDC       | USDT    |
 | Nado        | ✅    | ✅    | —      | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —      | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —      | USDC             | USDC    |
@@ -186,7 +186,7 @@ order, err := exchanges.PlaceMarketOrderWithSlippage(ctx, adp, "BTC", exchanges.
 
 ```go
 // Real-time order book (locally maintained)
-err := adp.WatchOrderBook(ctx, "BTC", func(ob *exchanges.OrderBook) {
+err := adp.WatchOrderBook(ctx, "BTC", 20, func(ob *exchanges.OrderBook) {
     fmt.Printf("BTC bid: %s ask: %s\n", ob.Bids[0].Price, ob.Asks[0].Price)
 })
 
@@ -293,7 +293,7 @@ ticker, _ := adp.FetchTicker(ctx, "BTC")
 
 ### Quote Currency
 
-Each adapter supports a `QuoteCurrency` option that determines which quote currency market to connect to. If omitted, the exchange-specific default is used (CEX → USDT, DEX → USDC).
+Each adapter supports a `QuoteCurrency` option that determines which quote currency market to connect to. If omitted, the exchange-specific default is used. Most CEX adapters default to USDT, while DEX adapters vary by venue.
 
 ```go
 // Available quote currencies
@@ -342,7 +342,7 @@ Every adapter implements these methods:
 | | `FetchBalance(ctx)` | Available balance only |
 | | `FetchSymbolDetails(ctx, symbol)` | Precision & min quantity rules |
 | | `FetchFeeRate(ctx, symbol)` | Maker/taker fee rates |
-| **Orderbook** | `WatchOrderBook(ctx, symbol, cb)` | Subscribe to WS orderbook (blocks until ready) |
+| **Orderbook** | `WatchOrderBook(ctx, symbol, depth, cb)` | Subscribe to WS orderbook (blocks until ready) |
 | | `GetLocalOrderBook(symbol, depth)` | Read local WS-maintained orderbook |
 | | `StopWatchOrderBook(ctx, symbol)` | Unsubscribe |
 | **Streaming** | `WatchOrders(ctx, cb)` | Real-time order updates |

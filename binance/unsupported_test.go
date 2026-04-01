@@ -19,7 +19,7 @@ func TestBinanceSpotUnsupportedPathsUseSentinelErrors(t *testing.T) {
 	require.ErrorIs(t, margin.WatchOrders(context.Background(), nil), exchanges.ErrNotSupported)
 	require.ErrorIs(t, margin.WatchPositions(context.Background(), nil), exchanges.ErrNotSupported)
 	require.ErrorIs(t, margin.WatchTicker(context.Background(), "BTC", nil), exchanges.ErrNotSupported)
-	require.ErrorIs(t, margin.WatchOrderBook(context.Background(), "BTC", nil), exchanges.ErrNotSupported)
+	require.ErrorIs(t, margin.WatchOrderBook(context.Background(), "BTC", 0, nil), exchanges.ErrNotSupported)
 	require.ErrorIs(t, margin.WatchTrades(context.Background(), "BTC", nil), exchanges.ErrNotSupported)
 	require.ErrorIs(t, margin.WatchKlines(context.Background(), "BTC", exchanges.Interval1m, nil), exchanges.ErrNotSupported)
 	require.ErrorIs(t, margin.StopWatchOrders(context.Background()), exchanges.ErrNotSupported)

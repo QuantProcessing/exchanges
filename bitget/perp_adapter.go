@@ -218,7 +218,7 @@ func (a *Adapter) WsOrderConnected(ctx context.Context) error {
 	return nil
 }
 
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	formatted := a.FormatSymbol(symbol)
 	if err := a.StopWatchOrderBook(context.Background(), symbol); err != nil {
 		return err
@@ -254,7 +254,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 			return
 		}
 		if cb != nil {
-			cb(a.GetLocalOrderBook(formatted, 50))
+			cb(a.GetLocalOrderBook(formatted, depth))
 		}
 	})
 	if err != nil {

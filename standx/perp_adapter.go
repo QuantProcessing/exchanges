@@ -700,7 +700,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -723,7 +723,9 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback ex
 		}
 		ob.UpdateSnapshot(depthData)
 		if callback != nil {
-			callback(ob.Snapshot())
+			snapshot := ob.ToAdapterOrderBook(depth)
+			snapshot.Symbol = symbol
+			callback(snapshot)
 		}
 		return nil
 	})
@@ -787,12 +789,8 @@ func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBo
 	if !ok {
 		return nil
 	}
-	snapshot := ob.(*OrderBook).Snapshot()
-	if depth > 0 {
-		bids, asks := ob.(*OrderBook).GetDepth(depth)
-		snapshot.Bids = bids
-		snapshot.Asks = asks
-	}
+	snapshot := ob.(*OrderBook).ToAdapterOrderBook(depth)
+	snapshot.Symbol = symbol
 	return snapshot
 }
 

@@ -620,7 +620,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -644,7 +644,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback ex
 	err := a.wsMarket.SubscribeOrderbookDelta(instrument, grvt.OrderBookDeltaRate50, func(e grvt.WsFeeData[grvt.OrderBook]) error {
 		ob.ProcessUpdate(&e.Feed)
 		if callback != nil {
-			callback(ob.ToAdapterOrderBook(20))
+			callback(ob.ToAdapterOrderBook(depth))
 		}
 		return nil
 	})

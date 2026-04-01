@@ -1084,8 +1084,7 @@ func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	return a.wsMarket.UnsubscribeTicker(id)
 }
 
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	depth := 20
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.SubscribeOrderBookInternal(ctx, symbol, &depth, cb); err != nil {
 		return err
 	}

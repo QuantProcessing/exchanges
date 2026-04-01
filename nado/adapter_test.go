@@ -57,7 +57,7 @@ func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
 
 func TestSpotAdapter_Compliance(t *testing.T) {
 	adp := setupSpotAdapter(t)
-	testsuite.RunAdapterComplianceTests(t, adp, "BTC")
+	testsuite.RunAdapterComplianceTests(t, adp, "KBTC")
 }
 
 func TestSpotAdapter_Orders(t *testing.T) {

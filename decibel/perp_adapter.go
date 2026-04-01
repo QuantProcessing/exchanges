@@ -72,6 +72,7 @@ type orderBookWatchState struct {
 	subscribed bool
 	ctx        context.Context
 	cancel     context.CancelFunc
+	depth      int
 	callback   exchanges.OrderBookCallback
 }
 
@@ -506,7 +507,7 @@ func (a *Adapter) FetchFeeRate(_ context.Context, symbol string) (*exchanges.Fee
 	}, nil
 }
 
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.requireWS(); err != nil {
 		return err
 	}
@@ -530,6 +531,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 	watchCtx, cancel := context.WithCancel(context.Background())
 	state.ctx = watchCtx
 	state.cancel = cancel
+	state.depth = depth
 	state.callback = cb
 	shouldSubscribe := !state.subscribed
 	state.subscribed = true
@@ -556,7 +558,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 
 	if seeded, err := a.seedOrderBookFromFallback(ctx, meta, orderBook); err == nil && seeded {
 		if cb != nil {
-			cb(orderBook.ToAdapterOrderBook(0))
+			cb(orderBook.ToAdapterOrderBook(depth))
 		}
 	}
 	return a.BaseAdapter.WaitOrderBookReady(ctx, baseSymbol)
@@ -695,7 +697,7 @@ func (a *Adapter) handleDepthUpdate(symbol string, msg decibelws.MarketDepthMess
 	}
 	book.ProcessDepth(msg)
 	if state.callback != nil {
-		state.callback(book.ToAdapterOrderBook(0))
+		state.callback(book.ToAdapterOrderBook(state.depth))
 	}
 }
 

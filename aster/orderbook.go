@@ -108,16 +108,17 @@ func (ob *OrderBook) tryApplySnapshot() error {
 	}
 
 	lastUpdateID := snap.LastUpdateID
+	expectedNext := lastUpdateID + 1
 	validStartIndex := -1
 	for i, event := range ob.buffer {
 		U := event.FirstUpdateID
 		u := event.FinalUpdateID
 
-		if u < lastUpdateID {
+		if u < expectedNext {
 			continue
 		}
 
-		if U <= lastUpdateID && u >= lastUpdateID {
+		if U <= expectedNext && u >= expectedNext {
 			validStartIndex = i
 			break
 		}
@@ -127,7 +128,7 @@ func (ob *OrderBook) tryApplySnapshot() error {
 		hasGap := false
 		if len(ob.buffer) > 0 {
 			lastEvent := ob.buffer[len(ob.buffer)-1]
-			if lastEvent.FirstUpdateID > lastUpdateID {
+			if lastEvent.FirstUpdateID > expectedNext {
 				hasGap = true
 			}
 		}
@@ -373,7 +374,7 @@ func (ob *SpotOrderBook) ProcessUpdate(event *spot.WsDepthEvent) error {
 		return nil
 	}
 
-	if event.FinalUpdateIDLast != ob.lastUpdateID {
+	if !asterSpotEventContinues(ob.lastUpdateID, event) {
 		ob.initialized = false
 		ob.buffer = ob.buffer[:0]
 		ob.buffer = append(ob.buffer, event)
@@ -412,14 +413,15 @@ func (ob *SpotOrderBook) tryApplySnapshot() error {
 	}
 
 	lastUpdateID := snap.LastUpdateID
+	expectedNext := lastUpdateID + 1
 	validStartIndex := -1
 	for i, event := range ob.buffer {
 		U := event.FirstUpdateID
 		u := event.FinalUpdateID
-		if u < lastUpdateID {
+		if u < expectedNext {
 			continue
 		}
-		if U <= lastUpdateID && u >= lastUpdateID {
+		if U <= expectedNext && u >= expectedNext {
 			validStartIndex = i
 			break
 		}
@@ -429,7 +431,7 @@ func (ob *SpotOrderBook) tryApplySnapshot() error {
 		hasGap := false
 		if len(ob.buffer) > 0 {
 			lastEvent := ob.buffer[len(ob.buffer)-1]
-			if lastEvent.FirstUpdateID > lastUpdateID {
+			if lastEvent.FirstUpdateID > expectedNext {
 				hasGap = true
 			}
 		}
@@ -469,7 +471,7 @@ func (ob *SpotOrderBook) tryApplySnapshot() error {
 	for i := validStartIndex; i < len(ob.buffer); i++ {
 		event := ob.buffer[i]
 		if i > validStartIndex {
-			if event.FinalUpdateIDLast != ob.lastUpdateID {
+			if !asterSpotEventContinues(ob.lastUpdateID, event) {
 				ob.buffer = ob.buffer[:0]
 				return fmt.Errorf("buffer internal gap: prev=%d, curr=%d", ob.lastUpdateID, event.FinalUpdateIDLast)
 			}
@@ -512,6 +514,15 @@ func (ob *SpotOrderBook) applyEvent(event *spot.WsDepthEvent) {
 	if event.EventTime > 0 {
 		ob.timestamp = event.EventTime
 	}
+}
+
+func asterSpotEventContinues(lastUpdateID int64, event *spot.WsDepthEvent) bool {
+	if event.FinalUpdateIDLast > 0 {
+		return event.FinalUpdateIDLast == lastUpdateID
+	}
+
+	nextUpdateID := lastUpdateID + 1
+	return event.FirstUpdateID <= nextUpdateID && event.FinalUpdateID >= nextUpdateID
 }
 
 func (ob *SpotOrderBook) GetDepth(limit int) ([]exchanges.Level, []exchanges.Level) {

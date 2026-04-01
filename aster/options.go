@@ -16,7 +16,7 @@ var supportedQuoteCurrencies = []exchanges.QuoteCurrency{
 type Options struct {
 	APIKey        string
 	SecretKey     string
-	QuoteCurrency exchanges.QuoteCurrency // "USDC" (default for DEX) or "USDT"
+	QuoteCurrency exchanges.QuoteCurrency // "USDT" (default) or "USDC"
 	Logger        exchanges.Logger
 }
 
@@ -27,11 +27,11 @@ func (o Options) logger() exchanges.Logger {
 	return exchanges.NopLogger
 }
 
-// quoteCurrency returns the validated quote currency, defaulting to USDC for DEX.
+// quoteCurrency returns the validated quote currency, defaulting to USDT.
 func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 	q := o.QuoteCurrency
 	if q == "" {
-		return exchanges.QuoteCurrencyUSDC, nil
+		return exchanges.QuoteCurrencyUSDT, nil
 	}
 	for _, supported := range supportedQuoteCurrencies {
 		if q == supported {

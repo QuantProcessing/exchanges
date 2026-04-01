@@ -356,7 +356,7 @@ func (ob *SpotOrderBook) ProcessUpdate(event *spot.WsDepthEvent) error {
 		return nil
 	}
 
-	if event.FinalUpdateIDLast != ob.lastUpdateID {
+	if !spotEventContinues(ob.lastUpdateID, event) {
 		ob.initialized = false
 		ob.buffer = ob.buffer[:0]
 		ob.buffer = append(ob.buffer, event)
@@ -452,7 +452,7 @@ func (ob *SpotOrderBook) tryApplySnapshot() error {
 	for i := validStartIndex; i < len(ob.buffer); i++ {
 		event := ob.buffer[i]
 		if i > validStartIndex {
-			if event.FinalUpdateIDLast != ob.lastUpdateID {
+			if !spotEventContinues(ob.lastUpdateID, event) {
 				ob.buffer = ob.buffer[:0]
 				return fmt.Errorf("buffer internal gap: prev=%d, curr=%d", ob.lastUpdateID, event.FinalUpdateIDLast)
 			}
@@ -495,6 +495,15 @@ func (ob *SpotOrderBook) applyEvent(event *spot.WsDepthEvent) {
 	if event.EventTime > 0 {
 		ob.timestamp = event.EventTime
 	}
+}
+
+func spotEventContinues(lastUpdateID int64, event *spot.WsDepthEvent) bool {
+	if event.FinalUpdateIDLast > 0 {
+		return event.FinalUpdateIDLast == lastUpdateID
+	}
+
+	nextUpdateID := lastUpdateID + 1
+	return event.FirstUpdateID <= nextUpdateID && event.FinalUpdateID >= nextUpdateID
 }
 
 func (ob *SpotOrderBook) GetDepth(limit int) ([]exchanges.Level, []exchanges.Level) {

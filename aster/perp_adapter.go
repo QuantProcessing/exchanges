@@ -428,7 +428,7 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (_ *exchanges.
 		return nil, err
 	}
 
-	depth, err := a.client.Depth(ctx, formattedSymbol, 5)
+	depth, err := a.client.Depth(ctx, strings.ToUpper(formattedSymbol), 5)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +455,7 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (_ *exchanges.
 
 func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (_ *exchanges.OrderBook, retErr error) {
 	formattedSymbol := a.FormatSymbol(symbol)
-	res, err := a.client.Depth(ctx, formattedSymbol, limit)
+	res, err := a.client.Depth(ctx, strings.ToUpper(formattedSymbol), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -610,8 +610,8 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 // WatchOrderBook subscribes to orderbook updates, maintains a local copy,
 // and optionally calls the callback on each update. Pass nil callback for pull-only mode.
 // This method blocks until the initial snapshot is synced.
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	if err := a.subscribeOrderBookInternal(ctx, symbol, cb); err != nil {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
+	if err := a.subscribeOrderBookInternal(ctx, symbol, depth, cb); err != nil {
 		return err
 	}
 	formattedSymbol := a.FormatSymbol(symbol)
@@ -621,7 +621,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 // subscribeOrderBookInternal 订阅订单薄的内部实现
 // depth 为 nil 时表示不需要推送回调
 // callback 为 nil 时表示不触发回调（WC 模式）
-func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
@@ -668,7 +668,7 @@ func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string,
 				// TODO: logger.Info("Fetching orderbook snapshot", "symbol", symbol)
 				// 获取1000档深度快照
 				// limit=1000 compliant with explicit instruction "Step 3"
-				snapshotDepth, err := a.client.Depth(ctxCancel, formattedSymbol, 1000)
+				snapshotDepth, err := a.client.Depth(ctxCancel, strings.ToUpper(formattedSymbol), 1000)
 				if err != nil {
 					// TODO: logger.Error("Failed to fetch snapshot", "symbol", symbol, "error", err, "retryIn", retryDelay)
 					// 失败后指数退避重试
@@ -757,7 +757,7 @@ func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string,
 
 		// 如果提供了 callback，则推送数据
 		if callback != nil {
-			bids, asks := ob.GetDepth(20)
+			bids, asks := ob.GetDepth(depth)
 
 			res := &exchanges.OrderBook{
 				Symbol:    symbol,

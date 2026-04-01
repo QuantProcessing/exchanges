@@ -74,7 +74,7 @@ func TestWatchOrderBook(t *testing.T, adp exchanges.Exchange, symbol string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := adp.WatchOrderBook(ctx, symbol, nil)
+	err := adp.WatchOrderBook(ctx, symbol, 0, nil)
 	require.NoError(t, err, "WatchOrderBook should not return error")
 
 	// Give it time to sync

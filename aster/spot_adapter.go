@@ -316,7 +316,7 @@ func (a *SpotAdapter) FetchTicker(ctx context.Context, symbol string) (*exchange
 
 func (a *SpotAdapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
 	formattedSymbol := a.FormatSymbol(symbol)
-	res, err := a.client.Depth(ctx, formattedSymbol, limit)
+	res, err := a.client.Depth(ctx, strings.ToUpper(formattedSymbol), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +527,7 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 	return a.wsMarket.SubscribeBookTicker(a.ExtractSymbol(symbol), handler)
 }
 
-func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
@@ -569,7 +569,7 @@ func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol str
 
 				// 获取1000档深度快照
 				// limit=1000 compliant with explicit instruction "Step 3"
-				snapshotDepth, err := a.client.Depth(ctx, formattedSymbol, 1000)
+				snapshotDepth, err := a.client.Depth(ctx, strings.ToUpper(formattedSymbol), 1000)
 				if err != nil {
 					// TODO: logger.Error("Failed to fetch snapshot", "symbol", symbol, "error", err)
 					// 失败后延时重试
@@ -645,7 +645,7 @@ func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol str
 
 		// 如果提供了 callback，则推送数据
 		if callback != nil {
-			bids, asks := ob.GetDepth(20)
+			bids, asks := ob.GetDepth(depth)
 
 			res := &exchanges.OrderBook{
 				Symbol:    symbol,
@@ -791,8 +791,8 @@ func (a *SpotAdapter) GetLocalOrderBook(symbol string, depth int) *exchanges.Ord
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
-func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	if err := a.subscribeOrderBookInternal(ctx, symbol, cb); err != nil {
+func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
+	if err := a.subscribeOrderBookInternal(ctx, symbol, depth, cb); err != nil {
 		return err
 	}
 	formattedSymbol := a.FormatSymbol(symbol)

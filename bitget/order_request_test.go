@@ -61,7 +61,7 @@ func (s stubExchange) FetchSymbolDetails(ctx context.Context, symbol string) (*e
 func (s stubExchange) FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error) {
 	return nil, exchanges.ErrNotSupported
 }
-func (s stubExchange) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (s stubExchange) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	return exchanges.ErrNotSupported
 }
 func (s stubExchange) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBook { return nil }

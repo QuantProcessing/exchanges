@@ -905,7 +905,7 @@ func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	return a.wsPublic.Unsubscribe(channel)
 }
 
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -921,7 +921,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 	if err := a.wsPublic.SubscribeOrderBook(instId, func(data *okx.OrderBook, action string) {
 		ob.ProcessUpdate(data, action)
 		if cb != nil {
-			cb(ob.ToAdapterOrderBook(20))
+			cb(ob.ToAdapterOrderBook(depth))
 		}
 	}); err != nil {
 		return err

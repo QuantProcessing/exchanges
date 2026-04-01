@@ -586,7 +586,7 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 	return a.wsMarket.SubscribeBookTicker(a.ExtractSymbol(symbol), handler)
 }
 
-func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
@@ -713,7 +713,7 @@ func (a *SpotAdapter) subscribeOrderBookInternal(ctx context.Context, symbol str
 
 		// 如果提供了 callback，则推送数据
 		if callback != nil {
-			bids, asks := ob.GetDepth(20)
+			bids, asks := ob.GetDepth(depth)
 
 			res := &exchanges.OrderBook{
 				Symbol:    symbol,
@@ -982,8 +982,8 @@ func (a *SpotAdapter) SubscribeAllMiniTicker(ctx context.Context, callback func(
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
-func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	if err := a.subscribeOrderBookInternal(ctx, symbol, cb); err != nil {
+func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
+	if err := a.subscribeOrderBookInternal(ctx, symbol, depth, cb); err != nil {
 		return err
 	}
 	formattedSymbol := a.FormatSymbol(symbol)

@@ -2,10 +2,10 @@ package standx
 
 import (
 	"context"
+	exchanges "github.com/QuantProcessing/exchanges"
 	"sort"
 	"sync"
 	"time"
-	exchanges "github.com/QuantProcessing/exchanges"
 
 	"github.com/QuantProcessing/exchanges/standx/sdk"
 )
@@ -69,6 +69,16 @@ func (ob *OrderBook) snapshotUnlocked() *exchanges.OrderBook {
 	}
 }
 
+func (ob *OrderBook) ToAdapterOrderBook(depth int) *exchanges.OrderBook {
+	bids, asks := ob.GetDepth(depth)
+	return &exchanges.OrderBook{
+		Symbol:    ob.symbol,
+		Timestamp: ob.Timestamp(),
+		Bids:      bids,
+		Asks:      asks,
+	}
+}
+
 func (ob *OrderBook) WaitReady(ctx context.Context, timeout time.Duration) bool {
 	// Simple poll or channel based. For simplicity, just poll or check immediate.
 	// If asks/bids > 0.
@@ -101,9 +111,8 @@ func CustomParseLevels(raw [][]string) []exchanges.Level {
 		if len(item) < 2 {
 			continue
 		}
-		levels[i] = exchanges.Level{Price: 
-			parseDecimal(item[0]), Quantity: // defined in exchanges.go or duplicate here? duplicate to avoid cycle or export
-			parseDecimal(item[1]),
+		levels[i] = exchanges.Level{Price: parseDecimal(item[0]), Quantity:// defined in exchanges.go or duplicate here? duplicate to avoid cycle or export
+		parseDecimal(item[1]),
 		}
 	}
 	return levels

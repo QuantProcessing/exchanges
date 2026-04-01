@@ -951,41 +951,41 @@ func (a *Adapter) StopWatchPositions(ctx context.Context) error { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	return a.wsClient.UnsubscribeBbo(symbol)
 }
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
+	formattedSymbol := a.FormatSymbol(symbol)
+
+	a.cancelMu.Lock()
+	if a.cancels == nil {
+		a.cancels = make(map[string]context.CancelFunc)
+	}
+	if cancel, ok := a.cancels[formattedSymbol]; ok {
+		cancel()
+	}
+
+	ob := NewOrderBook(formattedSymbol)
+	a.SetLocalOrderBook(formattedSymbol, ob)
+
+	_, cancel := context.WithCancel(context.Background())
+	a.cancels[formattedSymbol] = cancel
+	a.cancelMu.Unlock()
 
 	err := a.wsClient.SubscribeL2Book(symbol, func(data hyperliquid.WsL2Book) {
-		if len(data.Levels) < 2 {
-			return
-		}
-
-		ob := &exchanges.OrderBook{
-			Symbol:    data.Coin,
-			Timestamp: data.Time,
-			Bids:      make([]exchanges.Level, 0, len(data.Levels[0])),
-			Asks:      make([]exchanges.Level, 0, len(data.Levels[1])),
-		}
-
-		for _, lvl := range data.Levels[0] {
-			ob.Bids = append(ob.Bids, exchanges.Level{
-				Price:    parseHlFloat(lvl.Px),
-				Quantity: parseHlFloat(lvl.Sz),
-			})
-		}
-		for _, lvl := range data.Levels[1] {
-			ob.Asks = append(ob.Asks, exchanges.Level{
-				Price:    parseHlFloat(lvl.Px),
-				Quantity: parseHlFloat(lvl.Sz),
-			})
-		}
-
+		ob.ProcessSnapshot(data)
 		if cb != nil {
-			cb(ob)
+			snapshot := a.localOrderBookSnapshot(formattedSymbol, depth)
+			if snapshot != nil {
+				snapshot.Symbol = symbol
+				cb(snapshot)
+			}
 		}
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return a.BaseAdapter.WaitOrderBookReady(ctx, formattedSymbol)
 }
 
 func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -1180,8 +1180,16 @@ func (a *Adapter) WaitOrderBookReady(ctx context.Context, symbol string) error {
 // GetLocalOrderBook get local orderbook
 func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBook {
 	formattedSymbol := a.FormatSymbol(symbol)
+	snapshot := a.localOrderBookSnapshot(formattedSymbol, depth)
+	if snapshot == nil {
+		return nil
+	}
+	snapshot.Symbol = symbol
+	return snapshot
+}
 
-	ob, ok := a.GetLocalOrderBookImplementation(formattedSymbol)
+func (a *Adapter) localOrderBookSnapshot(symbol string, depth int) *exchanges.OrderBook {
+	ob, ok := a.GetLocalOrderBookImplementation(symbol)
 	if !ok {
 		return nil
 	}
@@ -1190,12 +1198,5 @@ func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBo
 	if !nadoOb.IsInitialized() {
 		return nil
 	}
-
-	bids, asks := nadoOb.GetDepth(depth)
-	return &exchanges.OrderBook{
-		Symbol:    symbol,
-		Timestamp: nadoOb.Timestamp(),
-		Bids:      bids,
-		Asks:      asks,
-	}
+	return nadoOb.ToAdapterOrderBook(depth)
 }

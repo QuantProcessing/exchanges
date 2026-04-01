@@ -389,7 +389,7 @@ func TestDecibelAdapterWatchOrderBookWaitsForInitialSync(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- adp.WatchOrderBook(ctx, "BTC", func(ob *exchanges.OrderBook) {
+		done <- adp.WatchOrderBook(ctx, "BTC", 0, func(ob *exchanges.OrderBook) {
 			updates <- ob
 		})
 	}()

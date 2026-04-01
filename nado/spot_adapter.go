@@ -154,23 +154,23 @@ func (a *SpotAdapter) fetchSymbols(ctx context.Context) error {
 
 	for _, s := range resp.Symbols {
 		if s.Type == "spot" {
-			// symbol is usually "kBTC wETH SOL"
-			a.productMap[s.Symbol] = int64(s.ProductID)
-			a.idMap[int64(s.ProductID)] = s.Symbol
+			baseSymbol := a.ExtractSymbol(s.Symbol)
+			a.productMap[baseSymbol] = int64(s.ProductID)
+			a.idMap[int64(s.ProductID)] = baseSymbol
 
 			// Parse precision from increments
 			priceInc := parseX18(s.PriceIncrementX18)
 			sizeInc := parseX18(s.SizeIncrement)
 			// minSize := parseX18(s.MinSize)
 
-			symbols[s.Symbol] = &exchanges.SymbolDetails{
-				Symbol:            s.Symbol,
+			symbols[baseSymbol] = &exchanges.SymbolDetails{
+				Symbol:            baseSymbol,
 				MinNotional:       decimal.Zero, // not provided in json
 				MinQuantity:       sizeInc,      // eth use size inc as min quantity
 				PricePrecision:    exchanges.CountDecimalPlaces(priceInc.String()),
 				QuantityPrecision: exchanges.CountDecimalPlaces(sizeInc.String()),
 			}
-			a.symbolInfo[s.Symbol] = s
+			a.symbolInfo[baseSymbol] = s
 		}
 	}
 	a.SetSymbolDetails(symbols)
@@ -1044,8 +1044,7 @@ func (a *SpotAdapter) GetLocalOrderBook(symbol string, depth int) *exchanges.Ord
 	}
 }
 
-func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	depth := 20
+func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.SubscribeOrderBookInternal(ctx, symbol, &depth, cb); err != nil {
 		return err
 	}

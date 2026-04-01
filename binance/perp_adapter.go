@@ -614,7 +614,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
@@ -749,7 +749,7 @@ func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string,
 
 		// 如果提供了 callback，则推送数据
 		if callback != nil {
-			bids, asks := ob.GetDepth(20)
+			bids, asks := ob.GetDepth(depth)
 
 			res := &exchanges.OrderBook{
 				Symbol:    symbol,
@@ -1065,8 +1065,8 @@ func (a *Adapter) SubscribeAllMiniTicker(ctx context.Context, callback func([]*p
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
-	if err := a.subscribeOrderBookInternal(ctx, symbol, cb); err != nil {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
+	if err := a.subscribeOrderBookInternal(ctx, symbol, depth, cb); err != nil {
 		return err
 	}
 	formattedSymbol := a.FormatSymbol(symbol)

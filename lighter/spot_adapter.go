@@ -785,7 +785,7 @@ func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback e
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
-func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -814,7 +814,7 @@ func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, callbac
 	err := a.wsClient.SubscribeOrderBook(mid, func(msg []byte) {
 		ob.ProcessUpdate(msg)
 		if callback != nil {
-			callback(ob.ToAdapterOrderBook(20))
+			callback(ob.ToAdapterOrderBook(depth))
 		}
 	})
 	if err != nil {

@@ -671,7 +671,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
@@ -698,7 +698,7 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, callback ex
 	err := a.wsMarket.SubscribeOrderBook(c.ContractId, perp.OrderBookDepth200, func(e *perp.WsDepthEvent) {
 		ob.ProcessPerpUpdate(e)
 		if callback != nil {
-			callback(ob.ToAdapterOrderBook(20))
+			callback(ob.ToAdapterOrderBook(depth))
 		}
 	})
 	if err != nil {

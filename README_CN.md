@@ -21,7 +21,7 @@
 |-------------|------|------|------|------------------|---------|
 | Binance     | ✅    | ✅    | ✅    | USDT, USDC       | USDT    |
 | OKX         | ✅    | ✅    | —    | USDT, USDC       | USDT    |
-| Aster       | ✅    | ✅    | —    | USDT, USDC       | USDC    |
+| Aster       | ✅    | ✅    | —    | USDT, USDC       | USDT    |
 | Nado        | ✅    | ✅    | —    | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —    | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —    | USDC             | USDC    |
@@ -178,7 +178,7 @@ order, err := exchanges.PlaceMarketOrderWithSlippage(ctx, adp, "BTC", exchanges.
 
 ```go
 // 实时深度（本地维护）
-err := adp.WatchOrderBook(ctx, "BTC", func(ob *exchanges.OrderBook) {
+err := adp.WatchOrderBook(ctx, "BTC", 20, func(ob *exchanges.OrderBook) {
     fmt.Printf("BTC 买一: %s 卖一: %s\n", ob.Bids[0].Price, ob.Asks[0].Price)
 })
 
@@ -285,7 +285,7 @@ ticker, _ := adp.FetchTicker(ctx, "BTC")
 
 ### 报价币种
 
-每个适配器支持 `QuoteCurrency` 选项，用于指定连接哪个报价币种市场。省略时使用交易所默认值（CEX → USDT，DEX → USDC）。
+每个适配器支持 `QuoteCurrency` 选项，用于指定连接哪个报价币种市场。省略时使用各交易所自己的默认值。大多数 CEX 默认是 USDT，DEX 则因交易所而异。
 
 ```go
 // 可用报价币种
@@ -334,7 +334,7 @@ _, err := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
 | | `FetchBalance(ctx)` | 仅查可用余额 |
 | | `FetchSymbolDetails(ctx, symbol)` | 精度和最小数量规则 |
 | | `FetchFeeRate(ctx, symbol)` | Maker/Taker 费率 |
-| **深度簿** | `WatchOrderBook(ctx, symbol, cb)` | 订阅 WS 深度（阻塞至就绪） |
+| **深度簿** | `WatchOrderBook(ctx, symbol, depth, cb)` | 订阅 WS 深度（阻塞至就绪） |
 | | `GetLocalOrderBook(symbol, depth)` | 读取本地维护的深度簿 |
 | | `StopWatchOrderBook(ctx, symbol)` | 取消订阅 |
 | **实时流** | `WatchOrders(ctx, cb)` | 实时订单更新 |

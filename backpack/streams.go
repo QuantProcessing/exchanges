@@ -8,7 +8,7 @@ import (
 	exchanges "github.com/QuantProcessing/exchanges"
 )
 
-func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	formatted := a.FormatSymbol(symbol)
 	if err := a.StopWatchOrderBook(context.Background(), symbol); err != nil {
 		return err
@@ -36,14 +36,14 @@ func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, cb exchange
 		if err := ob.ProcessUpdate(event); err != nil {
 			_ = refreshOrderBookSnapshot(a.client, formatted, ob)
 		}
-		emitOrderBookUpdate(cb, ob, symbol, event.EngineTimestamp)
+		emitOrderBookUpdate(cb, ob, symbol, event.EngineTimestamp, depth)
 	}); err != nil {
 		cancel()
 		a.RemoveLocalOrderBook(formatted)
 		return err
 	}
 
-	if err := refreshOrderBookSnapshot(a.client, formatted, ob); err != nil {
+	if err := waitForInitialOrderBookSnapshot(ctx, a.client, formatted, ob); err != nil {
 		_ = a.marketWS.Unsubscribe(context.Background(), "depth."+formatted)
 		cancel()
 		a.RemoveLocalOrderBook(formatted)
@@ -108,7 +108,7 @@ func (a *Adapter) StopWatchPositions(ctx context.Context) error {
 	return a.accountWS.Unsubscribe(ctx, "account.positionUpdate")
 }
 
-func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exchanges.OrderBookCallback) error {
+func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	formatted := a.FormatSymbol(symbol)
 	if err := a.StopWatchOrderBook(context.Background(), symbol); err != nil {
 		return err
@@ -136,14 +136,14 @@ func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, cb exch
 		if err := ob.ProcessUpdate(event); err != nil {
 			_ = refreshOrderBookSnapshot(a.client, formatted, ob)
 		}
-		emitOrderBookUpdate(cb, ob, symbol, event.EngineTimestamp)
+		emitOrderBookUpdate(cb, ob, symbol, event.EngineTimestamp, depth)
 	}); err != nil {
 		cancel()
 		a.RemoveLocalOrderBook(formatted)
 		return err
 	}
 
-	if err := refreshOrderBookSnapshot(a.client, formatted, ob); err != nil {
+	if err := waitForInitialOrderBookSnapshot(ctx, a.client, formatted, ob); err != nil {
 		_ = a.marketWS.Unsubscribe(context.Background(), "depth."+formatted)
 		cancel()
 		a.RemoveLocalOrderBook(formatted)
