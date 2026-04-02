@@ -155,6 +155,67 @@ func main() {
 }
 ```
 
+### Config-Driven Bootstrap
+
+```yaml
+# exchanges.yaml
+exchanges:
+  - name: BINANCE
+    market_type: perp
+    options:
+      api_key: ${BINANCE_API_KEY}
+      secret_key: ${BINANCE_SECRET_KEY}
+      quote_currency: USDT
+
+  - name: OKX
+    alias: okx-spot
+    market_type: spot
+    options:
+      api_key: ${OKX_API_KEY}
+      secret_key: ${OKX_SECRET_KEY}
+      passphrase: ${OKX_PASSPHRASE}
+      quote_currency: USDT
+```
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    exconfig "github.com/QuantProcessing/exchanges/config"
+    _ "github.com/QuantProcessing/exchanges/config/all"
+)
+
+func main() {
+    ctx := context.Background()
+
+    mgr, err := exconfig.LoadManager(ctx, "exchanges.yaml")
+    if err != nil {
+        panic(err)
+    }
+    defer mgr.CloseAll()
+
+    adp, err := mgr.GetAdapter("BINANCE")
+    if err != nil {
+        panic(err)
+    }
+
+    ticker, err := adp.FetchTicker(ctx, "BTC")
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Printf("BTC price: %s\n", ticker.LastPrice)
+}
+```
+
+- `config.LoadManager` supports both YAML and JSON files.
+- `${ENV_VAR}` values are expanded with `os.ExpandEnv` before parsing.
+- Blank-import `config/all` to auto-register every built-in exchange constructor.
+- Default adapter aliases are the exchange name when configured once, and `NAME/market_type` when configured multiple times.
+
 ### Market Order with Slippage Protection
 
 ```go
@@ -175,12 +236,20 @@ order, err := adp.PlaceOrder(ctx, &exchanges.OrderParams{
 // One-liner market order
 order, err := exchanges.PlaceMarketOrder(ctx, adp, "BTC", exchanges.OrderSideBuy, qty)
 
+// Market order with optional reference price
+order, err := exchanges.PlaceMarketOrder(ctx, adp, "BTC", exchanges.OrderSideBuy, qty, refPrice)
+
 // One-liner limit order
 order, err := exchanges.PlaceLimitOrder(ctx, adp, "BTC", exchanges.OrderSideBuy, price, qty)
 
 // Market order with slippage
 order, err := exchanges.PlaceMarketOrderWithSlippage(ctx, adp, "BTC", exchanges.OrderSideBuy, qty, slippage)
+
+// Slippage-protected market order with optional reference price
+order, err := exchanges.PlaceMarketOrderWithSlippage(ctx, adp, "BTC", exchanges.OrderSideBuy, qty, slippage, refPrice)
 ```
+
+Passing `refPrice` is optional. When provided, adapters can skip an extra ticker lookup in market-order/slippage flows that need a local reference price.
 
 ### WebSocket Streaming
 
@@ -192,6 +261,9 @@ err := adp.WatchOrderBook(ctx, "BTC", 20, func(ob *exchanges.OrderBook) {
 
 // Pull latest snapshot anytime (zero-latency, no API call)
 ob := adp.GetLocalOrderBook("BTC", 5)
+
+// Use depth <= 0 to request full locally-maintained depth
+full := adp.GetLocalOrderBook("BTC", 0)
 
 // Real-time ticker
 adp.WatchTicker(ctx, "BTC", func(t *exchanges.Ticker) {

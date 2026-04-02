@@ -29,11 +29,13 @@
 | StandX      | ✅    | —    | —    | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —    | USDT             | USDT    |
 | EdgeX       | ✅    | —    | —    | USDC             | USDC    |
+| Decibel     | ✅    | —    | —    | USDC             | USDC    |
 
 ### 交易所说明
 
 - Bitget 当前只支持经典账户的私有 API 面。
 - Bitget 默认下单模式为 `OrderModeREST`。如需显式使用 `OrderModeWS`，需要由 Bitget 为该 API key 额外开通经典账户的 WebSocket 交易权限。
+- Decibel 在本仓库中仅支持永续。它使用带鉴权的 REST/WebSocket 读取能力，以及基于 Aptos 签名的链上交易写入，凭证为 `api_key + private_key + subaccount_addr`。
 
 ## 安装
 
@@ -147,6 +149,67 @@ func main() {
 }
 ```
 
+### 配置驱动启动
+
+```yaml
+# exchanges.yaml
+exchanges:
+  - name: BINANCE
+    market_type: perp
+    options:
+      api_key: ${BINANCE_API_KEY}
+      secret_key: ${BINANCE_SECRET_KEY}
+      quote_currency: USDT
+
+  - name: OKX
+    alias: okx-spot
+    market_type: spot
+    options:
+      api_key: ${OKX_API_KEY}
+      secret_key: ${OKX_SECRET_KEY}
+      passphrase: ${OKX_PASSPHRASE}
+      quote_currency: USDT
+```
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    exconfig "github.com/QuantProcessing/exchanges/config"
+    _ "github.com/QuantProcessing/exchanges/config/all"
+)
+
+func main() {
+    ctx := context.Background()
+
+    mgr, err := exconfig.LoadManager(ctx, "exchanges.yaml")
+    if err != nil {
+        panic(err)
+    }
+    defer mgr.CloseAll()
+
+    adp, err := mgr.GetAdapter("BINANCE")
+    if err != nil {
+        panic(err)
+    }
+
+    ticker, err := adp.FetchTicker(ctx, "BTC")
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Printf("BTC 价格: %s\n", ticker.LastPrice)
+}
+```
+
+- `config.LoadManager` 同时支持 YAML 和 JSON。
+- 解析前会用 `os.ExpandEnv` 展开 `${ENV_VAR}`。
+- 空白导入 `config/all` 即可自动注册所有内置交易所构造器。
+- 默认别名规则是：某交易所只配置一次时使用交易所名；同名配置多次时使用 `NAME/market_type`。
+
 ### 带滑点保护的市价单
 
 ```go
@@ -167,12 +230,20 @@ order, err := adp.PlaceOrder(ctx, &exchanges.OrderParams{
 // 一行市价单
 order, err := exchanges.PlaceMarketOrder(ctx, adp, "BTC", exchanges.OrderSideBuy, qty)
 
+// 传入可选参考价的市价单
+order, err := exchanges.PlaceMarketOrder(ctx, adp, "BTC", exchanges.OrderSideBuy, qty, refPrice)
+
 // 一行限价单
 order, err := exchanges.PlaceLimitOrder(ctx, adp, "BTC", exchanges.OrderSideBuy, price, qty)
 
 // 带滑点的市价单
 order, err := exchanges.PlaceMarketOrderWithSlippage(ctx, adp, "BTC", exchanges.OrderSideBuy, qty, slippage)
+
+// 带可选参考价的滑点保护市价单
+order, err := exchanges.PlaceMarketOrderWithSlippage(ctx, adp, "BTC", exchanges.OrderSideBuy, qty, slippage, refPrice)
 ```
+
+`refPrice` 是可选的。传入后，依赖本地参考价做市价单/滑点转换的适配器可以少一次额外的 ticker 请求。
 
 ### WebSocket 实时流
 
@@ -184,6 +255,9 @@ err := adp.WatchOrderBook(ctx, "BTC", 20, func(ob *exchanges.OrderBook) {
 
 // 随时拉取最新快照（零延迟，无需 API 调用）
 ob := adp.GetLocalOrderBook("BTC", 5)
+
+// depth <= 0 时返回本地维护的完整深度
+full := adp.GetLocalOrderBook("BTC", 0)
 
 // 实时行情推送
 adp.WatchTicker(ctx, "BTC", func(t *exchanges.Ticker) {
