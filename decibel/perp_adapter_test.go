@@ -94,9 +94,11 @@ type stubDecibelWSClient struct {
 	depthHandlers       map[string]func(decibelws.MarketDepthMessage)
 	orderHistoryHandler func(decibelws.UserOrderHistoryMessage)
 	orderUpdateHandler  func(decibelws.OrderUpdateMessage)
+	tradeHandler        func(decibelws.UserTradesMessage)
 	positionHandler     func(decibelws.UserPositionsMessage)
 	orderHistoryTopic   string
 	orderUpdateTopic    string
+	tradeTopic          string
 	positionTopic       string
 }
 
@@ -148,6 +150,14 @@ func (c *stubDecibelWSClient) SubscribeUserPositions(userAddr string, handler fu
 	return nil
 }
 
+func (c *stubDecibelWSClient) SubscribeUserTrades(userAddr string, handler func(decibelws.UserTradesMessage)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tradeTopic = "user_trades:" + userAddr
+	c.tradeHandler = handler
+	return nil
+}
+
 func (c *stubDecibelWSClient) emitDepth(topic string, msg decibelws.MarketDepthMessage) {
 	c.mu.Lock()
 	handler := c.depthHandlers[topic]
@@ -169,6 +179,15 @@ func (c *stubDecibelWSClient) emitOrderHistory(msg decibelws.UserOrderHistoryMes
 func (c *stubDecibelWSClient) emitOrderUpdate(msg decibelws.OrderUpdateMessage) {
 	c.mu.Lock()
 	handler := c.orderUpdateHandler
+	c.mu.Unlock()
+	if handler != nil {
+		handler(msg)
+	}
+}
+
+func (c *stubDecibelWSClient) emitUserTrades(msg decibelws.UserTradesMessage) {
+	c.mu.Lock()
+	handler := c.tradeHandler
 	c.mu.Unlock()
 	if handler != nil {
 		handler(msg)

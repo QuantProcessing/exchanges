@@ -121,19 +121,38 @@ const (
 
 // Order represents a trading order with its current state.
 type Order struct {
-	OrderID        string          `json:"order_id"`
-	Symbol         string          `json:"symbol"`
-	Side           OrderSide       `json:"side"`
-	Type           OrderType       `json:"type"`
-	Quantity       decimal.Decimal `json:"quantity"`
-	Price          decimal.Decimal `json:"price,omitempty"`
-	Status         OrderStatus     `json:"status"`
-	FilledQuantity decimal.Decimal `json:"filled_quantity"`
-	Timestamp      int64           `json:"timestamp"`
-	Fee            decimal.Decimal `json:"fee,omitempty"`
-	ClientOrderID  string          `json:"client_order_id,omitempty"`
-	ReduceOnly     bool            `json:"reduce_only,omitempty"`
-	TimeInForce    TimeInForce     `json:"time_in_force,omitempty"`
+	OrderID          string          `json:"order_id"`
+	Symbol           string          `json:"symbol"`
+	Side             OrderSide       `json:"side"`
+	Type             OrderType       `json:"type"`
+	Quantity         decimal.Decimal `json:"quantity"`
+	Price            decimal.Decimal `json:"price,omitempty"` // Deprecated: legacy adapter-defined price field.
+	OrderPrice       decimal.Decimal `json:"order_price,omitempty"`
+	AverageFillPrice decimal.Decimal `json:"average_fill_price,omitempty"`
+	LastFillPrice    decimal.Decimal `json:"last_fill_price,omitempty"`
+	Status           OrderStatus     `json:"status"`
+	FilledQuantity   decimal.Decimal `json:"filled_quantity"`
+	LastFillQuantity decimal.Decimal `json:"last_fill_quantity,omitempty"`
+	Timestamp        int64           `json:"timestamp"`
+	Fee              decimal.Decimal `json:"fee,omitempty"`
+	ClientOrderID    string          `json:"client_order_id,omitempty"`
+	ReduceOnly       bool            `json:"reduce_only,omitempty"`
+	TimeInForce      TimeInForce     `json:"time_in_force,omitempty"`
+}
+
+// Fill represents a single private execution event for one of the user's orders.
+type Fill struct {
+	TradeID       string          `json:"trade_id"`
+	OrderID       string          `json:"order_id"`
+	ClientOrderID string          `json:"client_order_id,omitempty"`
+	Symbol        string          `json:"symbol"`
+	Side          OrderSide       `json:"side"`
+	Price         decimal.Decimal `json:"price"`
+	Quantity      decimal.Decimal `json:"quantity"`
+	Fee           decimal.Decimal `json:"fee,omitempty"`
+	FeeAsset      string          `json:"fee_asset,omitempty"`
+	IsMaker       bool            `json:"is_maker,omitempty"`
+	Timestamp     int64           `json:"timestamp"`
 }
 
 // Position represents an open position in a perpetual futures market.

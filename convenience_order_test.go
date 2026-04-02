@@ -89,6 +89,8 @@ func (s *stubExchange) StopWatchOrderBook(context.Context, string) error { retur
 
 func (s *stubExchange) WatchOrders(context.Context, exchanges.OrderUpdateCallback) error { return nil }
 
+func (s *stubExchange) WatchFills(context.Context, exchanges.FillCallback) error { return nil }
+
 func (s *stubExchange) WatchPositions(context.Context, exchanges.PositionUpdateCallback) error {
 	return nil
 }
@@ -106,6 +108,8 @@ func (s *stubExchange) WatchKlines(context.Context, string, exchanges.Interval, 
 }
 
 func (s *stubExchange) StopWatchOrders(context.Context) error { return nil }
+
+func (s *stubExchange) StopWatchFills(context.Context) error { return nil }
 
 func (s *stubExchange) StopWatchPositions(context.Context) error { return nil }
 

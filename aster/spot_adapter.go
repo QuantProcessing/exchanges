@@ -488,16 +488,19 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 		}
 
 		order := &exchanges.Order{
-			OrderID:        fmt.Sprintf("%d", report.OrderID),
-			Symbol:         report.Symbol,
-			Side:           side,
-			Type:           exchanges.OrderType(report.OrderType),
-			Quantity:       parseDecimal(report.Quantity),
-			Price:          parseDecimal(report.Price),
-			Status:         status,
-			FilledQuantity: parseDecimal(report.CumulativeFilledQuantity),
-			Timestamp:      report.TransactionTime,
-			ClientOrderID:  report.ClientOrderID,
+			OrderID:          fmt.Sprintf("%d", report.OrderID),
+			Symbol:           report.Symbol,
+			Side:             side,
+			Type:             exchanges.OrderType(report.OrderType),
+			Quantity:         parseDecimal(report.Quantity),
+			Price:            parseDecimal(report.Price),
+			OrderPrice:       parseDecimal(report.Price),
+			LastFillPrice:    parseDecimal(report.LastExecutedPrice),
+			Status:           status,
+			FilledQuantity:   parseDecimal(report.CumulativeFilledQuantity),
+			LastFillQuantity: parseDecimal(report.LastExecutedQuantity),
+			Timestamp:        report.TransactionTime,
+			ClientOrderID:    report.ClientOrderID,
 		}
 
 		callback(order)
@@ -684,6 +687,24 @@ func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
 	return nil
 }
 
+func (a *SpotAdapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	a.wsAccount.SubscribeExecutionReport(func(report *spot.ExecutionReportEvent) {
+		fill := a.mapExecutionFill(report)
+		if fill != nil {
+			callback(fill)
+		}
+	})
+	return nil
+}
+
+func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	return nil
+}
+
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	return nil // TODO
 }
@@ -747,6 +768,46 @@ func (a *SpotAdapter) RefreshSymbolDetails(ctx context.Context) error {
 
 	a.SetSymbolDetails(symbols)
 	return nil
+}
+
+func (a *SpotAdapter) mapExecutionFill(report *spot.ExecutionReportEvent) *exchanges.Fill {
+	if report == nil || report.ExecutionType != "TRADE" {
+		return nil
+	}
+
+	qty := parseDecimal(report.LastExecutedQuantity)
+	if qty.IsZero() {
+		return nil
+	}
+
+	side := exchanges.OrderSideBuy
+	if report.Side == "SELL" {
+		side = exchanges.OrderSideSell
+	}
+
+	tradeID := ""
+	if report.TradeID > 0 {
+		tradeID = fmt.Sprintf("%d", report.TradeID)
+	}
+
+	ts := report.TransactionTime
+	if ts == 0 {
+		ts = report.EventTime
+	}
+
+	return &exchanges.Fill{
+		TradeID:       tradeID,
+		OrderID:       fmt.Sprintf("%d", report.OrderID),
+		ClientOrderID: report.ClientOrderID,
+		Symbol:        a.ExtractSymbol(report.Symbol),
+		Side:          side,
+		Price:         parseDecimal(report.LastExecutedPrice),
+		Quantity:      qty,
+		Fee:           parseDecimal(report.CommissionAmount),
+		FeeAsset:      report.CommissionAsset,
+		IsMaker:       report.IsMaker,
+		Timestamp:     ts,
+	}
 }
 
 func (a *SpotAdapter) FormatSymbol(symbol string) string {

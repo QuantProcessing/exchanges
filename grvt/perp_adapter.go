@@ -721,7 +721,23 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) StopWatchOrders(ctx context.Context) error                { return nil }
+func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsAccount.SubscribeFill("all", func(d grvt.WsFeeData[grvt.WsFill]) error {
+		callback(a.mapGrvtFill(&d.Feed))
+		return nil
+	})
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if a.wsAccount == nil || a.subAccountID == 0 {
+		return nil
+	}
+	return a.wsAccount.Unsubscribe(grvt.StreamFill, fmt.Sprintf("%d", a.subAccountID))
+}
 func (a *Adapter) StopWatchPositions(ctx context.Context) error             { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
 func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -853,18 +869,27 @@ func (a *Adapter) mapGrvtOrder(o *grvt.Order) *exchanges.Order {
 	}
 
 	order := &exchanges.Order{
-		OrderID:        o.OrderID,
-		ClientOrderID:  o.Metadata.ClientOrderID,
-		Symbol:         a.ExtractSymbol(instrument),
-		Side:           side,
-		Quantity:       parseGrvtFloat(qty),
-		FilledQuantity: filledQuantity,
-		Price:          avgPrice,
-		Status:         status,
-		Timestamp:      parseGrvtTimestamp(o.Metadata.CreatedTime),
+		OrderID:          o.OrderID,
+		ClientOrderID:    o.Metadata.ClientOrderID,
+		Symbol:           a.ExtractSymbol(instrument),
+		Side:             side,
+		Quantity:         parseGrvtFloat(qty),
+		FilledQuantity:   filledQuantity,
+		Price:            avgPrice,
+		OrderPrice:       parseGrvtFloat(firstGrvtLimitPrice(o.Legs)),
+		AverageFillPrice: avgPrice,
+		Status:           status,
+		Timestamp:        parseGrvtTimestamp(o.Metadata.CreatedTime),
 	}
 	exchanges.DerivePartialFillStatus(order)
 	return order
+}
+
+func firstGrvtLimitPrice(legs []grvt.OrderLeg) string {
+	if len(legs) == 0 {
+		return ""
+	}
+	return legs[0].LimitPrice
 }
 
 func (a *Adapter) mapOpenOrder(o *grvt.Order) *exchanges.Order {
@@ -897,26 +922,25 @@ func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBo
 	}
 }
 
-func (a *Adapter) mapGrvtFill(f *grvt.WsFill) *exchanges.Order {
+func (a *Adapter) mapGrvtFill(f *grvt.WsFill) *exchanges.Fill {
 	side := exchanges.OrderSideBuy
 	if !f.IsBuyer {
 		side = exchanges.OrderSideSell
 	}
 
-	status := exchanges.OrderStatusFilled
 	ts, _ := strconv.ParseInt(f.EventTime, 10, 64)
 
-	return &exchanges.Order{
-		OrderID:        f.OrderID,
-		ClientOrderID:  f.ClientOrderID,
-		Symbol:         a.ExtractSymbol(f.Instrument),
-		Side:           side,
-		Type:           exchanges.OrderTypeLimit,
-		Status:         status,
-		Price:          parseGrvtFloat(f.Price),
-		Quantity:       parseGrvtFloat(f.Size),
-		FilledQuantity: parseGrvtFloat(f.Size),
-		Timestamp:      ts / 1000000,
+	return &exchanges.Fill{
+		TradeID:       f.TradeID,
+		OrderID:       f.OrderID,
+		ClientOrderID: f.ClientOrderID,
+		Symbol:        a.ExtractSymbol(f.Instrument),
+		Side:          side,
+		Price:         parseGrvtFloat(f.Price),
+		Quantity:      parseGrvtFloat(f.Size),
+		Fee:           parseGrvtFloat(f.Fee),
+		IsMaker:       !f.IsTaker,
+		Timestamp:     ts / 1000000,
 	}
 }
 

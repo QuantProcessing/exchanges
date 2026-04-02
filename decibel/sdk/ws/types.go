@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"strings"
 
 	exchanges "github.com/QuantProcessing/exchanges"
@@ -32,6 +33,12 @@ type UserOrderHistoryMessage struct {
 	Topic  string             `json:"topic"`
 	Market string             `json:"market,omitempty"`
 	Orders []OrderHistoryItem `json:"orders,omitempty"`
+}
+
+type UserTradesMessage struct {
+	Topic  string          `json:"topic"`
+	Market string          `json:"market,omitempty"`
+	Trades []UserTradeItem `json:"trades,omitempty"`
 }
 
 type OrderUpdateMessage struct {
@@ -77,6 +84,39 @@ type OrderHistoryItem struct {
 	RemainingSize    decimal.Decimal       `json:"remaining_size,omitempty"`
 	SizeDelta        decimal.Decimal       `json:"size_delta,omitempty"`
 	UnixMS           int64                 `json:"unix_ms,omitempty"`
+}
+
+type UserTradeItem struct {
+	TradeID       numberString    `json:"trade_id,omitempty"`
+	OrderID       string          `json:"order_id,omitempty"`
+	ClientOrderID string          `json:"client_order_id,omitempty"`
+	Market        string          `json:"market,omitempty"`
+	Action        string          `json:"action,omitempty"`
+	Price         decimal.Decimal `json:"price,omitempty"`
+	Size          decimal.Decimal `json:"size,omitempty"`
+	FeeAmount     decimal.Decimal `json:"fee_amount,omitempty"`
+	IsRebate      bool            `json:"is_rebate,omitempty"`
+	UnixMS        int64           `json:"unix_ms,omitempty"`
+}
+
+type numberString string
+
+func (n *numberString) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*n = ""
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*n = numberString(s)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(data, &num); err == nil {
+		*n = numberString(num.String())
+		return nil
+	}
+	return json.Unmarshal(data, &s)
 }
 
 type UserPositionsMessage struct {

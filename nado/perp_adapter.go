@@ -2,6 +2,7 @@ package nado
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -1072,6 +1073,33 @@ func (a *Adapter) StopWatchOrders(ctx context.Context) error {
 	return a.wsAccount.UnsubscribeOrders(nil)
 }
 
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsAccount.Subscribe(nado.StreamParams{
+		Type:       "fill",
+		Subaccount: a.sender,
+	}, func(data []byte) {
+		var fill nado.Fill
+		if err := json.Unmarshal(data, &fill); err != nil {
+			return
+		}
+		callback(a.mapFill(&fill))
+	})
+}
+
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if a.sender == "" {
+		return nil
+	}
+	return a.wsAccount.Unsubscribe(nado.StreamParams{
+		Type:       "fill",
+		Subaccount: a.sender,
+	})
+}
+
 func (a *Adapter) StopWatchPositions(ctx context.Context) error {
 	return a.wsAccount.UnsubscribePositions(nil)
 }
@@ -1161,6 +1189,23 @@ func (a *Adapter) getProductId(symbol string) (int64, error) {
 	return 0, fmt.Errorf("symbol not found: %s", symbol)
 }
 
+func (a *Adapter) mapFill(fill *nado.Fill) *exchanges.Fill {
+	side := exchanges.OrderSideBuy
+	if strings.EqualFold(fill.Side, "sell") {
+		side = exchanges.OrderSideSell
+	}
+
+	return &exchanges.Fill{
+		TradeID:   fill.TradeId,
+		Symbol:    a.getSymbol(fill.ProductId),
+		Side:      side,
+		Price:     parseX18(fill.Price),
+		Quantity:  parseX18(fill.Size),
+		Fee:       parseX18(fill.Fee),
+		Timestamp: fill.Time,
+	}
+}
+
 func (a *Adapter) mapOrder(o *nado.Order) *exchanges.Order {
 	amount := parseX18(o.Amount)
 	price := parseX18(o.PriceX18)
@@ -1172,13 +1217,14 @@ func (a *Adapter) mapOrder(o *nado.Order) *exchanges.Order {
 	}
 
 	order := &exchanges.Order{
-		OrderID:   o.Digest,
-		Symbol:    a.getSymbol(o.ProductID),
-		Side:      side,
-		Quantity:  amount,
-		Price:     price,
-		Status:    exchanges.OrderStatusNew, // Nado REST open orders are active
-		Timestamp: o.PlacedAt,
+		OrderID:    o.Digest,
+		Symbol:     a.getSymbol(o.ProductID),
+		Side:       side,
+		Quantity:   amount,
+		Price:      price,
+		OrderPrice: price,
+		Status:     exchanges.OrderStatusNew, // Nado REST open orders are active
+		Timestamp:  o.PlacedAt,
 	}
 	exchanges.DerivePartialFillStatus(order)
 	return order

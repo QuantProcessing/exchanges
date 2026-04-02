@@ -289,6 +289,10 @@ func (a *Adapter) WatchOrders(ctx context.Context, cb exchanges.OrderUpdateCallb
 	return a.private.WatchOrders(ctx, cb)
 }
 
+func (a *Adapter) WatchFills(ctx context.Context, cb exchanges.FillCallback) error {
+	return a.private.WatchFills(ctx, cb)
+}
+
 func (a *Adapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	return a.private.WatchPositions(ctx, cb)
 }
@@ -307,6 +311,10 @@ func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval excha
 
 func (a *Adapter) StopWatchOrders(ctx context.Context) error {
 	return a.private.StopWatchOrders(ctx)
+}
+
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	return a.private.StopWatchFills(ctx)
 }
 
 func (a *Adapter) StopWatchPositions(ctx context.Context) error {

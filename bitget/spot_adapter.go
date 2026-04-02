@@ -283,6 +283,10 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, cb exchanges.OrderUpdateC
 	return a.private.WatchOrders(ctx, cb)
 }
 
+func (a *SpotAdapter) WatchFills(ctx context.Context, cb exchanges.FillCallback) error {
+	return a.private.WatchFills(ctx, cb)
+}
+
 func (a *SpotAdapter) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	return exchanges.ErrNotSupported
 }
@@ -301,6 +305,10 @@ func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval e
 
 func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
 	return a.private.StopWatchOrders(ctx)
+}
+
+func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
+	return a.private.StopWatchFills(ctx)
 }
 
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error {

@@ -746,7 +746,16 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 }
 
 // Unsubscribes
-func (a *Adapter) StopWatchOrders(ctx context.Context) error                { return nil }
+func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.ensureAPIReady(ctx); err != nil {
+		return err
+	}
+	return a.wsAccount.SubscribeTradeUpdate(func(trade *standx.Trade) {
+		callback(a.mapSDKTradeToFill(trade))
+	})
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error                 { return nil }
 func (a *Adapter) StopWatchPositions(ctx context.Context) error             { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
 func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -841,6 +850,29 @@ func parseDecimal(s string) decimal.Decimal {
 	return d
 }
 
+func parseStandXTimestamp(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	if ts, err := strconv.ParseInt(s, 10, 64); err == nil {
+		switch {
+		case ts > 1_000_000_000_000_000:
+			return ts / 1_000_000
+		case ts > 1_000_000_000_000:
+			return ts
+		default:
+			return ts * 1000
+		}
+	}
+	layouts := []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02 15:04:05.999999999"}
+	for _, layout := range layouts {
+		if ts, err := time.Parse(layout, s); err == nil {
+			return ts.UnixMilli()
+		}
+	}
+	return 0
+}
+
 func parsePositionSide(s string) exchanges.PositionSide {
 	s = strings.ToLower(s)
 	if s == "long" || s == "buy" {
@@ -878,18 +910,20 @@ func (a *Adapter) mapSDKOrderToAdapterOrder(o standx.Order) exchanges.Order {
 	}
 
 	order := exchanges.Order{
-		OrderID:        orderID,
-		Symbol:         a.toAdapterSymbol(o.Symbol),
-		Side:           side,
-		Type:           exchanges.OrderType(strings.ToUpper(o.OrderType)), // rough mapping
-		Quantity:       parseDecimal(o.Qty),
-		FilledQuantity: parseDecimal(o.FillQty),
-		Price:          parseDecimal(o.Price),
-		Status:         mapSDKStatus(o.Status),
-		TimeInForce:    mapSDKTIF(o.TimeInForce),
-		ReduceOnly:     o.ReduceOnly,
-		ClientOrderID:  o.ClOrdID,
-		Timestamp:      0,
+		OrderID:          orderID,
+		Symbol:           a.toAdapterSymbol(o.Symbol),
+		Side:             side,
+		Type:             exchanges.OrderType(strings.ToUpper(o.OrderType)), // rough mapping
+		Quantity:         parseDecimal(o.Qty),
+		FilledQuantity:   parseDecimal(o.FillQty),
+		Price:            parseDecimal(o.Price),
+		OrderPrice:       parseDecimal(o.Price),
+		AverageFillPrice: parseDecimal(o.FillAvgPrice),
+		Status:           mapSDKStatus(o.Status),
+		TimeInForce:      mapSDKTIF(o.TimeInForce),
+		ReduceOnly:       o.ReduceOnly,
+		ClientOrderID:    o.ClOrdID,
+		Timestamp:        0,
 	}
 	exchanges.DerivePartialFillStatus(&order)
 	return order
@@ -898,6 +932,30 @@ func (a *Adapter) mapSDKOrderToAdapterOrder(o standx.Order) exchanges.Order {
 func (a *Adapter) mapSDKOrderToAdapterOrderPTR(o *standx.Order) *exchanges.Order {
 	ord := a.mapSDKOrderToAdapterOrder(*o)
 	return &ord
+}
+
+func (a *Adapter) mapSDKTradeToFill(trade *standx.Trade) *exchanges.Fill {
+	ts := parseStandXTimestamp(trade.UpdatedAt)
+	if ts == 0 {
+		ts = parseStandXTimestamp(trade.CreatedAt)
+	}
+
+	side := exchanges.OrderSideBuy
+	if strings.EqualFold(trade.Side, "sell") {
+		side = exchanges.OrderSideSell
+	}
+
+	return &exchanges.Fill{
+		TradeID:   fmt.Sprintf("%d", trade.ID),
+		OrderID:   fmt.Sprintf("%d", trade.OrderID),
+		Symbol:    a.toAdapterSymbol(trade.Symbol),
+		Side:      side,
+		Price:     parseDecimal(trade.Price),
+		Quantity:  parseDecimal(trade.Qty),
+		Fee:       parseDecimal(trade.FeeQty),
+		FeeAsset:  trade.FeeAsset,
+		Timestamp: ts,
+	}
 }
 
 func mapSDKStatus(s string) exchanges.OrderStatus {

@@ -829,7 +829,23 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) StopWatchOrders(ctx context.Context) error    { return nil }
+func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	a.wsAccount.SubscribeOrderUpdate(func(e *perp.OrderUpdateEvent) {
+		fill := a.mapOrderFill(e)
+		if fill != nil {
+			callback(fill)
+		}
+	})
+	return nil
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	return nil
+}
 func (a *Adapter) StopWatchPositions(ctx context.Context) error { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	formattedSymbol := a.FormatSymbol(symbol)
@@ -973,16 +989,63 @@ func (a *Adapter) normalizeOrderUpdate(e *perp.OrderUpdateEvent) *exchanges.Orde
 	}
 
 	return &exchanges.Order{
-		OrderID:        fmt.Sprintf("%d", e.Order.OrderID),
-		Symbol:         a.ExtractSymbol(e.Order.Symbol),
-		Side:           side,
-		Type:           exchanges.OrderType(e.Order.OrderType),
-		Quantity:       qty,
-		Price:          price,
-		Status:         status,
-		FilledQuantity: filled,
-		Timestamp:      e.Order.TradeTime,
-		ClientOrderID:  e.Order.ClientOrderID,
+		OrderID:          fmt.Sprintf("%d", e.Order.OrderID),
+		Symbol:           a.ExtractSymbol(e.Order.Symbol),
+		Side:             side,
+		Type:             exchanges.OrderType(e.Order.OrderType),
+		Quantity:         qty,
+		Price:            price,
+		OrderPrice:       price,
+		AverageFillPrice: parseDecimal(e.Order.AveragePrice),
+		LastFillPrice:    parseDecimal(e.Order.LastFilledPrice),
+		Status:           status,
+		FilledQuantity:   filled,
+		LastFillQuantity: parseDecimal(e.Order.LastFilledQty),
+		Timestamp:        e.Order.TradeTime,
+		ClientOrderID:    e.Order.ClientOrderID,
+	}
+}
+
+func (a *Adapter) mapOrderFill(e *perp.OrderUpdateEvent) *exchanges.Fill {
+	if e == nil || e.Order.ExecutionType != "TRADE" {
+		return nil
+	}
+
+	qty := parseDecimal(e.Order.LastFilledQty)
+	if qty.IsZero() {
+		return nil
+	}
+
+	side := exchanges.OrderSideBuy
+	if e.Order.Side == "SELL" {
+		side = exchanges.OrderSideSell
+	}
+
+	tradeID := ""
+	if e.Order.TradeID > 0 {
+		tradeID = fmt.Sprintf("%d", e.Order.TradeID)
+	}
+
+	ts := e.Order.TradeTime
+	if ts == 0 {
+		ts = e.TransactionTime
+	}
+	if ts == 0 {
+		ts = e.EventTime
+	}
+
+	return &exchanges.Fill{
+		TradeID:       tradeID,
+		OrderID:       fmt.Sprintf("%d", e.Order.OrderID),
+		ClientOrderID: e.Order.ClientOrderID,
+		Symbol:        a.ExtractSymbol(e.Order.Symbol),
+		Side:          side,
+		Price:         parseDecimal(e.Order.LastFilledPrice),
+		Quantity:      qty,
+		Fee:           parseDecimal(e.Order.Commission),
+		FeeAsset:      e.Order.CommissionAsset,
+		IsMaker:       e.Order.IsMaker,
+		Timestamp:     ts,
 	}
 }
 

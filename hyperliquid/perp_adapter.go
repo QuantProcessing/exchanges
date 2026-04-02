@@ -857,6 +857,7 @@ func (a *Adapter) mapWsOrderUpdate(u hyperliquid.WsOrderUpdate) *exchanges.Order
 		Side:           side,
 		Status:         status,
 		Price:          price,
+		OrderPrice:     price,
 		Quantity:       qty,
 		FilledQuantity: filled,
 		Timestamp:      u.StatusTimestamp,
@@ -946,7 +947,27 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) StopWatchOrders(ctx context.Context) error    { return nil }
+func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsClient.SubscribeUserFills(a.accountAddr, func(data hyperliquid.WsUserFills) {
+		for _, fill := range data.Fills {
+			callback(a.mapWsUserFill(fill))
+		}
+	})
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if a.accountAddr == "" {
+		return nil
+	}
+	return a.wsClient.Unsubscribe("userFills", map[string]string{
+		"type": "userFills",
+		"user": a.accountAddr,
+	})
+}
 func (a *Adapter) StopWatchPositions(ctx context.Context) error { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
 	return a.wsClient.UnsubscribeBbo(symbol)
@@ -1031,6 +1052,26 @@ func (a *Adapter) requireWriteAccess() error {
 		return exchanges.NewExchangeError("HYPERLIQUID", "", "private_key is required for trading operations", exchanges.ErrAuthFailed)
 	}
 	return nil
+}
+
+func (a *Adapter) mapWsUserFill(fill hyperliquid.WsUserFill) *exchanges.Fill {
+	side := exchanges.OrderSideBuy
+	if fill.Side != "B" {
+		side = exchanges.OrderSideSell
+	}
+
+	return &exchanges.Fill{
+		TradeID:   strconv.FormatInt(fill.Tid, 10),
+		OrderID:   strconv.FormatInt(fill.Oid, 10),
+		Symbol:    a.ExtractSymbol(fill.Coin),
+		Side:      side,
+		Price:     parseHlFloat(fill.Px),
+		Quantity:  parseHlFloat(fill.Sz),
+		Fee:       parseHlFloat(fill.Fee),
+		FeeAsset:  fill.FeeToken,
+		IsMaker:   !fill.Crossed,
+		Timestamp: fill.Time,
+	}
 }
 
 func (a *Adapter) getAssetID(symbol string) (int, bool) {

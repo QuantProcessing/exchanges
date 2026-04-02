@@ -782,7 +782,26 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) StopWatchOrders(ctx context.Context) error                { return nil }
+func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	a.wsAccount.SubscribeOrderFillUpdate(func(fills []perp.OrderFillTransaction) {
+		for i := range fills {
+			callback(a.mapOrderFill(&fills[i]))
+		}
+	})
+	return nil
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if a.wsAccount == nil {
+		return nil
+	}
+	a.wsAccount.Unsubscribe(perp.EventOrderFillFee)
+	return nil
+}
 func (a *Adapter) StopWatchPositions(ctx context.Context) error             { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
 func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -910,6 +929,35 @@ func (a *Adapter) mapOrder(o *perp.Order) *exchanges.Order {
 	}
 	exchanges.DerivePartialFillStatus(order)
 	return order
+}
+
+func (a *Adapter) mapOrderFill(fill *perp.OrderFillTransaction) *exchanges.Fill {
+	side := exchanges.OrderSideBuy
+	if fill.OrderSide == string(perp.SideSell) {
+		side = exchanges.OrderSideSell
+	}
+
+	timestamp, _ := strconv.ParseInt(fill.MatchTime, 10, 64)
+	if timestamp == 0 {
+		timestamp, _ = strconv.ParseInt(fill.CreatedTime, 10, 64)
+	}
+
+	feeAsset := ""
+	if coin, ok := a.coinIdToCoin[fill.CoinId]; ok && coin != nil {
+		feeAsset = coin.CoinName
+	}
+
+	return &exchanges.Fill{
+		TradeID:   fill.MatchFillId,
+		OrderID:   fill.OrderId,
+		Symbol:    a.contractToSymbol[fill.ContractId],
+		Side:      side,
+		Price:     parseEdgexFloat(fill.FillPrice),
+		Quantity:  parseEdgexFloat(fill.FillSize),
+		Fee:       parseEdgexFloat(fill.FillFee),
+		FeeAsset:  feeAsset,
+		Timestamp: timestamp,
+	}
 }
 
 func (a *Adapter) mapOrderType(t exchanges.OrderType) string {

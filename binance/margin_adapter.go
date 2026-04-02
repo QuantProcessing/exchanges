@@ -346,6 +346,16 @@ func (a *MarginAdapter) StopWatchOrders(ctx context.Context) error {
 	return exchanges.ErrNotSupported
 }
 
+func (a *MarginAdapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	_ = ctx
+	_ = callback
+	return exchanges.ErrNotSupported
+}
+
+func (a *MarginAdapter) StopWatchFills(ctx context.Context) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *MarginAdapter) StopWatchPositions(ctx context.Context) error {
 	return exchanges.ErrNotSupported
 }

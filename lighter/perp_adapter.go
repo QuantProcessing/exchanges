@@ -911,7 +911,37 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 	})
 }
 
-func (a *Adapter) StopWatchOrders(ctx context.Context) error                { return nil }
+func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	token, err := a.tokenManager.GetReadToken()
+	if err != nil {
+		return err
+	}
+	return a.wsClient.SubscribeAccountAllTrades(a.client.AccountIndex, token, func(msg []byte) {
+		var event lighter.WsAccountAllTradesEvent
+		if err := json.Unmarshal(msg, &event); err != nil {
+			return
+		}
+		for _, trades := range event.Trades {
+			for _, trade := range trades {
+				fill := mapLighterTradeToFill(trade, a.idToSymbol, a.client.AccountIndex)
+				if fill != nil {
+					callback(fill)
+				}
+			}
+		}
+	})
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if !a.hasAccountIndex {
+		return nil
+	}
+	return a.wsClient.Unsubscribe(fmt.Sprintf("account_all_trades/%d", a.client.AccountIndex))
+}
 func (a *Adapter) StopWatchPositions(ctx context.Context) error             { return nil }
 func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
 func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
@@ -1039,12 +1069,46 @@ func (a *Adapter) mapOrder(o *lighter.Order) *exchanges.Order {
 		Side:           side,
 		Type:           oType,
 		Price:          parseString(o.Price),
+		OrderPrice:     parseString(o.Price),
 		Quantity:       parseString(o.InitialBaseAmount),
 		FilledQuantity: parseString(o.FilledBaseAmount),
 		Status:         status,
 		Timestamp:      o.Timestamp,
 	}
 	return ord
+}
+
+func mapLighterTradeToFill(trade lighter.Trade, idToSymbol map[int]string, accountIndex int64) *exchanges.Fill {
+	side := exchanges.OrderSideBuy
+	orderID := int64(0)
+	isMaker := false
+
+	switch {
+	case trade.AskAccountId == accountIndex:
+		side = exchanges.OrderSideSell
+		orderID = trade.AskId
+		isMaker = trade.IsMakerAsk
+	case trade.BidAccountId == accountIndex:
+		side = exchanges.OrderSideBuy
+		orderID = trade.BidId
+		isMaker = !trade.IsMakerAsk
+	default:
+		return nil
+	}
+
+	fill := &exchanges.Fill{
+		TradeID:   fmt.Sprintf("%d", trade.TradeId),
+		Symbol:    idToSymbol[trade.MarketId],
+		Side:      side,
+		Price:     parseLighterFloat(trade.Price),
+		Quantity:  parseLighterFloat(trade.Size),
+		IsMaker:   isMaker,
+		Timestamp: trade.Timestamp * 1000,
+	}
+	if orderID > 0 {
+		fill.OrderID = fmt.Sprintf("%d", orderID)
+	}
+	return fill
 }
 
 func (a *Adapter) mapPosition(p *lighter.Position) *exchanges.Position {

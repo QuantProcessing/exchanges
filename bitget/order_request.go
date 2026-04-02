@@ -116,19 +116,21 @@ func mapOrder(symbol string, raw sdk.OrderRecord) *exchanges.Order {
 		ts = time.Now().UnixMilli()
 	}
 	return &exchanges.Order{
-		OrderID:        raw.OrderID,
-		ClientOrderID:  raw.ClientOID,
-		Symbol:         symbol,
-		Side:           mapOrderSide(raw.Side),
-		Type:           mapOrderType(raw.OrderType, raw.TimeInForce),
-		Quantity:       qty,
-		Price:          price,
-		Status:         mapOrderStatus(raw.OrderStatus),
-		FilledQuantity: filledQty,
-		Timestamp:      ts,
-		Fee:            parseDecimal(firstNonEmpty(raw.Fee, feeFromDetails(raw.FeeDetail))),
-		ReduceOnly:     strings.EqualFold(raw.ReduceOnly, "yes"),
-		TimeInForce:    mapTimeInForce(raw.TimeInForce),
+		OrderID:          raw.OrderID,
+		ClientOrderID:    raw.ClientOID,
+		Symbol:           symbol,
+		Side:             mapOrderSide(raw.Side),
+		Type:             mapOrderType(raw.OrderType, raw.TimeInForce),
+		Quantity:         qty,
+		Price:            price,
+		OrderPrice:       parseDecimal(raw.Price),
+		AverageFillPrice: parseDecimal(raw.AvgPrice),
+		Status:           mapOrderStatus(raw.OrderStatus),
+		FilledQuantity:   filledQty,
+		Timestamp:        ts,
+		Fee:              parseDecimal(firstNonEmpty(raw.Fee, feeFromDetails(raw.FeeDetail))),
+		ReduceOnly:       strings.EqualFold(raw.ReduceOnly, "yes"),
+		TimeInForce:      mapTimeInForce(raw.TimeInForce),
 	}
 }
 

@@ -265,6 +265,39 @@ func (p *classicPerpProfile) StopWatchOrders(ctx context.Context) error {
 	})
 }
 
+func (p *classicPerpProfile) WatchFills(ctx context.Context, cb exchanges.FillCallback) error {
+	if err := requirePrivateAccess(p.adp.client); err != nil {
+		return err
+	}
+	err := p.adp.privateWS.Subscribe(ctx, sdk.WSArg{
+		InstType: p.adp.perpCategory,
+		Channel:  "fill",
+		InstID:   "default",
+	}, func(payload json.RawMessage) {
+		msg, err := sdk.DecodeClassicWSFillMessage(payload)
+		if err != nil {
+			return
+		}
+		for _, fill := range msg.Data {
+			if cb != nil {
+				cb(mapClassicMixFill(p.adp.ExtractSymbol(firstNonEmpty(fill.InstID, fill.Symbol)), fill))
+			}
+		}
+	})
+	if err == nil {
+		p.adp.MarkOrderConnected()
+	}
+	return err
+}
+
+func (p *classicPerpProfile) StopWatchFills(ctx context.Context) error {
+	return p.adp.privateWS.Unsubscribe(ctx, sdk.WSArg{
+		InstType: p.adp.perpCategory,
+		Channel:  "fill",
+		InstID:   "default",
+	})
+}
+
 func (p *classicPerpProfile) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
@@ -542,24 +575,60 @@ func (p *classicSpotProfile) StopWatchOrders(ctx context.Context) error {
 	})
 }
 
+func (p *classicSpotProfile) WatchFills(ctx context.Context, cb exchanges.FillCallback) error {
+	if err := requirePrivateAccess(p.adp.client); err != nil {
+		return err
+	}
+	err := p.adp.privateWS.Subscribe(ctx, sdk.WSArg{
+		InstType: "SPOT",
+		Channel:  "fill",
+		InstID:   "default",
+	}, func(payload json.RawMessage) {
+		msg, err := sdk.DecodeClassicWSSpotFillMessage(payload)
+		if err != nil {
+			return
+		}
+		for _, fill := range msg.Data {
+			if cb != nil {
+				cb(mapClassicSpotFill(p.adp.ExtractSymbol(firstNonEmpty(fill.InstID, fill.Symbol)), fill))
+			}
+		}
+	})
+	if err == nil {
+		p.adp.MarkOrderConnected()
+	}
+	return err
+}
+
+func (p *classicSpotProfile) StopWatchFills(ctx context.Context) error {
+	return p.adp.privateWS.Unsubscribe(ctx, sdk.WSArg{
+		InstType: "SPOT",
+		Channel:  "fill",
+		InstID:   "default",
+	})
+}
+
 func mapClassicSpotOrder(symbol string, raw sdk.ClassicSpotOrderRecord) *exchanges.Order {
 	ts := parseMillis(firstNonEmpty(raw.UTime, raw.CTime))
 	if ts == 0 {
 		ts = time.Now().UnixMilli()
 	}
 	return &exchanges.Order{
-		OrderID:        raw.OrderID,
-		ClientOrderID:  raw.ClientOID,
-		Symbol:         symbol,
-		Side:           mapOrderSide(raw.Side),
-		Type:           mapOrderType(raw.OrderType, raw.Force),
-		Quantity:       parseDecimal(firstNonEmpty(raw.NewSize, raw.Size)),
-		Price:          parseDecimal(firstNonEmpty(raw.Price, raw.FillPrice, raw.PriceAvg)),
-		Status:         mapOrderStatus(raw.Status),
-		FilledQuantity: parseDecimal(firstNonEmpty(raw.AccBaseVolume, raw.BaseVolume)),
-		Timestamp:      ts,
-		Fee:            parseDecimal(firstNonEmpty(raw.FillFee, feeFromFlexibleDetails(raw.FeeDetail))),
-		TimeInForce:    mapTimeInForce(raw.Force),
+		OrderID:          raw.OrderID,
+		ClientOrderID:    raw.ClientOID,
+		Symbol:           symbol,
+		Side:             mapOrderSide(raw.Side),
+		Type:             mapOrderType(raw.OrderType, raw.Force),
+		Quantity:         parseDecimal(firstNonEmpty(raw.NewSize, raw.Size)),
+		Price:            parseDecimal(firstNonEmpty(raw.Price, raw.FillPrice, raw.PriceAvg)),
+		OrderPrice:       parseDecimal(raw.Price),
+		AverageFillPrice: parseDecimal(raw.PriceAvg),
+		LastFillPrice:    parseDecimal(raw.FillPrice),
+		Status:           mapOrderStatus(raw.Status),
+		FilledQuantity:   parseDecimal(firstNonEmpty(raw.AccBaseVolume, raw.BaseVolume)),
+		Timestamp:        ts,
+		Fee:              parseDecimal(firstNonEmpty(raw.FillFee, feeFromFlexibleDetails(raw.FeeDetail))),
+		TimeInForce:      mapTimeInForce(raw.Force),
 	}
 }
 
@@ -569,19 +638,21 @@ func mapClassicMixOrder(symbol string, raw sdk.ClassicMixOrderRecord) *exchanges
 		ts = time.Now().UnixMilli()
 	}
 	return &exchanges.Order{
-		OrderID:        raw.OrderID,
-		ClientOrderID:  raw.ClientOID,
-		Symbol:         symbol,
-		Side:           mapOrderSide(raw.Side),
-		Type:           mapOrderType(raw.OrderType, raw.Force),
-		Quantity:       parseDecimal(raw.Size),
-		Price:          parseDecimal(firstNonEmpty(raw.Price, raw.PriceAvg)),
-		Status:         mapOrderStatus(raw.Status),
-		FilledQuantity: parseDecimal(firstNonEmpty(raw.BaseVolume, raw.AccBaseVolume)),
-		Timestamp:      ts,
-		Fee:            parseDecimal(firstNonEmpty(raw.Fee, feeFromDetails(raw.FeeDetail))),
-		ReduceOnly:     strings.EqualFold(raw.ReduceOnly, "yes"),
-		TimeInForce:    mapTimeInForce(raw.Force),
+		OrderID:          raw.OrderID,
+		ClientOrderID:    raw.ClientOID,
+		Symbol:           symbol,
+		Side:             mapOrderSide(raw.Side),
+		Type:             mapOrderType(raw.OrderType, raw.Force),
+		Quantity:         parseDecimal(raw.Size),
+		Price:            parseDecimal(firstNonEmpty(raw.Price, raw.PriceAvg)),
+		OrderPrice:       parseDecimal(raw.Price),
+		AverageFillPrice: parseDecimal(raw.PriceAvg),
+		Status:           mapOrderStatus(raw.Status),
+		FilledQuantity:   parseDecimal(firstNonEmpty(raw.BaseVolume, raw.AccBaseVolume)),
+		Timestamp:        ts,
+		Fee:              parseDecimal(firstNonEmpty(raw.Fee, feeFromDetails(raw.FeeDetail))),
+		ReduceOnly:       strings.EqualFold(raw.ReduceOnly, "yes"),
+		TimeInForce:      mapTimeInForce(raw.Force),
 	}
 }
 
@@ -596,6 +667,48 @@ func mapClassicMixPosition(raw sdk.ClassicMixPositionRecord) exchanges.Position 
 		LiquidationPrice: parseDecimal(raw.LiquidationPrice),
 		Leverage:         parseDecimal(raw.Leverage),
 		MarginType:       strings.ToUpper(raw.MarginMode),
+	}
+}
+
+func mapClassicMixFill(symbol string, raw sdk.ClassicMixFillRecord) *exchanges.Fill {
+	ts := parseMillis(firstNonEmpty(raw.UTime, raw.CTime))
+	if ts == 0 {
+		ts = time.Now().UnixMilli()
+	}
+	fee, feeAsset := classicFillFee(raw.FeeDetail)
+	return &exchanges.Fill{
+		TradeID:       raw.TradeID,
+		OrderID:       raw.OrderID,
+		ClientOrderID: raw.ClientOID,
+		Symbol:        symbol,
+		Side:          mapOrderSide(raw.Side),
+		Price:         parseDecimal(raw.Price),
+		Quantity:      parseDecimal(raw.BaseVolume),
+		Fee:           fee,
+		FeeAsset:      feeAsset,
+		IsMaker:       classicTradeScopeIsMaker(raw.TradeScope),
+		Timestamp:     ts,
+	}
+}
+
+func mapClassicSpotFill(symbol string, raw sdk.ClassicSpotFillRecord) *exchanges.Fill {
+	ts := parseMillis(firstNonEmpty(raw.UTime, raw.CTime))
+	if ts == 0 {
+		ts = time.Now().UnixMilli()
+	}
+	fee, feeAsset := classicFillFee(raw.FeeDetail)
+	return &exchanges.Fill{
+		TradeID:       raw.TradeID,
+		OrderID:       raw.OrderID,
+		ClientOrderID: raw.ClientOID,
+		Symbol:        symbol,
+		Side:          mapOrderSide(raw.Side),
+		Price:         parseDecimal(raw.PriceAvg),
+		Quantity:      parseDecimal(raw.Size),
+		Fee:           fee,
+		FeeAsset:      feeAsset,
+		IsMaker:       classicTradeScopeIsMaker(raw.TradeScope),
+		Timestamp:     ts,
 	}
 }
 
@@ -628,4 +741,17 @@ func feeFromFlexibleDetails(fees sdk.FlexibleFeeDetails) string {
 		return ""
 	}
 	return fees[0].Fee
+}
+
+func classicFillFee(fees []sdk.ClassicFillFeeDetail) (decimal.Decimal, string) {
+	if len(fees) == 0 {
+		return decimal.Zero, ""
+	}
+	fee := parseDecimal(firstNonEmpty(fees[0].TotalFee, fees[0].TotalDeductionFee))
+	return fee, fees[0].FeeCoin
+}
+
+func classicTradeScopeIsMaker(scope string) bool {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	return strings.HasPrefix(scope, "mak") || strings.HasPrefix(scope, "mar")
 }

@@ -45,5 +45,6 @@ func TestDecibelStopMethodsAreIdempotent(t *testing.T) {
 
 	require.NoError(t, adp.StopWatchOrderBook(context.Background(), "BTC"))
 	require.NoError(t, adp.StopWatchOrders(context.Background()))
+	require.NoError(t, adp.StopWatchFills(context.Background()))
 	require.NoError(t, adp.Close())
 }

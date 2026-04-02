@@ -45,6 +45,7 @@ type Client struct {
 	depthHandlers       map[string][]func(MarketDepthMessage)
 	orderHandlers       map[string][]func(UserOrderHistoryMessage)
 	orderUpdateHandlers map[string][]func(OrderUpdateMessage)
+	tradeHandlers       map[string][]func(UserTradesMessage)
 	positionHandlers    map[string][]func(UserPositionsMessage)
 	subscriptionReqs    map[string]subscriptionRequest
 	dial                dialFunc
@@ -69,6 +70,7 @@ func NewClient(parent context.Context, apiKey string) *Client {
 		depthHandlers:        make(map[string][]func(MarketDepthMessage)),
 		orderHandlers:        make(map[string][]func(UserOrderHistoryMessage)),
 		orderUpdateHandlers:  make(map[string][]func(OrderUpdateMessage)),
+		tradeHandlers:        make(map[string][]func(UserTradesMessage)),
 		positionHandlers:     make(map[string][]func(UserPositionsMessage)),
 		subscriptionReqs:     make(map[string]subscriptionRequest),
 		dial:                 defaultDial,
@@ -174,6 +176,29 @@ func (c *Client) SubscribeOrderUpdates(userAddr string, handler func(OrderUpdate
 
 	c.mu.Lock()
 	c.orderUpdateHandlers[topic] = append(c.orderUpdateHandlers[topic], handler)
+	c.subscriptionReqs[topic] = req
+	conn := c.conn
+	c.mu.Unlock()
+
+	if conn == nil {
+		return nil
+	}
+	return c.writeJSON(conn, req)
+}
+
+func (c *Client) SubscribeUserTrades(userAddr string, handler func(UserTradesMessage)) error {
+	userAddr = strings.TrimSpace(userAddr)
+	if userAddr == "" {
+		return fmt.Errorf("subscribe user trades: user address is required")
+	}
+
+	topic := "user_trades:" + userAddr
+	req := subscriptionRequest{
+		Subscribe: subscriptionTopic{Topic: topic},
+	}
+
+	c.mu.Lock()
+	c.tradeHandlers[topic] = append(c.tradeHandlers[topic], handler)
 	c.subscriptionReqs[topic] = req
 	conn := c.conn
 	c.mu.Unlock()
@@ -411,6 +436,19 @@ func (c *Client) dispatch(raw json.RawMessage) {
 		}
 		c.mu.RLock()
 		handlers := append([]func(OrderUpdateMessage){}, c.orderUpdateHandlers[msg.Topic]...)
+		c.mu.RUnlock()
+		for _, handler := range handlers {
+			if handler != nil {
+				handler(msg)
+			}
+		}
+	case strings.HasPrefix(envelope.Topic, "user_trades:"):
+		var msg UserTradesMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			return
+		}
+		c.mu.RLock()
+		handlers := append([]func(UserTradesMessage){}, c.tradeHandlers[msg.Topic]...)
 		c.mu.RUnlock()
 		for _, handler := range handlers {
 			if handler != nil {

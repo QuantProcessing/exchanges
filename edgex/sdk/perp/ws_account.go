@@ -1,4 +1,3 @@
-
 package perp
 
 import (
@@ -11,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.uber.org/zap"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 type EventType string
@@ -461,6 +460,15 @@ func (c *WsAccountClient) SubscribeOrderUpdate(handler func(orders []Order)) {
 	c.Subscribe(EventOrderUpdate, func(data AccountEventData) {
 		orders := data.Order
 		handler(orders)
+	})
+}
+
+func (c *WsAccountClient) SubscribeOrderFillUpdate(handler func(fills []OrderFillTransaction)) {
+	c.Subscribe(EventOrderFillFee, func(data AccountEventData) {
+		fills := data.OrderFillTransaction
+		if len(fills) > 0 {
+			handler(fills)
+		}
 	})
 }
 

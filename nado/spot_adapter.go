@@ -2,6 +2,7 @@ package nado
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -1003,13 +1004,14 @@ func (a *SpotAdapter) mapOrder(o *nado.Order) *exchanges.Order {
 	}
 
 	order := &exchanges.Order{
-		OrderID:   o.Digest,
-		Symbol:    a.idMap[o.ProductID],
-		Side:      side,
-		Quantity:  amount,
-		Price:     price,
-		Status:    exchanges.OrderStatusNew, // Nado REST open orders are active
-		Timestamp: o.PlacedAt,
+		OrderID:    o.Digest,
+		Symbol:     a.idMap[o.ProductID],
+		Side:       side,
+		Quantity:   amount,
+		Price:      price,
+		OrderPrice: price,
+		Status:     exchanges.OrderStatusNew, // Nado REST open orders are active
+		Timestamp:  o.PlacedAt,
 	}
 	exchanges.DerivePartialFillStatus(order)
 	return order
@@ -1064,7 +1066,32 @@ func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) err
 	return nil
 }
 
-func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error                { return nil }
+func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error { return nil }
+func (a *SpotAdapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsAccount.Subscribe(nado.StreamParams{
+		Type:       "fill",
+		Subaccount: a.sender,
+	}, func(data []byte) {
+		var fill nado.Fill
+		if err := json.Unmarshal(data, &fill); err != nil {
+			return
+		}
+		callback(a.mapFill(&fill))
+	})
+}
+func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if a.sender == "" {
+		return nil
+	}
+	return a.wsAccount.Unsubscribe(nado.StreamParams{
+		Type:       "fill",
+		Subaccount: a.sender,
+	})
+}
 func (a *SpotAdapter) StopWatchPositions(ctx context.Context) error             { return nil }
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error { return nil }
@@ -1097,6 +1124,23 @@ func (a *SpotAdapter) getSymbol(productID int64) string {
 		return sym
 	}
 	return fmt.Sprintf("UNKNOWN-%d", productID)
+}
+
+func (a *SpotAdapter) mapFill(fill *nado.Fill) *exchanges.Fill {
+	side := exchanges.OrderSideBuy
+	if strings.EqualFold(fill.Side, "sell") {
+		side = exchanges.OrderSideSell
+	}
+
+	return &exchanges.Fill{
+		TradeID:   fill.TradeId,
+		Symbol:    a.getSymbol(fill.ProductId),
+		Side:      side,
+		Price:     parseX18(fill.Price),
+		Quantity:  parseX18(fill.Size),
+		Fee:       parseX18(fill.Fee),
+		Timestamp: fill.Time,
+	}
 }
 
 func (a *SpotAdapter) requirePrivateAccess() error {

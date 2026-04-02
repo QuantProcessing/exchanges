@@ -365,7 +365,9 @@ type Order struct {
 	Category           string          `json:"category"`
 	Ccy                string          `json:"ccy"`
 	ClOrdId            string          `json:"clOrdId"`
+	ExecType           string          `json:"execType"`
 	Fee                string          `json:"fee"`
+	FeeCcy             string          `json:"feeCcy"`
 	FillPx             string          `json:"fillPx"`
 	FillSz             string          `json:"fillSz"`
 	FillTime           string          `json:"fillTime"`

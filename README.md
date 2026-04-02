@@ -270,9 +270,16 @@ adp.WatchTicker(ctx, "BTC", func(t *exchanges.Ticker) {
     fmt.Printf("Price: %s\n", t.LastPrice)
 })
 
-// Real-time order updates (fills, cancellations)
+// Real-time order lifecycle updates
 adp.WatchOrders(ctx, func(o *exchanges.Order) {
-    fmt.Printf("Order %s: %s\n", o.OrderID, o.Status)
+    fmt.Printf("Order %s: %s order=%s avg=%s last=%s\n",
+        o.OrderID, o.Status, o.OrderPrice, o.AverageFillPrice, o.LastFillPrice)
+})
+
+// Real-time private fills (one callback per execution)
+adp.WatchFills(ctx, func(f *exchanges.Fill) {
+    fmt.Printf("Fill %s: %s %s @ %s\n",
+        f.TradeID, f.Side, f.Quantity, f.Price)
 })
 
 // Real-time position updates
@@ -280,6 +287,10 @@ adp.WatchPositions(ctx, func(p *exchanges.Position) {
     fmt.Printf("%s: %s %s @ %s\n", p.Symbol, p.Side, p.Quantity, p.EntryPrice)
 })
 ```
+
+`WatchOrders` is for order lifecycle state. `WatchFills` is for execution detail. A single order may produce zero, one, or many fill callbacks.
+
+`WatchFills` is now supported by every private-trading adapter in this repository except Binance margin. If an adapter cannot expose private executions natively, it returns `ErrNotSupported` instead of synthesizing fills from another stream.
 
 ### Using PerpExchange Extensions
 
@@ -417,7 +428,8 @@ Every adapter implements these methods:
 | **Orderbook** | `WatchOrderBook(ctx, symbol, depth, cb)` | Subscribe to WS orderbook (blocks until ready) |
 | | `GetLocalOrderBook(symbol, depth)` | Read local WS-maintained orderbook |
 | | `StopWatchOrderBook(ctx, symbol)` | Unsubscribe |
-| **Streaming** | `WatchOrders(ctx, cb)` | Real-time order updates |
+| **Streaming** | `WatchOrders(ctx, cb)` | Real-time order lifecycle updates |
+| | `WatchFills(ctx, cb)` | Real-time private fills / executions |
 | | `WatchPositions(ctx, cb)` | Real-time position updates |
 | | `WatchTicker(ctx, symbol, cb)` | Real-time ticker |
 | | `WatchTrades(ctx, symbol, cb)` | Real-time trades |

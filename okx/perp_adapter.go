@@ -37,6 +37,8 @@ type Adapter struct {
 	feeOnce       sync.Once
 	cachedFeeRate *exchanges.FeeRate
 	cachedFeeErr  error
+
+	privateOrderStream okxPrivateOrderStreamState
 }
 
 // NewAdapter creates a new OKX adapter
@@ -838,12 +840,7 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]
 // ================= WebSocket =================
 
 func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
-	if err := a.WsAccountConnected(ctx); err != nil {
-		return err
-	}
-	return a.wsPrivate.SubscribeOrders("SWAP", nil, func(o *okx.Order) {
-		callback(a.mapOrderRest(o))
-	})
+	return a.watchPrivateOrders(ctx, callback, nil)
 }
 
 func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.PositionUpdateCallback) error {
@@ -892,7 +889,13 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 }
 
 func (a *Adapter) StopWatchOrders(ctx context.Context) error {
-	return nil
+	return a.stopPrivateOrders(ctx, true, false)
+}
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	return a.watchPrivateOrders(ctx, nil, callback)
+}
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	return a.stopPrivateOrders(ctx, false, true)
 }
 func (a *Adapter) StopWatchPositions(ctx context.Context) error { return nil }
 
@@ -990,15 +993,53 @@ func (a *Adapter) mapOrderRest(o *okx.Order) *exchanges.Order {
 	ts, _ := strconv.ParseInt(o.UTime, 10, 64)
 
 	return &exchanges.Order{
-		OrderID:        o.OrdId,
-		Symbol:         a.ExtractSymbol(o.InstId),
-		Side:           side,
-		Status:         status,
-		Quantity:       parseString(o.Sz).Mul(a.getCtVal(context.Background(), o.InstId)), // 张数 * 每张代表的数量
-		FilledQuantity: parseString(o.AccFillSz).Mul(a.getCtVal(context.Background(), o.InstId)),
-		Price:          parseString(o.Px),
-		Fee:            parseString(o.Fee),
-		Timestamp:      ts,
+		OrderID:          o.OrdId,
+		Symbol:           a.ExtractSymbol(o.InstId),
+		Side:             side,
+		Status:           status,
+		Quantity:         parseString(o.Sz).Mul(a.getCtVal(context.Background(), o.InstId)), // 张数 * 每张代表的数量
+		FilledQuantity:   parseString(o.AccFillSz).Mul(a.getCtVal(context.Background(), o.InstId)),
+		Price:            parseString(o.Px),
+		OrderPrice:       parseString(o.Px),
+		AverageFillPrice: parseString(o.AvgPx),
+		LastFillPrice:    parseString(o.FillPx),
+		LastFillQuantity: parseString(o.FillSz).Mul(a.getCtVal(context.Background(), o.InstId)),
+		Fee:              parseString(o.Fee),
+		Timestamp:        ts,
+	}
+}
+
+func (a *Adapter) mapOrderFill(o *okx.Order) *exchanges.Fill {
+	qty := parseString(o.FillSz).Mul(a.getCtVal(context.Background(), o.InstId))
+	if qty.IsZero() {
+		return nil
+	}
+
+	side := exchanges.OrderSideBuy
+	if o.Side == okx.SideSell {
+		side = exchanges.OrderSideSell
+	}
+
+	ts := parseTime(o.FillTime)
+	if ts == 0 {
+		ts = parseTime(o.UTime)
+	}
+	if ts == 0 {
+		ts = parseTime(o.CTime)
+	}
+
+	return &exchanges.Fill{
+		TradeID:       o.TradeId,
+		OrderID:       o.OrdId,
+		ClientOrderID: o.ClOrdId,
+		Symbol:        a.ExtractSymbol(o.InstId),
+		Side:          side,
+		Price:         parseString(o.FillPx),
+		Quantity:      qty,
+		Fee:           parseString(o.Fee),
+		FeeAsset:      o.FeeCcy,
+		IsMaker:       strings.EqualFold(o.ExecType, "M"),
+		Timestamp:     ts,
 	}
 }
 

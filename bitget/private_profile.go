@@ -21,7 +21,9 @@ type privateProfile interface {
 	FetchBalance(ctx context.Context) (decimal.Decimal, error)
 	FetchFeeRate(ctx context.Context, symbol string) (*exchanges.FeeRate, error)
 	WatchOrders(ctx context.Context, cb exchanges.OrderUpdateCallback) error
+	WatchFills(ctx context.Context, cb exchanges.FillCallback) error
 	StopWatchOrders(ctx context.Context) error
+	StopWatchFills(ctx context.Context) error
 }
 
 type perpPrivateProfile interface {

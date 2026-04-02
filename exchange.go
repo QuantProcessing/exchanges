@@ -105,12 +105,16 @@ type SpotExchange interface {
 // Streamable provides WebSocket streaming capabilities.
 // All Watch methods accept a callback. Not all exchanges support all stream types.
 type Streamable interface {
+	// WatchOrders emits order lifecycle state updates (new, partially filled, filled, canceled, rejected).
 	WatchOrders(ctx context.Context, cb OrderUpdateCallback) error
+	// WatchFills emits one callback per private execution/fill event.
+	WatchFills(ctx context.Context, cb FillCallback) error
 	WatchPositions(ctx context.Context, cb PositionUpdateCallback) error
 	WatchTicker(ctx context.Context, symbol string, cb TickerCallback) error
 	WatchTrades(ctx context.Context, symbol string, cb TradeCallback) error
 	WatchKlines(ctx context.Context, symbol string, interval Interval, cb KlineCallback) error
 	StopWatchOrders(ctx context.Context) error
+	StopWatchFills(ctx context.Context) error
 	StopWatchPositions(ctx context.Context) error
 	StopWatchTicker(ctx context.Context, symbol string) error
 	StopWatchTrades(ctx context.Context, symbol string) error
@@ -133,6 +137,7 @@ type KlineOpts struct {
 // ============================================================================
 
 type OrderUpdateCallback func(*Order)
+type FillCallback func(*Fill)
 type PositionUpdateCallback func(*Position)
 type TickerCallback func(*Ticker)
 type OrderBookCallback func(*OrderBook)

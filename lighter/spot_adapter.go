@@ -584,6 +584,7 @@ func (a *SpotAdapter) mapOrder(o *lighter.Order) *exchanges.Order {
 		Quantity:       parseString(o.InitialBaseAmount),
 		FilledQuantity: parseString(o.FilledBaseAmount),
 		Price:          parseString(o.Price),
+		OrderPrice:     parseString(o.Price),
 		Status:         status,
 		Timestamp:      o.Timestamp,
 	}
@@ -834,6 +835,38 @@ func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback e
 // Unsubscribe methods
 func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
 	return nil
+}
+
+func (a *SpotAdapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+	token, err := a.tokenManager.GetReadToken()
+	if err != nil {
+		return err
+	}
+	return a.wsClient.SubscribeAccountAllTrades(a.client.AccountIndex, token, func(msg []byte) {
+		var event lighter.WsAccountAllTradesEvent
+		if err := json.Unmarshal(msg, &event); err != nil {
+			return
+		}
+		for _, trades := range event.Trades {
+			for _, trade := range trades {
+				fill := mapLighterTradeToFill(trade, a.idToSymbol, a.client.AccountIndex)
+				if fill != nil {
+					callback(fill)
+				}
+			}
+		}
+	})
+}
+
+func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if !a.hasAccountIndex {
+		return nil
+	}
+	return a.wsClient.Unsubscribe(fmt.Sprintf("account_all_trades/%d", a.client.AccountIndex))
 }
 
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error {

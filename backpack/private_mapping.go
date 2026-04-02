@@ -42,18 +42,47 @@ func mapOrderUpdate(raw sdk.OrderUpdateEvent) *exchanges.Order {
 	}
 
 	return &exchanges.Order{
-		OrderID:        raw.OrderID,
-		ClientOrderID:  raw.ClientID.String(),
-		Symbol:         extractBaseSymbol(raw.Symbol),
-		Side:           mapOrderSide(raw.Side),
-		Type:           mapOrderType(raw.OrderType),
-		Quantity:       quantity,
-		Price:          parseDecimal(raw.Price),
-		Status:         status,
-		FilledQuantity: filledQuantity,
-		Timestamp:      microsToMillis(ts),
-		Fee:            parseDecimal(raw.Fee),
-		TimeInForce:    mapTimeInForce(raw.TimeInForce),
+		OrderID:          raw.OrderID,
+		ClientOrderID:    raw.ClientID.String(),
+		Symbol:           extractBaseSymbol(raw.Symbol),
+		Side:             mapOrderSide(raw.Side),
+		Type:             mapOrderType(raw.OrderType),
+		Quantity:         quantity,
+		Price:            parseDecimal(raw.Price),
+		OrderPrice:       parseDecimal(raw.Price),
+		LastFillPrice:    parseDecimal(raw.FillPrice),
+		Status:           status,
+		FilledQuantity:   filledQuantity,
+		LastFillQuantity: parseDecimal(raw.FillQuantity),
+		Timestamp:        microsToMillis(ts),
+		Fee:              parseDecimal(raw.Fee),
+		TimeInForce:      mapTimeInForce(raw.TimeInForce),
+	}
+}
+
+func mapOrderFill(raw sdk.OrderUpdateEvent) *exchanges.Fill {
+	qty := parseDecimal(raw.FillQuantity)
+	if qty.IsZero() {
+		return nil
+	}
+
+	ts := raw.EngineTimestamp
+	if ts == 0 {
+		ts = raw.EventTime
+	}
+
+	return &exchanges.Fill{
+		TradeID:       raw.TradeID.String(),
+		OrderID:       raw.OrderID,
+		ClientOrderID: raw.ClientID.String(),
+		Symbol:        extractBaseSymbol(raw.Symbol),
+		Side:          mapOrderSide(raw.Side),
+		Price:         parseDecimal(raw.FillPrice),
+		Quantity:      qty,
+		Fee:           parseDecimal(raw.Fee),
+		FeeAsset:      raw.FeeSymbol,
+		IsMaker:       raw.IsMaker,
+		Timestamp:     microsToMillis(ts),
 	}
 }
 

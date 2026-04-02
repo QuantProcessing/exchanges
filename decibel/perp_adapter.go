@@ -59,6 +59,7 @@ type decibelWSClient interface {
 	Subscribe(topic string, handler func(decibelws.MarketDepthMessage)) error
 	SubscribeUserOrderHistory(userAddr string, handler func(decibelws.UserOrderHistoryMessage)) error
 	SubscribeOrderUpdates(userAddr string, handler func(decibelws.OrderUpdateMessage)) error
+	SubscribeUserTrades(userAddr string, handler func(decibelws.UserTradesMessage)) error
 	SubscribeUserPositions(userAddr string, handler func(decibelws.UserPositionsMessage)) error
 }
 
@@ -81,6 +82,13 @@ type ordersWatchState struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	callback   exchanges.OrderUpdateCallback
+}
+
+type fillsWatchState struct {
+	subscribed bool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	callback   exchanges.FillCallback
 }
 
 // Adapter is the Decibel perpetual futures adapter.
@@ -106,6 +114,9 @@ type Adapter struct {
 
 	ordersMu    sync.Mutex
 	ordersWatch ordersWatchState
+
+	fillsMu    sync.Mutex
+	fillsWatch fillsWatchState
 
 	pendingMu     sync.Mutex
 	pendingOrders map[string]chan *exchanges.Order
@@ -640,6 +651,47 @@ func (a *Adapter) StopWatchOrders(context.Context) error {
 	return nil
 }
 
+func (a *Adapter) WatchFills(_ context.Context, cb exchanges.FillCallback) error {
+	if err := a.requireWS(); err != nil {
+		return err
+	}
+
+	a.fillsMu.Lock()
+	if a.fillsWatch.cancel != nil {
+		a.fillsWatch.cancel()
+	}
+	watchCtx, cancel := context.WithCancel(context.Background())
+	a.fillsWatch.ctx = watchCtx
+	a.fillsWatch.cancel = cancel
+	a.fillsWatch.callback = cb
+	shouldSubscribe := !a.fillsWatch.subscribed
+	a.fillsWatch.subscribed = true
+	a.fillsMu.Unlock()
+
+	if shouldSubscribe {
+		userAddr := a.accountAddr
+		if strings.TrimSpace(userAddr) == "" {
+			userAddr = a.subaccountAddr
+		}
+		if err := a.ws.SubscribeUserTrades(userAddr, a.handleUserTrades); err != nil {
+			return err
+		}
+	}
+	return a.ws.Connect()
+}
+
+func (a *Adapter) StopWatchFills(context.Context) error {
+	a.fillsMu.Lock()
+	defer a.fillsMu.Unlock()
+	if a.fillsWatch.cancel != nil {
+		a.fillsWatch.cancel()
+	}
+	a.fillsWatch.ctx = nil
+	a.fillsWatch.cancel = nil
+	a.fillsWatch.callback = nil
+	return nil
+}
+
 func (a *Adapter) StopWatchPositions(context.Context) error {
 	return unsupported("StopWatchPositions")
 }
@@ -737,6 +789,25 @@ func (a *Adapter) handleOrderUpdate(msg decibelws.OrderUpdateMessage) {
 		a.storeOrderAlias(order.ClientOrderID, order.OrderID)
 	}
 	a.publishOrderUpdate(order)
+}
+
+func (a *Adapter) handleUserTrades(msg decibelws.UserTradesMessage) {
+	a.fillsMu.Lock()
+	state := a.fillsWatch
+	a.fillsMu.Unlock()
+	if state.ctx == nil || state.ctx.Err() != nil {
+		return
+	}
+
+	for _, trade := range msg.Trades {
+		fill := a.mapUserTrade(msg.Market, trade)
+		if fill == nil {
+			continue
+		}
+		if state.callback != nil {
+			state.callback(fill)
+		}
+	}
 }
 
 func (a *Adapter) awaitReconciledOrder(
@@ -1209,6 +1280,7 @@ func (a *Adapter) mapWSOrder(market string, raw decibelws.OrderHistoryItem) *exc
 		Type:           normalizeOrderType(raw.OrderType),
 		Quantity:       raw.OrigSize,
 		Price:          raw.Price,
+		OrderPrice:     raw.Price,
 		Status:         status,
 		FilledQuantity: filled,
 		Timestamp:      raw.UnixMS,
@@ -1240,6 +1312,7 @@ func (a *Adapter) mapOrderUpdate(msg decibelws.OrderUpdateMessage) *exchanges.Or
 		Type:           normalizeOrderType(raw.OrderType),
 		Quantity:       raw.OrigSize,
 		Price:          raw.Price,
+		OrderPrice:     raw.Price,
 		Status:         status,
 		FilledQuantity: filled,
 		ReduceOnly:     raw.IsReduceOnly,
@@ -1247,6 +1320,38 @@ func (a *Adapter) mapOrderUpdate(msg decibelws.OrderUpdateMessage) *exchanges.Or
 	}
 	exchanges.DerivePartialFillStatus(order)
 	return order
+}
+
+func (a *Adapter) mapUserTrade(market string, raw decibelws.UserTradeItem) *exchanges.Fill {
+	side, ok := normalizeTradeAction(raw.Action)
+	if !ok {
+		return nil
+	}
+
+	symbolMarket := strings.TrimSpace(raw.Market)
+	if symbolMarket == "" {
+		symbolMarket = market
+	}
+	symbol := a.ExtractSymbol(symbolMarket)
+	fill := &exchanges.Fill{
+		TradeID:       string(raw.TradeID),
+		OrderID:       raw.OrderID,
+		ClientOrderID: raw.ClientOrderID,
+		Symbol:        symbol,
+		Side:          side,
+		Price:         raw.Price,
+		Quantity:      raw.Size,
+		Fee:           raw.FeeAmount,
+		IsMaker:       raw.IsRebate,
+		Timestamp:     raw.UnixMS,
+	}
+	if raw.IsRebate {
+		fill.Fee = fill.Fee.Neg()
+	}
+	if a.quoteCurrency != "" {
+		fill.FeeAsset = string(a.quoteCurrency)
+	}
+	return fill
 }
 
 func (a *Adapter) lookupOrderFromTransaction(ctx context.Context, txHash string, clientID string) (*exchanges.Order, error) {
@@ -1303,6 +1408,17 @@ func normalizeOrderSide(side string) exchanges.OrderSide {
 		return exchanges.OrderSideSell
 	default:
 		return exchanges.OrderSideBuy
+	}
+}
+
+func normalizeTradeAction(action string) (exchanges.OrderSide, bool) {
+	switch strings.ToUpper(strings.TrimSpace(action)) {
+	case "OPEN LONG", "CLOSE SHORT":
+		return exchanges.OrderSideBuy, true
+	case "OPEN SHORT", "CLOSE LONG":
+		return exchanges.OrderSideSell, true
+	default:
+		return exchanges.OrderSideBuy, false
 	}
 }
 

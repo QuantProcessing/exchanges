@@ -264,9 +264,16 @@ adp.WatchTicker(ctx, "BTC", func(t *exchanges.Ticker) {
     fmt.Printf("价格: %s\n", t.LastPrice)
 })
 
-// 实时订单更新（成交、撤单）
+// 实时订单生命周期更新
 adp.WatchOrders(ctx, func(o *exchanges.Order) {
-    fmt.Printf("订单 %s: %s\n", o.OrderID, o.Status)
+    fmt.Printf("订单 %s: %s 委托价=%s 均价=%s 最新成交=%s\n",
+        o.OrderID, o.Status, o.OrderPrice, o.AverageFillPrice, o.LastFillPrice)
+})
+
+// 实时逐笔成交（每次 callback 就是一笔 execution）
+adp.WatchFills(ctx, func(f *exchanges.Fill) {
+    fmt.Printf("成交 %s: %s %s @ %s\n",
+        f.TradeID, f.Side, f.Quantity, f.Price)
 })
 
 // 实时仓位更新
@@ -274,6 +281,10 @@ adp.WatchPositions(ctx, func(p *exchanges.Position) {
     fmt.Printf("%s: %s %s @ %s\n", p.Symbol, p.Side, p.Quantity, p.EntryPrice)
 })
 ```
+
+`WatchOrders` 用来看订单生命周期状态，`WatchFills` 用来看逐笔成交细节。同一笔订单可能对应 0 次、1 次或多次 `WatchFills` 回调。
+
+除 Binance margin 外，本仓库里当前所有支持私有交易的 adapter 都已经实现了 `WatchFills`。如果某个 adapter 无法原生提供私有成交流，它会明确返回 `ErrNotSupported`，而不会偷偷从别的流里合成成交事件。
 
 ### 永续合约扩展接口
 
@@ -411,7 +422,8 @@ _, err := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
 | **深度簿** | `WatchOrderBook(ctx, symbol, depth, cb)` | 订阅 WS 深度（阻塞至就绪） |
 | | `GetLocalOrderBook(symbol, depth)` | 读取本地维护的深度簿 |
 | | `StopWatchOrderBook(ctx, symbol)` | 取消订阅 |
-| **实时流** | `WatchOrders(ctx, cb)` | 实时订单更新 |
+| **实时流** | `WatchOrders(ctx, cb)` | 实时订单生命周期更新 |
+| | `WatchFills(ctx, cb)` | 实时私有成交 / execution |
 | | `WatchPositions(ctx, cb)` | 实时仓位更新 |
 | | `WatchTicker(ctx, symbol, cb)` | 实时行情 |
 | | `WatchTrades(ctx, symbol, cb)` | 实时成交 |

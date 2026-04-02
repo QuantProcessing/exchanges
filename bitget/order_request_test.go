@@ -71,6 +71,9 @@ func (s stubExchange) StopWatchOrderBook(ctx context.Context, symbol string) err
 func (s stubExchange) WatchOrders(ctx context.Context, cb exchanges.OrderUpdateCallback) error {
 	return exchanges.ErrNotSupported
 }
+func (s stubExchange) WatchFills(ctx context.Context, cb exchanges.FillCallback) error {
+	return exchanges.ErrNotSupported
+}
 func (s stubExchange) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	return exchanges.ErrNotSupported
 }
@@ -84,6 +87,7 @@ func (s stubExchange) WatchKlines(ctx context.Context, symbol string, interval e
 	return exchanges.ErrNotSupported
 }
 func (s stubExchange) StopWatchOrders(ctx context.Context) error    { return exchanges.ErrNotSupported }
+func (s stubExchange) StopWatchFills(ctx context.Context) error     { return exchanges.ErrNotSupported }
 func (s stubExchange) StopWatchPositions(ctx context.Context) error { return exchanges.ErrNotSupported }
 func (s stubExchange) StopWatchTicker(ctx context.Context, symbol string) error {
 	return exchanges.ErrNotSupported

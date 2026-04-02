@@ -29,6 +29,8 @@ type SpotAdapter struct {
 	quoteCurrency string                    // "USDT" or "USDC"
 
 	mu sync.RWMutex
+
+	privateOrderStream okxPrivateOrderStreamState
 }
 
 // NewSpotAdapter creates a new OKX spot adapter
@@ -667,12 +669,7 @@ func (a *SpotAdapter) FetchSymbolDetails(ctx context.Context, symbol string) (*e
 // ================= WebSocket =================
 
 func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
-	if err := a.WsAccountConnected(ctx); err != nil {
-		return err
-	}
-	return a.wsPrivate.SubscribeOrders("SPOT", nil, func(o *okx.Order) {
-		callback(a.mapOrderRest(o))
-	})
+	return a.watchPrivateOrders(ctx, callback, nil)
 }
 
 func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback exchanges.TickerCallback) error {
@@ -705,7 +702,15 @@ func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback e
 
 // Unsubscribe methods
 func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
-	return nil
+	return a.stopPrivateOrders(ctx, true, false)
+}
+
+func (a *SpotAdapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	return a.watchPrivateOrders(ctx, nil, callback)
+}
+
+func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
+	return a.stopPrivateOrders(ctx, false, true)
 }
 
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error {
@@ -773,17 +778,55 @@ func (a *SpotAdapter) mapOrderRest(o *okx.Order) *exchanges.Order {
 	filledQty := parseString(o.AccFillSz)
 
 	return &exchanges.Order{
-		OrderID:        o.OrdId,
-		ClientOrderID:  o.ClOrdId,
-		Symbol:         a.ExtractSymbol(o.InstId),
-		Side:           side,
-		Type:           mapOKXOrderType(o.OrdType),
-		Quantity:       qty,
-		Price:          parseString(o.Px),
-		Status:         status,
-		FilledQuantity: filledQty,
-		Timestamp:      parseTime(o.CTime),
-		Fee:            parseString(o.Fee),
+		OrderID:          o.OrdId,
+		ClientOrderID:    o.ClOrdId,
+		Symbol:           a.ExtractSymbol(o.InstId),
+		Side:             side,
+		Type:             mapOKXOrderType(o.OrdType),
+		Quantity:         qty,
+		Price:            parseString(o.Px),
+		OrderPrice:       parseString(o.Px),
+		AverageFillPrice: parseString(o.AvgPx),
+		LastFillPrice:    parseString(o.FillPx),
+		Status:           status,
+		FilledQuantity:   filledQty,
+		LastFillQuantity: parseString(o.FillSz),
+		Timestamp:        parseTime(o.CTime),
+		Fee:              parseString(o.Fee),
+	}
+}
+
+func (a *SpotAdapter) mapOrderFill(o *okx.Order) *exchanges.Fill {
+	qty := parseString(o.FillSz)
+	if qty.IsZero() {
+		return nil
+	}
+
+	side := exchanges.OrderSideBuy
+	if o.Side == okx.SideSell {
+		side = exchanges.OrderSideSell
+	}
+
+	ts := parseTime(o.FillTime)
+	if ts == 0 {
+		ts = parseTime(o.UTime)
+	}
+	if ts == 0 {
+		ts = parseTime(o.CTime)
+	}
+
+	return &exchanges.Fill{
+		TradeID:       o.TradeId,
+		OrderID:       o.OrdId,
+		ClientOrderID: o.ClOrdId,
+		Symbol:        a.ExtractSymbol(o.InstId),
+		Side:          side,
+		Price:         parseString(o.FillPx),
+		Quantity:      qty,
+		Fee:           parseString(o.Fee),
+		FeeAsset:      o.FeeCcy,
+		IsMaker:       strings.EqualFold(o.ExecType, "M"),
+		Timestamp:     ts,
 	}
 }
 

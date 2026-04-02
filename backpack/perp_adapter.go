@@ -21,6 +21,8 @@ type Adapter struct {
 	cancel    context.CancelFunc
 	cancelMu  sync.Mutex
 	cancels   map[string]context.CancelFunc
+
+	privateOrderStream backpackPrivateOrderStreamState
 }
 
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {

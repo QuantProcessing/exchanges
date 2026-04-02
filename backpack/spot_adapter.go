@@ -21,6 +21,8 @@ type SpotAdapter struct {
 	cancel    context.CancelFunc
 	cancelMu  sync.Mutex
 	cancels   map[string]context.CancelFunc
+
+	privateOrderStream backpackPrivateOrderStreamState
 }
 
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
