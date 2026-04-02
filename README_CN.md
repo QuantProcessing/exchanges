@@ -264,13 +264,13 @@ adp.WatchTicker(ctx, "BTC", func(t *exchanges.Ticker) {
     fmt.Printf("价格: %s\n", t.LastPrice)
 })
 
-// 实时订单生命周期更新
+// 实时订单概览更新
 adp.WatchOrders(ctx, func(o *exchanges.Order) {
-    fmt.Printf("订单 %s: %s 委托价=%s 均价=%s 最新成交=%s\n",
-        o.OrderID, o.Status, o.OrderPrice, o.AverageFillPrice, o.LastFillPrice)
+    fmt.Printf("订单 %s: %s 委托价=%s 已成交=%s\n",
+        o.OrderID, o.Status, o.OrderPrice, o.FilledQuantity)
 })
 
-// 实时逐笔成交（每次 callback 就是一笔 execution）
+// 实时成交更新（每次 callback 可能是一笔成交，也可能是交易所原生聚合后的 fill 更新）
 adp.WatchFills(ctx, func(f *exchanges.Fill) {
     fmt.Printf("成交 %s: %s %s @ %s\n",
         f.TradeID, f.Side, f.Quantity, f.Price)
@@ -282,7 +282,7 @@ adp.WatchPositions(ctx, func(p *exchanges.Position) {
 })
 ```
 
-`WatchOrders` 用来看订单生命周期状态，`WatchFills` 用来看逐笔成交细节。同一笔订单可能对应 0 次、1 次或多次 `WatchFills` 回调。
+`WatchOrders` 用来看订单概览状态。它适合查看委托价、数量、已成交数量、状态、ID 和时间戳。`WatchFills` 用来看成交执行细节。它适合查看执行价、执行数量、手续费、手续费资产和 maker/taker。同一笔订单可能对应 0 次、1 次或多次 `WatchFills` 回调，而且部分交易所会把多笔原生成交聚合成一次 fill 更新。
 
 除 Binance margin 外，本仓库里当前所有支持私有交易的 adapter 都已经实现了 `WatchFills`。如果某个 adapter 无法原生提供私有成交流，它会明确返回 `ErrNotSupported`，而不会偷偷从别的流里合成成交事件。
 

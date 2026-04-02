@@ -6,11 +6,11 @@ Proposed and approved for implementation.
 
 ## Problem
 
-The current unified streaming contract exposes private order lifecycle updates only through `WatchOrders(ctx, cb)`, where the callback receives a single `Order` model.
+The current unified streaming contract exposes private order lifecycle overview updates through `WatchOrders(ctx, cb)`, where the callback receives a single `Order` model.
 
 That shape creates two related issues:
 
-- the shared `Order` model only has one `Price` field, so adapter implementations cannot represent order price, last fill price, and average fill price without conflating them
+- the shared `Order` model needs clear order-overview fields such as order price, quantity, filled quantity, status, IDs, and timestamp without implying execution detail
 - some exchanges expose order updates and fill updates as separate streams, while others include partial fill summaries in the order stream; forcing everything into one callback makes semantics inconsistent across adapters
 
 This is not primarily a WebSocket limitation. The main limitation is the current unified repository model.
@@ -53,16 +53,16 @@ These decisions were explicitly confirmed during discussion and are fixed for th
 
 `WatchOrders`
 
-- Represents order lifecycle state.
+- Represents order lifecycle overview state.
 - Emits when an order is accepted, opened, partially filled, fully filled, canceled, expired, or rejected.
-- The payload is order-centric and may include aggregate fill information known at that moment.
-- The payload is not required to represent each individual execution separately.
+- The payload is order-centric and should expose order price, quantity, filled quantity, status, IDs, and timestamp.
+- The payload should not promise average fill price, last fill price, or last fill quantity.
 
 `WatchFills`
 
 - Represents one execution event.
 - Emits once per fill or per exchange-native fill aggregation unit.
-- The payload is execution-centric and should preserve the actual execution price and execution quantity for that event.
+- The payload is execution-centric and should preserve the actual execution price, execution quantity, fee, fee asset, and maker/taker attribution for that event.
 - This stream is the source of truth for slippage analysis, VWAP reconstruction, execution fee tracking, and maker/taker attribution.
 
 ### Why both streams exist
@@ -75,18 +75,16 @@ An order has one lifecycle but may have many fills. A single order update can su
 
 The `Order` model should stop using a single ambiguous `Price` field as the sole price carrier.
 
-Recommended order-facing fields:
+Recommended order-overview fields:
 
 - `OrderPrice`
-- `AverageFillPrice`
-- `LastFillPrice`
-- `LastFillQuantity`
 - `FilledQuantity`
 
 Compatibility note:
 
 - the legacy `Price` field may remain during migration, but its meaning must be documented as deprecated and ambiguous
-- new code should read `OrderPrice` for the submitted price and use fill-specific fields for execution summaries
+- `AverageFillPrice`, `LastFillPrice`, and `LastFillQuantity` may remain on `Order` for compatibility, but `WatchOrders` should not treat them as part of its stable contract
+- new code should read `OrderPrice` for the submitted price and use `WatchFills` for execution summaries
 
 ### Fill model
 
@@ -121,9 +119,9 @@ Adapters should map exchange-native order updates into repository order states w
 
 Examples:
 
-- if an exchange order stream exposes order price and average fill price, the adapter should map both into order-facing aggregate fields
-- if an exchange order stream exposes only order price plus cumulative filled quantity, the adapter should emit only those values
-- if an exchange order stream does not expose fill price at all, the adapter should leave fill-price summary fields empty rather than invent one from a separate fill stream
+- if an exchange order stream exposes order price plus cumulative filled quantity, the adapter should emit those overview fields
+- if an exchange order stream also exposes average fill price or last fill price, the adapter should still keep those execution details out of the `WatchOrders` contract
+- if an exchange order stream does not expose fill price at all, the adapter should not invent one from a separate fill stream
 
 ### WatchFills requirements
 

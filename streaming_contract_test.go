@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOrderSupportsExplicitOrderAndFillPrices(t *testing.T) {
+func TestOrderRetainsExplicitOrderAndFillFieldsForCompatibility(t *testing.T) {
 	order := exchanges.Order{
 		OrderID:          "1",
 		Price:            decimal.RequireFromString("100"),

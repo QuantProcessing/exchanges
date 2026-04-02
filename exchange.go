@@ -105,9 +105,12 @@ type SpotExchange interface {
 // Streamable provides WebSocket streaming capabilities.
 // All Watch methods accept a callback. Not all exchanges support all stream types.
 type Streamable interface {
-	// WatchOrders emits order lifecycle state updates (new, partially filled, filled, canceled, rejected).
+	// WatchOrders emits order lifecycle overview updates.
+	// Use it for order price, quantity, filled quantity, status, IDs, and timestamp.
+	// It does not promise execution-detail fields such as average fill price or last fill price.
 	WatchOrders(ctx context.Context, cb OrderUpdateCallback) error
-	// WatchFills emits one callback per private execution/fill event.
+	// WatchFills emits execution detail updates.
+	// Use it for execution price, execution quantity, fee, fee asset, and maker/taker attribution.
 	WatchFills(ctx context.Context, cb FillCallback) error
 	WatchPositions(ctx context.Context, cb PositionUpdateCallback) error
 	WatchTicker(ctx context.Context, symbol string, cb TickerCallback) error

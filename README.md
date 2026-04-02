@@ -270,13 +270,13 @@ adp.WatchTicker(ctx, "BTC", func(t *exchanges.Ticker) {
     fmt.Printf("Price: %s\n", t.LastPrice)
 })
 
-// Real-time order lifecycle updates
+// Real-time order overview updates
 adp.WatchOrders(ctx, func(o *exchanges.Order) {
-    fmt.Printf("Order %s: %s order=%s avg=%s last=%s\n",
-        o.OrderID, o.Status, o.OrderPrice, o.AverageFillPrice, o.LastFillPrice)
+    fmt.Printf("Order %s: %s order=%s filled=%s\n",
+        o.OrderID, o.Status, o.OrderPrice, o.FilledQuantity)
 })
 
-// Real-time private fills (one callback per execution)
+// Real-time private fills (one callback per fill or exchange-native fill batch)
 adp.WatchFills(ctx, func(f *exchanges.Fill) {
     fmt.Printf("Fill %s: %s %s @ %s\n",
         f.TradeID, f.Side, f.Quantity, f.Price)
@@ -288,7 +288,7 @@ adp.WatchPositions(ctx, func(p *exchanges.Position) {
 })
 ```
 
-`WatchOrders` is for order lifecycle state. `WatchFills` is for execution detail. A single order may produce zero, one, or many fill callbacks.
+`WatchOrders` is for order overview state. Use it for order price, quantity, filled quantity, status, IDs, and timestamp. `WatchFills` is for execution detail. Use it for execution price, execution quantity, fee, fee asset, and maker/taker. A single order may produce zero, one, or many fill callbacks, and some exchanges may batch more than one native execution into one fill update.
 
 `WatchFills` is now supported by every private-trading adapter in this repository except Binance margin. If an adapter cannot expose private executions natively, it returns `ErrNotSupported` instead of synthesizing fills from another stream.
 

@@ -26,6 +26,9 @@ type SpotAdapter struct {
 	// OrderBook management cancellations
 	cancelMu sync.Mutex
 	cancels  map[string]context.CancelFunc
+
+	privateOrderStreamsOnce sync.Once
+	privateOrderStreams     *privateOrderStreams[spot.ExecutionReportEvent]
 }
 
 // NewSpotAdapter creates a new Aster Spot Adapter
@@ -461,52 +464,9 @@ func (a *SpotAdapter) TransferAsset(ctx context.Context, params *exchanges.Trans
 // ================= WebSocket =================
 
 func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
-	if err := a.WsAccountConnected(ctx); err != nil {
-		return err
-	}
-
-	a.wsAccount.SubscribeExecutionReport(func(report *spot.ExecutionReportEvent) {
-		status := exchanges.OrderStatusPending
-		switch report.OrderStatus {
-		case "NEW":
-			status = exchanges.OrderStatusNew
-		case "FILLED":
-			status = exchanges.OrderStatusFilled
-		case "PARTIALLY_FILLED":
-			status = exchanges.OrderStatusPartiallyFilled
-		case "CANCELED":
-			status = exchanges.OrderStatusCancelled
-		case "REJECTED":
-			status = exchanges.OrderStatusRejected
-		case "EXPIRED":
-			status = exchanges.OrderStatusCancelled
-		}
-
-		side := exchanges.OrderSideBuy
-		if report.Side == "SELL" {
-			side = exchanges.OrderSideSell
-		}
-
-		order := &exchanges.Order{
-			OrderID:          fmt.Sprintf("%d", report.OrderID),
-			Symbol:           report.Symbol,
-			Side:             side,
-			Type:             exchanges.OrderType(report.OrderType),
-			Quantity:         parseDecimal(report.Quantity),
-			Price:            parseDecimal(report.Price),
-			OrderPrice:       parseDecimal(report.Price),
-			LastFillPrice:    parseDecimal(report.LastExecutedPrice),
-			Status:           status,
-			FilledQuantity:   parseDecimal(report.CumulativeFilledQuantity),
-			LastFillQuantity: parseDecimal(report.LastExecutedQuantity),
-			Timestamp:        report.TransactionTime,
-			ClientOrderID:    report.ClientOrderID,
-		}
-
-		callback(order)
-	})
-
-	return nil
+	return a.privateStreams().watchOrders(func() error {
+		return a.WsAccountConnected(ctx)
+	}, callback)
 }
 
 func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback exchanges.TickerCallback) error {
@@ -684,24 +644,24 @@ func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback e
 }
 
 func (a *SpotAdapter) StopWatchOrders(ctx context.Context) error {
+	_ = ctx
+	if a.privateOrderStreams != nil {
+		a.privateOrderStreams.stopOrders()
+	}
 	return nil
 }
 
 func (a *SpotAdapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
-	if err := a.WsAccountConnected(ctx); err != nil {
-		return err
-	}
-	a.wsAccount.SubscribeExecutionReport(func(report *spot.ExecutionReportEvent) {
-		fill := a.mapExecutionFill(report)
-		if fill != nil {
-			callback(fill)
-		}
-	})
-	return nil
+	return a.privateStreams().watchFills(func() error {
+		return a.WsAccountConnected(ctx)
+	}, callback)
 }
 
 func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
 	_ = ctx
+	if a.privateOrderStreams != nil {
+		a.privateOrderStreams.stopFills()
+	}
 	return nil
 }
 
@@ -719,6 +679,58 @@ func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interv
 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
 	return exchanges.ErrNotSupported
+}
+
+func (a *SpotAdapter) normalizeExecutionReportOrder(report *spot.ExecutionReportEvent) *exchanges.Order {
+	status := exchanges.OrderStatusPending
+	switch report.OrderStatus {
+	case "NEW":
+		status = exchanges.OrderStatusNew
+	case "FILLED":
+		status = exchanges.OrderStatusFilled
+	case "PARTIALLY_FILLED":
+		status = exchanges.OrderStatusPartiallyFilled
+	case "CANCELED":
+		status = exchanges.OrderStatusCancelled
+	case "REJECTED":
+		status = exchanges.OrderStatusRejected
+	case "EXPIRED":
+		status = exchanges.OrderStatusCancelled
+	}
+
+	side := exchanges.OrderSideBuy
+	if report.Side == "SELL" {
+		side = exchanges.OrderSideSell
+	}
+
+	price := parseDecimal(report.Price)
+
+	return &exchanges.Order{
+		OrderID:        fmt.Sprintf("%d", report.OrderID),
+		Symbol:         a.ExtractSymbol(report.Symbol),
+		Side:           side,
+		Type:           exchanges.OrderType(report.OrderType),
+		Quantity:       parseDecimal(report.Quantity),
+		Price:          price,
+		OrderPrice:     price,
+		Status:         status,
+		FilledQuantity: parseDecimal(report.CumulativeFilledQuantity),
+		Timestamp:      report.TransactionTime,
+		ClientOrderID:  report.ClientOrderID,
+	}
+}
+
+func (a *SpotAdapter) privateStreams() *privateOrderStreams[spot.ExecutionReportEvent] {
+	a.privateOrderStreamsOnce.Do(func() {
+		a.privateOrderStreams = newPrivateOrderStreams(
+			func(handler func(*spot.ExecutionReportEvent)) {
+				a.wsAccount.SubscribeExecutionReport(handler)
+			},
+			a.normalizeExecutionReportOrder,
+			a.mapExecutionFill,
+		)
+	})
+	return a.privateOrderStreams
 }
 
 // ================= Internal Methods =================

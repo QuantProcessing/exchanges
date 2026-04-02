@@ -42,21 +42,18 @@ func mapOrderUpdate(raw sdk.OrderUpdateEvent) *exchanges.Order {
 	}
 
 	return &exchanges.Order{
-		OrderID:          raw.OrderID,
-		ClientOrderID:    raw.ClientID.String(),
-		Symbol:           extractBaseSymbol(raw.Symbol),
-		Side:             mapOrderSide(raw.Side),
-		Type:             mapOrderType(raw.OrderType),
-		Quantity:         quantity,
-		Price:            parseDecimal(raw.Price),
-		OrderPrice:       parseDecimal(raw.Price),
-		LastFillPrice:    parseDecimal(raw.FillPrice),
-		Status:           status,
-		FilledQuantity:   filledQuantity,
-		LastFillQuantity: parseDecimal(raw.FillQuantity),
-		Timestamp:        microsToMillis(ts),
-		Fee:              parseDecimal(raw.Fee),
-		TimeInForce:      mapTimeInForce(raw.TimeInForce),
+		OrderID:        raw.OrderID,
+		ClientOrderID:  raw.ClientID.String(),
+		Symbol:         extractBaseSymbol(raw.Symbol),
+		Side:           mapOrderSide(raw.Side),
+		Type:           mapOrderType(raw.OrderType),
+		Quantity:       quantity,
+		Price:          parseDecimal(raw.Price),
+		OrderPrice:     parseDecimal(raw.Price),
+		Status:         status,
+		FilledQuantity: filledQuantity,
+		Timestamp:      microsToMillis(ts),
+		TimeInForce:    mapTimeInForce(raw.TimeInForce),
 	}
 }
 

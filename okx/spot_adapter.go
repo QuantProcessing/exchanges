@@ -796,6 +796,16 @@ func (a *SpotAdapter) mapOrderRest(o *okx.Order) *exchanges.Order {
 	}
 }
 
+func (a *SpotAdapter) mapOrderStream(o *okx.Order) *exchanges.Order {
+	order := a.mapOrderRest(o)
+	order.Price = order.OrderPrice
+	order.AverageFillPrice = decimal.Zero
+	order.LastFillPrice = decimal.Zero
+	order.LastFillQuantity = decimal.Zero
+	order.Fee = decimal.Zero
+	return order
+}
+
 func (a *SpotAdapter) mapOrderFill(o *okx.Order) *exchanges.Fill {
 	qty := parseString(o.FillSz)
 	if qty.IsZero() {

@@ -572,7 +572,7 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 		return err
 	}
 	return a.wsAccount.SubscribeOrderUpdate("all", func(d grvt.WsFeeData[grvt.Order]) error {
-		callback(a.mapGrvtOrder(&d.Feed))
+		callback(a.mapGrvtOrderStream(&d.Feed))
 		return nil
 	})
 }
@@ -894,6 +894,16 @@ func firstGrvtLimitPrice(legs []grvt.OrderLeg) string {
 
 func (a *Adapter) mapOpenOrder(o *grvt.Order) *exchanges.Order {
 	return a.mapGrvtOrder(o) // same struct
+}
+
+func (a *Adapter) mapGrvtOrderStream(o *grvt.Order) *exchanges.Order {
+	order := a.mapGrvtOrder(o)
+	order.Price = order.OrderPrice
+	order.AverageFillPrice = decimal.Zero
+	order.LastFillPrice = decimal.Zero
+	order.LastFillQuantity = decimal.Zero
+	order.Fee = decimal.Zero
+	return order
 }
 
 // WaitOrderBookReady waits for orderbook to be ready

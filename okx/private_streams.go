@@ -69,7 +69,7 @@ func (a *Adapter) dispatchPrivateOrder(order *okx.Order) {
 	a.privateOrderStream.mu.Unlock()
 
 	if orderCB != nil {
-		orderCB(a.mapOrderRest(order))
+		orderCB(a.mapOrderStream(order))
 	}
 	if fillCB != nil {
 		if fill := a.mapOrderFill(order); fill != nil {
@@ -132,7 +132,7 @@ func (a *SpotAdapter) dispatchPrivateOrder(order *okx.Order) {
 	a.privateOrderStream.mu.Unlock()
 
 	if orderCB != nil {
-		orderCB(a.mapOrderRest(order))
+		orderCB(a.mapOrderStream(order))
 	}
 	if fillCB != nil {
 		if fill := a.mapOrderFill(order); fill != nil {

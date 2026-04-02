@@ -31,6 +31,9 @@ type Adapter struct {
 
 	// Cached fee rates (per-symbol)
 	feeCache sync.Map // symbol -> *exchanges.FeeRate
+
+	privateOrderStreamsOnce sync.Once
+	privateOrderStreams     *privateOrderStreams[perp.OrderUpdateEvent]
 }
 
 // NewAdapter 创建 Binance 适配器
@@ -567,16 +570,9 @@ func (a *Adapter) FetchSymbolDetails(ctx context.Context, symbol string) (*excha
 // ================= WebSocket =================
 
 func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
-	if err := a.WsAccountConnected(ctx); err != nil {
-		return err
-	}
-
-	a.wsAccount.SubscribeOrderUpdate(func(e *perp.OrderUpdateEvent) {
-		// TODO: logger.Info("Binance Adapter received OrderUpdate", "event", e)
-		order := a.normalizeOrderUpdate(e)
-		callback(order)
-	})
-	return nil
+	return a.privateStreams().watchOrders(func() error {
+		return a.WsAccountConnected(ctx)
+	}, callback)
 }
 
 func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.PositionUpdateCallback) error {
@@ -823,27 +819,24 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 }
 
 func (a *Adapter) StopWatchOrders(ctx context.Context) error {
-	// User data stream unsubscribe is different, often via REST to close listenKey
-	// For now keeping empty as it requires listenKey management
+	_ = ctx
+	if a.privateOrderStreams != nil {
+		a.privateOrderStreams.stopOrders()
+	}
 	return nil
 }
 
 func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
-	if err := a.WsAccountConnected(ctx); err != nil {
-		return err
-	}
-
-	a.wsAccount.SubscribeOrderUpdate(func(e *perp.OrderUpdateEvent) {
-		fill := a.mapOrderFill(e)
-		if fill != nil {
-			callback(fill)
-		}
-	})
-	return nil
+	return a.privateStreams().watchFills(func() error {
+		return a.WsAccountConnected(ctx)
+	}, callback)
 }
 
 func (a *Adapter) StopWatchFills(ctx context.Context) error {
 	_ = ctx
+	if a.privateOrderStreams != nil {
+		a.privateOrderStreams.stopFills()
+	}
 	return nil
 }
 
@@ -1000,21 +993,31 @@ func (a *Adapter) normalizeOrderUpdate(e *perp.OrderUpdateEvent) *exchanges.Orde
 	}
 
 	return &exchanges.Order{
-		OrderID:          fmt.Sprintf("%d", e.Order.OrderID),
-		Symbol:           a.ExtractSymbol(e.Order.Symbol),
-		Side:             side,
-		Type:             exchanges.OrderType(e.Order.OrderType),
-		Quantity:         qty,
-		Price:            price,
-		OrderPrice:       price,
-		AverageFillPrice: parseDecimal(e.Order.AveragePrice),
-		LastFillPrice:    parseDecimal(e.Order.LastFilledPrice),
-		Status:           status,
-		FilledQuantity:   filled,
-		LastFillQuantity: parseDecimal(e.Order.LastFilledQty),
-		Timestamp:        e.Order.TradeTime,
-		ClientOrderID:    e.Order.ClientOrderID,
+		OrderID:        fmt.Sprintf("%d", e.Order.OrderID),
+		Symbol:         a.ExtractSymbol(e.Order.Symbol),
+		Side:           side,
+		Type:           exchanges.OrderType(e.Order.OrderType),
+		Quantity:       qty,
+		Price:          price,
+		OrderPrice:     price,
+		Status:         status,
+		FilledQuantity: filled,
+		Timestamp:      e.Order.TradeTime,
+		ClientOrderID:  e.Order.ClientOrderID,
 	}
+}
+
+func (a *Adapter) privateStreams() *privateOrderStreams[perp.OrderUpdateEvent] {
+	a.privateOrderStreamsOnce.Do(func() {
+		a.privateOrderStreams = newPrivateOrderStreams(
+			func(handler func(*perp.OrderUpdateEvent)) {
+				a.wsAccount.SubscribeOrderUpdate(handler)
+			},
+			a.normalizeOrderUpdate,
+			a.mapOrderFill,
+		)
+	})
+	return a.privateOrderStreams
 }
 
 func (a *Adapter) mapOrderFill(e *perp.OrderUpdateEvent) *exchanges.Fill {

@@ -1009,6 +1009,18 @@ func (a *Adapter) mapOrderRest(o *okx.Order) *exchanges.Order {
 	}
 }
 
+func (a *Adapter) mapOrderStream(o *okx.Order) *exchanges.Order {
+	order := a.mapOrderRest(o)
+	order.ClientOrderID = o.ClOrdId
+	order.Type = mapOKXOrderType(o.OrdType)
+	order.Price = order.OrderPrice
+	order.AverageFillPrice = decimal.Zero
+	order.LastFillPrice = decimal.Zero
+	order.LastFillQuantity = decimal.Zero
+	order.Fee = decimal.Zero
+	return order
+}
+
 func (a *Adapter) mapOrderFill(o *okx.Order) *exchanges.Fill {
 	qty := parseString(o.FillSz).Mul(a.getCtVal(context.Background(), o.InstId))
 	if qty.IsZero() {

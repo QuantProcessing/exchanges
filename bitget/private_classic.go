@@ -247,7 +247,7 @@ func (p *classicPerpProfile) WatchOrders(ctx context.Context, cb exchanges.Order
 		}
 		for _, order := range msg.Data {
 			if cb != nil {
-				cb(mapClassicMixOrder(p.adp.ExtractSymbol(firstNonEmpty(order.InstID, order.Symbol)), order))
+				cb(mapClassicMixOrderStream(p.adp.ExtractSymbol(firstNonEmpty(order.InstID, order.Symbol)), order))
 			}
 		}
 	})
@@ -557,7 +557,7 @@ func (p *classicSpotProfile) WatchOrders(ctx context.Context, cb exchanges.Order
 		}
 		for _, order := range msg.Data {
 			if cb != nil {
-				cb(mapClassicSpotOrder(p.adp.ExtractSymbol(firstNonEmpty(order.InstID, order.Symbol)), order))
+				cb(mapClassicSpotOrderStream(p.adp.ExtractSymbol(firstNonEmpty(order.InstID, order.Symbol)), order))
 			}
 		}
 	})
@@ -632,6 +632,16 @@ func mapClassicSpotOrder(symbol string, raw sdk.ClassicSpotOrderRecord) *exchang
 	}
 }
 
+func mapClassicSpotOrderStream(symbol string, raw sdk.ClassicSpotOrderRecord) *exchanges.Order {
+	order := mapClassicSpotOrder(symbol, raw)
+	order.Price = order.OrderPrice
+	order.AverageFillPrice = decimal.Zero
+	order.LastFillPrice = decimal.Zero
+	order.LastFillQuantity = decimal.Zero
+	order.Fee = decimal.Zero
+	return order
+}
+
 func mapClassicMixOrder(symbol string, raw sdk.ClassicMixOrderRecord) *exchanges.Order {
 	ts := parseMillis(firstNonEmpty(raw.UTime, raw.CTime))
 	if ts == 0 {
@@ -654,6 +664,16 @@ func mapClassicMixOrder(symbol string, raw sdk.ClassicMixOrderRecord) *exchanges
 		ReduceOnly:       strings.EqualFold(raw.ReduceOnly, "yes"),
 		TimeInForce:      mapTimeInForce(raw.Force),
 	}
+}
+
+func mapClassicMixOrderStream(symbol string, raw sdk.ClassicMixOrderRecord) *exchanges.Order {
+	order := mapClassicMixOrder(symbol, raw)
+	order.Price = order.OrderPrice
+	order.AverageFillPrice = decimal.Zero
+	order.LastFillPrice = decimal.Zero
+	order.LastFillQuantity = decimal.Zero
+	order.Fee = decimal.Zero
+	return order
 }
 
 func mapClassicMixPosition(raw sdk.ClassicMixPositionRecord) exchanges.Position {

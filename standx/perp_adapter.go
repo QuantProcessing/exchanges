@@ -641,7 +641,8 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 	}()
 
 	return a.wsAccount.SubscribeOrderUpdate(func(o *standx.Order) {
-		callback(a.mapSDKOrderToAdapterOrderPTR(o))
+		update := a.mapSDKOrderToAdapterOrderStream(*o)
+		callback(&update)
 	})
 }
 
@@ -904,13 +905,8 @@ func (a *Adapter) mapSDKOrderToAdapterOrder(o standx.Order) exchanges.Order {
 		side = exchanges.OrderSideSell
 	}
 
-	orderID := fmt.Sprintf("%d", o.ID)
-	if o.ClOrdID != "" {
-		orderID = o.ClOrdID
-	}
-
 	order := exchanges.Order{
-		OrderID:          orderID,
+		OrderID:          fmt.Sprintf("%d", o.ID),
 		Symbol:           a.toAdapterSymbol(o.Symbol),
 		Side:             side,
 		Type:             exchanges.OrderType(strings.ToUpper(o.OrderType)), // rough mapping
@@ -932,6 +928,16 @@ func (a *Adapter) mapSDKOrderToAdapterOrder(o standx.Order) exchanges.Order {
 func (a *Adapter) mapSDKOrderToAdapterOrderPTR(o *standx.Order) *exchanges.Order {
 	ord := a.mapSDKOrderToAdapterOrder(*o)
 	return &ord
+}
+
+func (a *Adapter) mapSDKOrderToAdapterOrderStream(o standx.Order) exchanges.Order {
+	order := a.mapSDKOrderToAdapterOrder(o)
+	order.Price = order.OrderPrice
+	order.AverageFillPrice = decimal.Zero
+	order.LastFillPrice = decimal.Zero
+	order.LastFillQuantity = decimal.Zero
+	order.Fee = decimal.Zero
+	return order
 }
 
 func (a *Adapter) mapSDKTradeToFill(trade *standx.Trade) *exchanges.Fill {
