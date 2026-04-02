@@ -167,8 +167,8 @@ type Ticker struct {
 	IndexPrice decimal.Decimal `json:"index_price"`
 	MarkPrice  decimal.Decimal `json:"mark_price"`
 	MidPrice   decimal.Decimal `json:"mid_price"`
-	Bid        decimal.Decimal `json:"bid"`  // Best Bid
-	Ask        decimal.Decimal `json:"ask"`  // Best Ask
+	Bid        decimal.Decimal `json:"bid"` // Best Bid
+	Ask        decimal.Decimal `json:"ask"` // Best Ask
 	Volume24h  decimal.Decimal `json:"volume_24h"`
 	QuoteVol   decimal.Decimal `json:"quote_vol"` // Quote Volume
 	High24h    decimal.Decimal `json:"high_24h"`
@@ -313,9 +313,9 @@ type IsolatedMarginAccount struct {
 type OrderParams struct {
 	Symbol      string
 	Side        OrderSide
-	Type        OrderType       // MARKET or LIMIT
+	Type        OrderType // MARKET or LIMIT
 	Quantity    decimal.Decimal
-	Price       decimal.Decimal // Required for LIMIT; ignored for MARKET (unless Slippage > 0)
+	Price       decimal.Decimal // Required for LIMIT; optional reference price for MARKET and slippage conversion
 	TimeInForce TimeInForce     // Default: GTC for LIMIT
 	ReduceOnly  bool
 	Slippage    decimal.Decimal // If > 0 and Type == MARKET, auto-applies slippage logic

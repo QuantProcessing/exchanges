@@ -144,12 +144,14 @@ type TradeCallback func(*Trade)
 // ============================================================================
 
 // PlaceMarketOrder is a convenience function for placing a market order.
-func PlaceMarketOrder(ctx context.Context, adp Exchange, symbol string, side OrderSide, qty decimal.Decimal) (*Order, error) {
+// Optionally pass a reference price to avoid adapter-side ticker lookups when supported.
+func PlaceMarketOrder(ctx context.Context, adp Exchange, symbol string, side OrderSide, qty decimal.Decimal, price ...decimal.Decimal) (*Order, error) {
 	return adp.PlaceOrder(ctx, &OrderParams{
 		Symbol:   symbol,
 		Side:     side,
 		Type:     OrderTypeMarket,
 		Quantity: qty,
+		Price:    firstDecimal(price),
 	})
 }
 
@@ -166,12 +168,21 @@ func PlaceLimitOrder(ctx context.Context, adp Exchange, symbol string, side Orde
 }
 
 // PlaceMarketOrderWithSlippage is a convenience function for placing a market order with slippage protection.
-func PlaceMarketOrderWithSlippage(ctx context.Context, adp Exchange, symbol string, side OrderSide, qty, slippage decimal.Decimal) (*Order, error) {
+// Optionally pass a reference price to avoid adapter-side ticker lookups when supported.
+func PlaceMarketOrderWithSlippage(ctx context.Context, adp Exchange, symbol string, side OrderSide, qty, slippage decimal.Decimal, price ...decimal.Decimal) (*Order, error) {
 	return adp.PlaceOrder(ctx, &OrderParams{
 		Symbol:   symbol,
 		Side:     side,
 		Type:     OrderTypeMarket,
 		Quantity: qty,
+		Price:    firstDecimal(price),
 		Slippage: slippage,
 	})
+}
+
+func firstDecimal(values []decimal.Decimal) decimal.Decimal {
+	if len(values) == 0 {
+		return decimal.Zero
+	}
+	return values[0]
 }

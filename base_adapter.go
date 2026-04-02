@@ -19,7 +19,6 @@ import (
 // For local state management (Orders, Positions, Balance), use LocalState
 // which wraps the Exchange adapter externally.
 type BaseAdapter struct {
-
 	Name       string
 	MarketType MarketType
 	orderMode  OrderMode // WS (default) or REST
@@ -38,7 +37,6 @@ type BaseAdapter struct {
 	// Local Orderbooks
 	orderBooks map[string]LocalOrderBook
 	obMu       sync.RWMutex
-
 }
 
 // NewBaseAdapter creates a new initialized BaseAdapter
@@ -47,11 +45,11 @@ func NewBaseAdapter(name string, marketType MarketType, logger Logger) *BaseAdap
 		logger = NopLogger
 	}
 	return &BaseAdapter{
-		Name:              name,
-		MarketType:        marketType,
-		Logger:            logger,
-		symbolDetails:     make(map[string]*SymbolDetails),
-		orderBooks:        make(map[string]LocalOrderBook),
+		Name:          name,
+		MarketType:    marketType,
+		Logger:        logger,
+		symbolDetails: make(map[string]*SymbolDetails),
+		orderBooks:    make(map[string]LocalOrderBook),
 	}
 }
 
@@ -245,24 +243,31 @@ func (b *BaseAdapter) ApplySlippage(
 		return nil
 	}
 
-	ticker, err := fetchTicker(ctx, params.Symbol)
-	if err != nil {
-		return fmt.Errorf("slippage requires ticker: %w", err)
+	one := decimal.NewFromInt(1)
+	refPrice := params.Price
+
+	if !refPrice.IsPositive() {
+		ticker, err := fetchTicker(ctx, params.Symbol)
+		if err != nil {
+			return fmt.Errorf("slippage requires ticker: %w", err)
+		}
+
+		if params.Side == OrderSideBuy {
+			refPrice = ticker.Ask
+			if refPrice.IsZero() {
+				refPrice = ticker.LastPrice
+			}
+		} else {
+			refPrice = ticker.Bid
+			if refPrice.IsZero() {
+				refPrice = ticker.LastPrice
+			}
+		}
 	}
 
-	one := decimal.NewFromInt(1)
-
 	if params.Side == OrderSideBuy {
-		refPrice := ticker.Ask
-		if refPrice.IsZero() {
-			refPrice = ticker.LastPrice
-		}
 		params.Price = refPrice.Mul(one.Add(params.Slippage))
 	} else {
-		refPrice := ticker.Bid
-		if refPrice.IsZero() {
-			refPrice = ticker.LastPrice
-		}
 		params.Price = refPrice.Mul(one.Sub(params.Slippage))
 	}
 
