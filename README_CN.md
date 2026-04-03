@@ -308,38 +308,44 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 }
 ```
 
-### LocalState（统一状态管理）
+### TradingAccount + OrderFlow（统一状态管理）
 
 ```go
-// LocalState 包装任意 Exchange 适配器 — 自动订阅 WS 推送，
-// 维护订单/仓位/余额，并提供 fan-out 事件订阅。
-state := exchanges.NewLocalState(adp, nil)
-err := state.Start(ctx) // REST 快照 + 自动 WatchOrders/WatchPositions + 定时刷新
+// TradingAccount 是公开的账户运行时入口。
+// Place 会返回一个 OrderFlow，方便你查看最新快照或流式读取更新。
+acct := exchanges.NewTradingAccount(adp, nil)
+if err := acct.Start(ctx); err != nil {
+    panic(err)
+}
+defer acct.Close()
 
-// 随时读取状态（线程安全，零延迟）
-pos, ok := state.GetPosition("BTC")
-order, ok := state.GetOrder("order-123")
-balance := state.GetBalance()
-
-// Fan-out 事件订阅（支持多消费者）
-sub := state.SubscribeOrders()
-defer sub.Unsubscribe()
-go func() {
-    for order := range sub.C {
-        fmt.Printf("订单更新: %s %s\n", order.OrderID, order.Status)
-    }
-}()
-
-// 下单 + 集成追踪 — 无需单独调用 WatchOrders
-result, err := state.PlaceOrder(ctx, &exchanges.OrderParams{
+flow, err := acct.Place(ctx, &exchanges.OrderParams{
     Symbol:   "BTC",
     Side:     exchanges.OrderSideBuy,
     Type:     exchanges.OrderTypeMarket,
     Quantity: decimal.NewFromFloat(0.001),
 })
-defer result.Done()
-filled, err := result.WaitTerminal(30 * time.Second) // 阻塞至 FILLED/CANCELLED/REJECTED
+if err != nil {
+    panic(err)
+}
+defer flow.Close()
+
+for order := range flow.C() {
+    fmt.Printf("订单更新: %s %s\n", order.OrderID, order.Status)
+    if order.Status == exchanges.OrderStatusFilled ||
+        order.Status == exchanges.OrderStatusCancelled ||
+        order.Status == exchanges.OrderStatusRejected {
+        break
+    }
+}
+
+latest := flow.Latest()
+fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 ```
+
+`flow.C()` 会流式输出标准化后的订单更新。`flow.Latest()` 返回最新快照，`flow.Wait(...)` 则适合需要阻塞等待某个条件成立的场景。
+
+> LocalState remains available for compatibility, but new code should prefer TradingAccount.
 
 ### 切换交易所
 

@@ -314,38 +314,44 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 }
 ```
 
-### LocalState (Unified State Management)
+### TradingAccount + OrderFlow (Unified State Management)
 
 ```go
-// LocalState wraps any Exchange adapter — auto-subscribes to WS streams,
-// maintains orders/positions/balance, and provides fan-out event subscriptions.
-state := exchanges.NewLocalState(adp, nil)
-err := state.Start(ctx) // REST snapshot + auto WatchOrders/WatchPositions + periodic refresh
+// TradingAccount is the public account-runtime surface.
+// Place returns an OrderFlow so you can inspect the latest snapshot or stream updates.
+acct := exchanges.NewTradingAccount(adp, nil)
+if err := acct.Start(ctx); err != nil {
+    panic(err)
+}
+defer acct.Close()
 
-// Read state anytime (thread-safe, zero-latency)
-pos, ok := state.GetPosition("BTC")
-order, ok := state.GetOrder("order-123")
-balance := state.GetBalance()
-
-// Fan-out event subscriptions (multiple consumers supported)
-sub := state.SubscribeOrders()
-defer sub.Unsubscribe()
-go func() {
-    for order := range sub.C {
-        fmt.Printf("Order update: %s %s\n", order.OrderID, order.Status)
-    }
-}()
-
-// Place order with integrated tracking — no need for separate WatchOrders
-result, err := state.PlaceOrder(ctx, &exchanges.OrderParams{
+flow, err := acct.Place(ctx, &exchanges.OrderParams{
     Symbol:   "BTC",
     Side:     exchanges.OrderSideBuy,
     Type:     exchanges.OrderTypeMarket,
     Quantity: decimal.NewFromFloat(0.001),
 })
-defer result.Done()
-filled, err := result.WaitTerminal(30 * time.Second) // blocks until FILLED/CANCELLED/REJECTED
+if err != nil {
+    panic(err)
+}
+defer flow.Close()
+
+for order := range flow.C() {
+    fmt.Printf("Order update: %s %s\n", order.OrderID, order.Status)
+    if order.Status == exchanges.OrderStatusFilled ||
+        order.Status == exchanges.OrderStatusCancelled ||
+        order.Status == exchanges.OrderStatusRejected {
+        break
+    }
+}
+
+latest := flow.Latest()
+fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 ```
+
+`flow.C()` streams normalized order updates. `flow.Latest()` returns the latest snapshot, and `flow.Wait(...)` is available when you want a blocking predicate check.
+
+> LocalState remains available for compatibility, but new code should prefer TradingAccount.
 
 ### Switching Exchanges
 
