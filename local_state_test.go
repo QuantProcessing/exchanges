@@ -26,6 +26,14 @@ func (s *localStateStubExchange) WatchOrders(_ context.Context, cb exchanges.Ord
 	return nil
 }
 
+func (s *localStateStubExchange) EmitOrder(order *exchanges.Order) {
+	if s.orderCB == nil || order == nil {
+		return
+	}
+	copy := *order
+	s.orderCB(&copy)
+}
+
 func (s *localStateStubExchange) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
 	order := *s.placeResp
 	if order.Symbol == "" {
