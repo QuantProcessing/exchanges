@@ -1,7 +1,25 @@
 package lighter
 
+import "encoding/json"
+
 // Callback is a function that processes WebSocket messages
 type Callback func([]byte)
+
+type typedDispatcher func(*Envelope) error
+
+// Envelope is the normalized message shape used by the WebSocket client
+// after decoding either JSON text frames or msgpack binary frames.
+type Envelope struct {
+	Type          string
+	Channel       string
+	Timestamp     int64
+	LastUpdatedAt int64
+	raw           []byte
+}
+
+func (e *Envelope) Unmarshal(v any) error {
+	return json.Unmarshal(e.raw, v)
+}
 
 // Subscriber manages subscriptions for a channel
 type Subscriber struct {

@@ -4,28 +4,54 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
-
-
 	"github.com/gorilla/websocket"
+	"github.com/vmihailenco/msgpack/v5"
+	"go.uber.org/zap"
 )
 
 const (
 	MainnetWSURL = "wss://mainnet.zklighter.elliot.ai/stream"
 )
 
+type WSEncoding string
+
+const (
+	WSEncodingAuto    WSEncoding = "auto"
+	WSEncodingJSON    WSEncoding = "json"
+	WSEncodingMsgpack WSEncoding = "msgpack"
+)
+
+type WSConfig struct {
+	URL               string
+	ReadOnly          bool
+	Encoding          WSEncoding
+	KeepaliveInterval time.Duration
+	ReconnectWait     time.Duration
+}
+
+type websocketConn interface {
+	ReadMessage() (int, []byte, error)
+	WriteJSON(v interface{}) error
+	WriteControl(messageType int, data []byte, deadline time.Time) error
+	SetReadDeadline(t time.Time) error
+	Close() error
+}
+
 type subscription struct {
-	authToken *string
-	handler   func([]byte)
+	authToken   *string
+	rawHandler  func([]byte)
+	dispatchers []typedDispatcher
 }
 
 type WebsocketClient struct {
 	URL     string
 	Conn    *websocket.Conn
+	conn    websocketConn
 	Mu      sync.RWMutex
 	WriteMu sync.Mutex
 	// Subscriptions maps channel name -> subscription (auth + handler)
@@ -43,21 +69,37 @@ type WebsocketClient struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	config WSConfig
 }
 
 func NewWebsocketClient(ctx context.Context) *WebsocketClient {
+	return NewWebsocketClientWithConfig(ctx, WSConfig{})
+}
+
+func NewWebsocketClientWithConfig(ctx context.Context, cfg WSConfig) *WebsocketClient {
 	// Create cancellable context
 	ctx, cancel := context.WithCancel(ctx)
 
+	if cfg.URL == "" {
+		cfg.URL = MainnetWSURL
+	}
+	if cfg.KeepaliveInterval <= 0 {
+		cfg.KeepaliveInterval = 30 * time.Second
+	}
+	if cfg.ReconnectWait <= 0 {
+		cfg.ReconnectWait = 1 * time.Second
+	}
+
 	return &WebsocketClient{
-		URL:             MainnetWSURL,
+		URL:             cfg.URL,
 		Subscriptions:   make(map[string]*subscription),
 		PendingRequests: make(map[string]chan *TxResponse),
 		Logger:          zap.NewNop().Sugar().Named("lighter"),
-		ReconnectWait:   1 * time.Second,
+		ReconnectWait:   cfg.ReconnectWait,
 		OnError:         func(err error) {},
 		ctx:             ctx,
 		cancel:          cancel,
+		config:          cfg,
 	}
 }
 
@@ -72,12 +114,19 @@ func (c *WebsocketClient) Connect() error {
 	// Use internal 10 second timeout
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, c.URL, nil)
+	urlToDial, err := c.buildURL()
+	if err != nil {
+		return err
+	}
+	dialer := *websocket.DefaultDialer
+	dialer.EnableCompression = true
+	conn, _, err := dialer.DialContext(ctx, urlToDial, nil)
 	if err != nil {
 		return err
 	}
 
 	c.Conn = conn
+	c.conn = conn
 
 	go c.readLoop()
 	go c.pingLoop()
@@ -96,6 +145,7 @@ func (c *WebsocketClient) Close() {
 		c.Conn.Close()
 		c.Conn = nil
 	}
+	c.conn = nil
 }
 
 func (c *WebsocketClient) readLoop() {
@@ -120,7 +170,11 @@ func (c *WebsocketClient) readLoop() {
 			c.Logger.Debug("Read loop stopping due to context cancellation")
 			return
 		default:
-			_, message, err := c.Conn.ReadMessage()
+			conn := c.activeConn()
+			if conn == nil {
+				return
+			}
+			messageType, message, err := conn.ReadMessage()
 			if err != nil {
 				// Check if intentionally closed
 				if c.ctx.Err() != nil {
@@ -136,14 +190,16 @@ func (c *WebsocketClient) readLoop() {
 				return
 			}
 			// Extend read deadline on any message received
-			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-			c.HandleMessage(message)
+			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			if err := c.handleIncomingFrame(messageType, message); err != nil {
+				c.Logger.Errorw("failed to handle websocket frame", "error", err)
+			}
 		}
 	}
 }
 
 func (c *WebsocketClient) pingLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(c.config.KeepaliveInterval)
 	defer ticker.Stop()
 
 	for {
@@ -151,17 +207,11 @@ func (c *WebsocketClient) pingLoop() {
 		case <-c.ctx.Done():
 			return
 		case <-ticker.C:
-			c.WriteMu.Lock()
-			if c.Conn != nil {
-				err := c.Conn.WriteJSON(map[string]string{"type": "ping"})
-				if err != nil {
-					c.Logger.Errorw("websocket ping error", "error", err)
-					c.WriteMu.Unlock()
-					return
-				}
-				c.Logger.Debugw("websocket ping sent")
+			if err := c.sendPing(); err != nil {
+				c.Logger.Errorw("websocket ping error", "error", err)
+				return
 			}
-			c.WriteMu.Unlock()
+			c.Logger.Debugw("websocket ping sent")
 		}
 	}
 }
@@ -207,82 +257,23 @@ func (c *WebsocketClient) resubscribeAll() {
 }
 
 func (c *WebsocketClient) HandleMessage(message []byte) {
-	c.Logger.Debugw("Received message", "msg", string(message))
-
-	// Try to parse as transaction response first
-	var txResp TxResponse
-	if err := json.Unmarshal(message, &txResp); err == nil && txResp.ID != "" {
-		c.pendingMu.RLock()
-		if ch, ok := c.PendingRequests[txResp.ID]; ok {
-			select {
-			case ch <- &txResp:
-				c.Logger.Debugw("delivered tx response", "id", txResp.ID, "code", txResp.Code)
-			default:
-				c.Logger.Warnw("tx response channel blocked", "id", txResp.ID)
-			}
-		} else {
-			c.Logger.Warnw("tx response for unregistered ID", "id", txResp.ID, "code", txResp.Code, "msg", message)
-		}
-		c.pendingMu.RUnlock()
-		return
-	}
-
-	// Otherwise, parse as channel-based message
-	var msg struct {
-		Channel string `json:"channel"`
-		Type    string `json:"type"`
-	}
-	if err := json.Unmarshal(message, &msg); err != nil {
-		c.Logger.Errorw("error unmarshaling message", "error", err)
-		return
-	}
-
-	// Handle server heartbeat messages: {"type": "ping"}
-	if msg.Type == "ping" {
-		if err := c.Send(map[string]string{"type": "pong"}); err != nil {
-			c.Logger.Errorw("failed to send pong", "error", err)
-		} else {
-			c.Logger.Debugw("sent pong in response to ping")
-		}
-		return
-	}
-
-	c.Mu.RLock()
-	defer c.Mu.RUnlock()
-
-	channel := strings.ReplaceAll(msg.Channel, ":", "/")
-	if sub, ok := c.Subscriptions[channel]; ok {
-		go sub.handler(message)
-		return
+	if err := c.handleIncomingFrame(websocket.TextMessage, message); err != nil {
+		c.Logger.Errorw("failed to handle websocket message", "error", err)
 	}
 }
 
 // Subscribe registers a handler for a channel.
 func (c *WebsocketClient) Subscribe(channel string, authToken *string, handler func([]byte)) error {
-	// Avoid duplicate logical subscriptions
-	c.Mu.Lock()
-	if _, ok := c.Subscriptions[channel]; ok {
-		c.Mu.Unlock()
-		return fmt.Errorf("duplicate subscription to channel %s", channel)
+	if err := c.registerRawSubscription(channel, authToken, handler); err != nil {
+		return err
 	}
-	// Copy auth token so we don't hold pointer to caller's stack variable
-	var tokenCopy *string
-	if authToken != nil {
-		t := *authToken
-		tokenCopy = &t
-	}
-	c.Subscriptions[channel] = &subscription{
-		authToken: tokenCopy,
-		handler:   handler,
-	}
-	c.Mu.Unlock()
 
 	params := map[string]string{
 		"channel": channel,
 		"type":    "subscribe",
 	}
-	if tokenCopy != nil {
-		params["auth"] = *tokenCopy
+	if authToken != nil {
+		params["auth"] = *authToken
 	}
 	return c.Send(params)
 }
@@ -303,11 +294,12 @@ func (c *WebsocketClient) Send(v any) error {
 	c.WriteMu.Lock()
 	defer c.WriteMu.Unlock()
 
-	if c.Conn == nil {
+	conn := c.activeConn()
+	if conn == nil {
 		return fmt.Errorf("websocket not connected")
 	}
 
-	return c.Conn.WriteJSON(v)
+	return conn.WriteJSON(v)
 }
 
 // RegisterPendingRequest creates a response channel for a request ID with timeout
@@ -327,4 +319,207 @@ func (c *WebsocketClient) UnregisterPendingRequest(id string) {
 		delete(c.PendingRequests, id)
 	}
 	c.pendingMu.Unlock()
+}
+
+func (c *WebsocketClient) registerRawSubscription(channel string, authToken *string, handler func([]byte)) error {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+
+	if _, ok := c.Subscriptions[channel]; ok {
+		return fmt.Errorf("duplicate subscription to channel %s", channel)
+	}
+
+	c.Subscriptions[channel] = &subscription{
+		authToken: copyStringPointer(authToken),
+		rawHandler: handler,
+	}
+	return nil
+}
+
+func (c *WebsocketClient) registerTypedSubscription(channel string, authToken *string, dispatcher typedDispatcher) error {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+
+	if _, ok := c.Subscriptions[channel]; ok {
+		return fmt.Errorf("duplicate subscription to channel %s", channel)
+	}
+
+	c.Subscriptions[channel] = &subscription{
+		authToken:   copyStringPointer(authToken),
+		dispatchers: []typedDispatcher{dispatcher},
+	}
+	return nil
+}
+
+func (c *WebsocketClient) handleIncomingFrame(messageType int, payload []byte) error {
+	env, normalized, err := c.decodeEnvelope(messageType, payload)
+	if err != nil {
+		return err
+	}
+
+	c.Logger.Debugw("Received message", "type", env.Type, "channel", env.Channel)
+
+	var txResp TxResponse
+	if err := json.Unmarshal(normalized, &txResp); err == nil && txResp.ID != "" {
+		c.pendingMu.RLock()
+		if ch, ok := c.PendingRequests[txResp.ID]; ok {
+			select {
+			case ch <- &txResp:
+				c.Logger.Debugw("delivered tx response", "id", txResp.ID, "code", txResp.Code)
+			default:
+				c.Logger.Warnw("tx response channel blocked", "id", txResp.ID)
+			}
+		}
+		c.pendingMu.RUnlock()
+		return nil
+	}
+
+	if env.Type == "ping" {
+		if err := c.Send(map[string]string{"type": "pong"}); err != nil {
+			c.Logger.Debugw("failed to send pong", "error", err)
+		}
+		return nil
+	}
+
+	return c.dispatchEnvelope(env, normalized)
+}
+
+func (c *WebsocketClient) decodeEnvelope(messageType int, payload []byte) (*Envelope, []byte, error) {
+	var decoded map[string]interface{}
+	var normalized []byte
+	var err error
+
+	switch messageType {
+	case websocket.TextMessage:
+		normalized = payload
+		err = json.Unmarshal(payload, &decoded)
+	case websocket.BinaryMessage:
+		err = msgpack.Unmarshal(payload, &decoded)
+		if err == nil {
+			normalized, err = json.Marshal(decoded)
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported websocket message type %d", messageType)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	env := &Envelope{
+		Type:          asString(decoded["type"]),
+		Channel:       asString(decoded["channel"]),
+		Timestamp:     asInt64(decoded["timestamp"]),
+		LastUpdatedAt: asInt64(decoded["last_updated_at"]),
+		raw:           normalized,
+	}
+	return env, normalized, nil
+}
+
+func (c *WebsocketClient) dispatchEnvelope(env *Envelope, normalized []byte) error {
+	channel := strings.ReplaceAll(env.Channel, ":", "/")
+
+	c.Mu.RLock()
+	sub, ok := c.Subscriptions[channel]
+	c.Mu.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	for _, dispatcher := range sub.dispatchers {
+		if err := dispatcher(env); err != nil {
+			return err
+		}
+	}
+	if sub.rawHandler != nil {
+		sub.rawHandler(normalized)
+	}
+	return nil
+}
+
+func copyStringPointer(src *string) *string {
+	if src == nil {
+		return nil
+	}
+	s := *src
+	return &s
+}
+
+func asString(v interface{}) string {
+	s, _ := v.(string)
+	return s
+}
+
+func asInt64(v interface{}) int64 {
+	switch x := v.(type) {
+	case nil:
+		return 0
+	case int:
+		return int64(x)
+	case int8:
+		return int64(x)
+	case int16:
+		return int64(x)
+	case int32:
+		return int64(x)
+	case int64:
+		return x
+	case uint:
+		return int64(x)
+	case uint8:
+		return int64(x)
+	case uint16:
+		return int64(x)
+	case uint32:
+		return int64(x)
+	case uint64:
+		return int64(x)
+	case float64:
+		return int64(x)
+	case json.Number:
+		n, _ := x.Int64()
+		return n
+	default:
+		return 0
+	}
+}
+
+func (c *WebsocketClient) activeConn() websocketConn {
+	if c.conn != nil {
+		return c.conn
+	}
+	if c.Conn != nil {
+		return c.Conn
+	}
+	return nil
+}
+
+func (c *WebsocketClient) buildURL() (string, error) {
+	rawURL := c.URL
+	if rawURL == "" {
+		rawURL = c.config.URL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	if c.config.ReadOnly {
+		q.Set("readonly", "true")
+	}
+	if c.config.Encoding != "" && c.config.Encoding != WSEncodingAuto {
+		q.Set("encoding", string(c.config.Encoding))
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func (c *WebsocketClient) sendPing() error {
+	c.WriteMu.Lock()
+	defer c.WriteMu.Unlock()
+
+	conn := c.activeConn()
+	if conn == nil {
+		return nil
+	}
+	return conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(10*time.Second))
 }
