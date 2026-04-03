@@ -38,9 +38,13 @@ type LocalOrderBook interface {
 // LocalState — unified local state manager
 // ============================================================================
 
-// LocalState provides unified local state management by wrapping an Exchange adapter.
-// It automatically maintains Orders, Positions, and Balance via WebSocket streams,
-// and provides fan-out event subscriptions and integrated order tracking.
+// LocalState is the legacy public compatibility surface for the account-runtime
+// synchronizer. Prefer TradingAccount for new code. This type remains because
+// adapters and existing callers already depend on it.
+//
+// It automatically maintains Orders, Positions, and Balance via WebSocket
+// streams, and provides fan-out event subscriptions and integrated order
+// tracking.
 //
 // Usage:
 //
