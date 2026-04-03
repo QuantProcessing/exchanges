@@ -18,14 +18,33 @@ func TestOrderFlowWaitReturnsMatchingLatestSnapshot(t *testing.T) {
 	})
 	defer flow.Close()
 
-	publicSeen := make(chan struct{})
+	publicSeen := make(chan OrderStatus, 2)
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
-		for order := range flow.C() {
-			if order.Status == OrderStatusFilled {
-				close(publicSeen)
+		for {
+			select {
+			case order, ok := <-flow.C():
+				if !ok {
+					return
+				}
+				publicSeen <- order.Status
+			case <-done:
 				return
 			}
 		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	waitDone := make(chan struct{})
+	var got *Order
+	var err error
+	go func() {
+		defer close(waitDone)
+		got, err = flow.Wait(ctx, func(o *Order) bool {
+			return o.Status == OrderStatusFilled
+		})
 	}()
 
 	go func() {
@@ -49,23 +68,26 @@ func TestOrderFlowWaitReturnsMatchingLatestSnapshot(t *testing.T) {
 	}()
 
 	select {
-	case <-publicSeen:
+	case <-waitDone:
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected public consumer to receive the filled update")
+		t.Fatal("expected wait to finish")
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	got, err := flow.Wait(ctx, func(o *Order) bool {
-		return o.Status == OrderStatusFilled
-	})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Equal(t, OrderStatusFilled, got.Status)
-	require.Equal(t, "exch-1", flow.Latest().OrderID)
-	require.Equal(t, OrderStatusCancelled, flow.Latest().Status)
+	require.Equal(t, "exch-1", got.OrderID)
 	require.Equal(t, decimal.RequireFromString("0.25"), got.FilledQuantity)
+
+	seen := map[OrderStatus]bool{}
+	deadline := time.After(100 * time.Millisecond)
+	for !seen[OrderStatusNew] || !seen[OrderStatusFilled] {
+		select {
+		case status := <-publicSeen:
+			seen[status] = true
+		case <-deadline:
+			t.Fatal("expected public consumer to receive new and filled updates")
+		}
+	}
 }
 
 func TestOrderFlowCloseClosesThePublicChannel(t *testing.T) {
@@ -81,4 +103,36 @@ func TestOrderFlowCloseClosesThePublicChannel(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected closed flow channel")
 	}
+}
+
+func TestOrderFlowWaitDoesNotReplayHistoricalSnapshot(t *testing.T) {
+	t.Parallel()
+
+	flow := newOrderFlow(&Order{
+		ClientOrderID: "cli-history",
+		Status:        OrderStatusPending,
+	})
+	defer flow.Close()
+
+	flow.publish(&Order{
+		OrderID:       "exch-history",
+		ClientOrderID: "cli-history",
+		Status:        OrderStatusFilled,
+	})
+	flow.publish(&Order{
+		OrderID:       "exch-history",
+		ClientOrderID: "cli-history",
+		Status:        OrderStatusCancelled,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	got, err := flow.Wait(ctx, func(o *Order) bool {
+		return o.Status == OrderStatusFilled
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, got)
+	require.Equal(t, OrderStatusCancelled, flow.Latest().Status)
 }

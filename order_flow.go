@@ -7,24 +7,26 @@ import (
 )
 
 type OrderFlow struct {
-	mu        sync.RWMutex
+	mu        sync.Mutex
 	latest    *Order
-	events    []*Order
 	ch        chan *Order
-	notify    chan struct{}
+	waiters   map[*orderFlowWaiter]struct{}
 	closed    bool
 	closeOnce sync.Once
 }
 
+type orderFlowWaiter struct {
+	predicate func(*Order) bool
+	ch        chan *Order
+}
+
 func newOrderFlow(initial *Order) *OrderFlow {
 	f := &OrderFlow{
-		ch:     make(chan *Order, 32),
-		notify: make(chan struct{}),
+		ch:      make(chan *Order, 32),
+		waiters: make(map[*orderFlowWaiter]struct{}),
 	}
 	if initial != nil {
-		copy := cloneOrder(initial)
-		f.latest = copy
-		f.events = append(f.events, copy)
+		f.latest = cloneOrder(initial)
 	}
 	return f
 }
@@ -34,8 +36,8 @@ func (f *OrderFlow) C() <-chan *Order {
 }
 
 func (f *OrderFlow) Latest() *Order {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return cloneOrder(f.latest)
 }
 
@@ -45,45 +47,53 @@ func (f *OrderFlow) Wait(ctx context.Context, predicate func(*Order) bool) (*Ord
 	}
 
 	f.mu.Lock()
-	for {
-		if latest := cloneOrder(f.latest); latest != nil && predicate(latest) {
-			f.mu.Unlock()
-			return latest, nil
-		}
-		for _, order := range f.events {
-			if order != nil && predicate(order) {
-				copy := cloneOrder(order)
-				f.mu.Unlock()
-				return copy, nil
-			}
-		}
-		if f.closed {
-			f.mu.Unlock()
+	if latest := cloneOrder(f.latest); latest != nil && predicate(latest) {
+		f.mu.Unlock()
+		return latest, nil
+	}
+	if f.closed {
+		f.mu.Unlock()
+		return nil, fmt.Errorf("order flow closed")
+	}
+
+	waiter := &orderFlowWaiter{
+		predicate: predicate,
+		ch:        make(chan *Order, 1),
+	}
+	f.waiters[waiter] = struct{}{}
+	f.mu.Unlock()
+
+	defer f.removeWaiter(waiter)
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case order, ok := <-waiter.ch:
+		if !ok {
 			return nil, fmt.Errorf("order flow closed")
 		}
-		notify := f.notify
-		f.mu.Unlock()
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-notify:
-		}
-
-		f.mu.Lock()
+		return order, nil
 	}
 }
 
 func (f *OrderFlow) Close() {
 	f.closeOnce.Do(func() {
 		f.mu.Lock()
+		if f.closed {
+			f.mu.Unlock()
+			return
+		}
 		f.closed = true
-		notify := f.notify
-		f.notify = nil
+		waiters := make([]*orderFlowWaiter, 0, len(f.waiters))
+		for waiter := range f.waiters {
+			waiters = append(waiters, waiter)
+		}
+		f.waiters = nil
 		close(f.ch)
 		f.mu.Unlock()
-		if notify != nil {
-			close(notify)
+
+		for _, waiter := range waiters {
+			close(waiter.ch)
 		}
 	})
 }
@@ -102,19 +112,36 @@ func (f *OrderFlow) publish(order *Order) {
 	}
 
 	f.latest = copy
-	f.events = append(f.events, copy)
-	notify := f.notify
-	f.notify = make(chan struct{})
+
+	matched := make([]*orderFlowWaiter, 0, len(f.waiters))
+	for waiter := range f.waiters {
+		if waiter != nil && waiter.predicate != nil && waiter.predicate(copy) {
+			matched = append(matched, waiter)
+		}
+	}
+	for _, waiter := range matched {
+		delete(f.waiters, waiter)
+	}
 
 	select {
-	case f.ch <- copy:
+	case f.ch <- cloneOrder(copy):
 	default:
 	}
 
 	f.mu.Unlock()
-	if notify != nil {
-		close(notify)
+
+	for _, waiter := range matched {
+		waiter.ch <- cloneOrder(copy)
 	}
+}
+
+func (f *OrderFlow) removeWaiter(waiter *orderFlowWaiter) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.waiters == nil {
+		return
+	}
+	delete(f.waiters, waiter)
 }
 
 func cloneOrder(order *Order) *Order {
