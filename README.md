@@ -351,7 +351,15 @@ fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 
 `flow.C()` streams normalized order updates. `flow.Latest()` returns the latest snapshot, and `flow.Wait(...)` is available when you want a blocking predicate check.
 
+Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
+
 > LocalState remains available for compatibility, but new code should prefer TradingAccount.
+
+## Migration Order
+
+1. Upgrade to the release that includes `TradingAccount + OrderFlow`.
+2. Re-run your existing adapter integration tests.
+3. Migrate downstream applications only after the new tag is published.
 
 ### Switching Exchanges
 

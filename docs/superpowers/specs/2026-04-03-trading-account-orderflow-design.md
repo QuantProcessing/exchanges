@@ -42,6 +42,8 @@ In practice this means applications such as `cross-exchanges-arb` still carry a
 large amount of order-lifecycle plumbing in strategy code even though the
 library already owns most of the raw synchronization machinery.
 
+Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
+
 ## Goals
 
 - provide a public abstraction whose name matches user intent
@@ -306,6 +308,8 @@ Expected non-simplifications:
 The value proposition is not "abstract the whole strategy." The value
 proposition is "remove reusable execution plumbing from the strategy."
 
+Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
+
 ## Naming Guidance
 
 Public names should describe the user's job, not the implementation:
@@ -354,6 +358,8 @@ Recommended implementation order:
 
 This sequence keeps risk controlled while moving users toward the better public
 model.
+
+Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
 ## Decision
 

@@ -345,7 +345,15 @@ fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 
 `flow.C()` 会流式输出标准化后的订单更新。`flow.Latest()` 返回最新快照，`flow.Wait(...)` 则适合需要阻塞等待某个条件成立的场景。
 
+Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
+
 > LocalState remains available for compatibility, but new code should prefer TradingAccount.
+
+## Migration Order
+
+1. 升级到包含 `TradingAccount + OrderFlow` 的发布版本。
+2. 重新运行你现有的 adapter 集成测试。
+3. 只有在新 tag 发布后，才迁移下游应用。
 
 ### 切换交易所
 
