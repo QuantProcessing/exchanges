@@ -133,7 +133,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	require.NoError(t, err, "Place(limit buy) should succeed")
 	defer limitFlow.Close()
 
-	limitOrder := flowLatest(t, limitFlow, "limit order")
+	limitOrder := flowLatestWithOrderID(t, limitFlow, "limit order")
 	t.Logf("✓ Limit order placed: ID=%s", limitOrder.OrderID)
 
 	time.Sleep(2 * time.Second)
@@ -236,6 +236,19 @@ func flowLatest(t *testing.T, flow *exchanges.OrderFlow, label string) *exchange
 
 	order := flow.Latest()
 	require.NotNil(t, order, "%s should expose an initial snapshot", label)
+	return order
+}
+
+func flowLatestWithOrderID(t *testing.T, flow *exchanges.OrderFlow, label string) *exchanges.Order {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	order, err := flow.Wait(ctx, func(o *exchanges.Order) bool {
+		return o != nil && o.OrderID != ""
+	})
+	require.NoError(t, err, "%s should expose a snapshot with a stable order ID", label)
 	return order
 }
 
