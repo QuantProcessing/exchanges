@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type OrderFlow struct {
-	mu        sync.Mutex
-	latest    *Order
-	ch        chan *Order
-	waiters   map[*orderFlowWaiter]struct{}
-	closed    bool
-	closeOnce sync.Once
+	mu         sync.Mutex
+	latest     *Order
+	ch         chan *Order
+	publicQ    []*Order
+	publicWake chan struct{}
+	waiters    map[*orderFlowWaiter]struct{}
+	done       chan struct{}
+	pubWG      sync.WaitGroup
+	closed     bool
+	closeOnce  sync.Once
 }
 
 type orderFlowWaiter struct {
@@ -22,12 +27,16 @@ type orderFlowWaiter struct {
 
 func newOrderFlow(initial *Order) *OrderFlow {
 	f := &OrderFlow{
-		ch:      make(chan *Order, 32),
-		waiters: make(map[*orderFlowWaiter]struct{}),
+		ch:         make(chan *Order),
+		publicWake: make(chan struct{}, 1),
+		waiters:    make(map[*orderFlowWaiter]struct{}),
+		done:       make(chan struct{}),
 	}
 	if initial != nil {
 		f.latest = cloneOrder(initial)
 	}
+	f.pubWG.Add(1)
+	go f.dispatchPublic()
 	return f
 }
 
@@ -47,27 +56,43 @@ func (f *OrderFlow) Wait(ctx context.Context, predicate func(*Order) bool) (*Ord
 	}
 
 	f.mu.Lock()
-	if latest := cloneOrder(f.latest); latest != nil && predicate(latest) {
-		f.mu.Unlock()
-		return latest, nil
-	}
 	if f.closed {
 		f.mu.Unlock()
 		return nil, fmt.Errorf("order flow closed")
+	}
+	initial := cloneOrder(f.latest)
+	f.mu.Unlock()
+
+	if initial != nil && predicate(initial) {
+		return initial, nil
 	}
 
 	waiter := &orderFlowWaiter{
 		predicate: predicate,
 		ch:        make(chan *Order, 1),
 	}
+
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return nil, fmt.Errorf("order flow closed")
+	}
 	f.waiters[waiter] = struct{}{}
+	snapshot := cloneOrder(f.latest)
 	f.mu.Unlock()
+
+	if snapshot != nil && predicate(snapshot) {
+		f.removeWaiter(waiter)
+		return snapshot, nil
+	}
 
 	defer f.removeWaiter(waiter)
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-f.done:
+		return nil, fmt.Errorf("order flow closed")
 	case order, ok := <-waiter.ch:
 		if !ok {
 			return nil, fmt.Errorf("order flow closed")
@@ -84,17 +109,16 @@ func (f *OrderFlow) Close() {
 			return
 		}
 		f.closed = true
-		waiters := make([]*orderFlowWaiter, 0, len(f.waiters))
-		for waiter := range f.waiters {
-			waiters = append(waiters, waiter)
+		close(f.done)
+		select {
+		case f.publicWake <- struct{}{}:
+		default:
 		}
 		f.waiters = nil
-		close(f.ch)
 		f.mu.Unlock()
 
-		for _, waiter := range waiters {
-			close(waiter.ch)
-		}
+		f.pubWG.Wait()
+		close(f.ch)
 	})
 }
 
@@ -113,25 +137,85 @@ func (f *OrderFlow) publish(order *Order) {
 
 	f.latest = copy
 
-	matched := make([]*orderFlowWaiter, 0, len(f.waiters))
+	waiters := make([]*orderFlowWaiter, 0, len(f.waiters))
 	for waiter := range f.waiters {
-		if waiter != nil && waiter.predicate != nil && waiter.predicate(copy) {
-			matched = append(matched, waiter)
-		}
+		waiters = append(waiters, waiter)
 	}
-	for _, waiter := range matched {
-		delete(f.waiters, waiter)
-	}
-
+	f.publicQ = append(f.publicQ, cloneOrder(copy))
 	select {
-	case f.ch <- cloneOrder(copy):
+	case f.publicWake <- struct{}{}:
 	default:
 	}
 
 	f.mu.Unlock()
 
+	matched := make([]*orderFlowWaiter, 0, len(waiters))
+	for _, waiter := range waiters {
+		if waiter != nil && waiter.predicate != nil && waiter.predicate(copy) {
+			matched = append(matched, waiter)
+		}
+	}
+
+	if len(matched) > 0 {
+		f.mu.Lock()
+		if !f.closed && f.waiters != nil {
+			for _, waiter := range matched {
+				delete(f.waiters, waiter)
+			}
+		}
+		f.mu.Unlock()
+	}
+
 	for _, waiter := range matched {
-		waiter.ch <- cloneOrder(copy)
+		select {
+		case waiter.ch <- cloneOrder(copy):
+		default:
+		}
+	}
+}
+
+func (f *OrderFlow) dispatchPublic() {
+	defer f.pubWG.Done()
+
+	for {
+		f.mu.Lock()
+		if len(f.publicQ) == 0 {
+			if f.closed {
+				f.mu.Unlock()
+				return
+			}
+			wake := f.publicWake
+			f.mu.Unlock()
+
+			select {
+			case <-wake:
+			case <-f.done:
+				return
+			}
+			continue
+		}
+
+		next := f.publicQ[0]
+		f.mu.Unlock()
+
+		select {
+		case <-f.done:
+			return
+		case f.ch <- cloneOrder(next):
+			f.mu.Lock()
+			if len(f.publicQ) > 0 {
+				f.publicQ[0] = nil
+				f.publicQ = f.publicQ[1:]
+			}
+			f.mu.Unlock()
+		default:
+			select {
+			case <-f.done:
+				return
+			case <-f.publicWake:
+			case <-time.After(1 * time.Millisecond):
+			}
+		}
 	}
 }
 

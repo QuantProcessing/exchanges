@@ -90,6 +90,32 @@ func TestOrderFlowWaitReturnsMatchingLatestSnapshot(t *testing.T) {
 	}
 }
 
+func TestOrderFlowWaitReturnsCurrentLatestSnapshotImmediately(t *testing.T) {
+	t.Parallel()
+
+	flow := newOrderFlow(&Order{
+		OrderID:        "exch-immediate",
+		ClientOrderID:  "cli-immediate",
+		Status:         OrderStatusFilled,
+		FilledQuantity: decimal.RequireFromString("1"),
+	})
+	defer flow.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	got, err := flow.Wait(ctx, func(o *Order) bool {
+		return o.Status == OrderStatusFilled
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, OrderStatusFilled, got.Status)
+	require.Equal(t, "exch-immediate", got.OrderID)
+
+	got.Status = OrderStatusCancelled
+	require.Equal(t, OrderStatusFilled, flow.Latest().Status)
+}
+
 func TestOrderFlowCloseClosesThePublicChannel(t *testing.T) {
 	t.Parallel()
 
