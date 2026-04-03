@@ -4,16 +4,19 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/shopspring/decimal"
 )
 
 type TradingAccount struct {
+	mu       sync.Mutex
 	state    *LocalState
 	adp      Exchange
 	logger   Logger
 	flows    *orderFlowRegistry
 	orderSub *Subscription[Order]
+	started  bool
 }
 
 type TradingAccountOption func(*TradingAccount)
@@ -29,18 +32,34 @@ func NewTradingAccount(adp Exchange, logger Logger, _ ...TradingAccountOption) *
 }
 
 func (a *TradingAccount) Start(ctx context.Context) error {
+	a.mu.Lock()
+	if a.started {
+		a.mu.Unlock()
+		return nil
+	}
 	if err := a.state.Start(ctx); err != nil {
+		a.mu.Unlock()
 		return err
 	}
 	a.orderSub = a.state.SubscribeOrders()
-	go a.consumeOrderUpdates(ctx, a.orderSub)
+	a.started = true
+	sub := a.orderSub
+	a.mu.Unlock()
+	go a.consumeOrderUpdates(ctx, sub)
 	return nil
 }
 
 func (a *TradingAccount) Close() {
-	if a.orderSub != nil {
-		a.orderSub.Unsubscribe()
+	a.mu.Lock()
+	sub := a.orderSub
+	a.orderSub = nil
+	a.started = false
+	a.mu.Unlock()
+
+	if sub != nil {
+		sub.Unsubscribe()
 	}
+	a.flows.CloseAll()
 	a.state.Close()
 }
 
@@ -57,29 +76,22 @@ func (a *TradingAccount) SubscribePositions() *Subscription[Position] {
 }
 
 func (a *TradingAccount) Place(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
-	order, err := a.adp.PlaceOrder(ctx, params)
+	result, err := a.state.PlaceOrder(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return a.flows.Register(order), nil
+	return a.newFlowFromResult(result), nil
 }
 
 func (a *TradingAccount) PlaceWS(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
 	if strings.TrimSpace(params.ClientID) == "" {
 		return nil, fmt.Errorf("client id required for PlaceWS")
 	}
-	if err := a.adp.PlaceOrderWS(ctx, params); err != nil {
+	result, err := a.state.PlaceOrderWS(ctx, params)
+	if err != nil {
 		return nil, err
 	}
-	return a.flows.Register(&Order{
-		ClientOrderID: params.ClientID,
-		Symbol:        params.Symbol,
-		Side:          params.Side,
-		Type:          params.Type,
-		Quantity:      params.Quantity,
-		Price:         params.Price,
-		Status:        OrderStatusPending,
-	}), nil
+	return a.newFlowFromResult(result), nil
 }
 
 func (a *TradingAccount) Cancel(ctx context.Context, orderID, symbol string) error {
@@ -112,4 +124,26 @@ func (a *TradingAccount) consumeOrderUpdates(ctx context.Context, sub *Subscript
 			a.flows.Route(order)
 		}
 	}
+}
+
+func (a *TradingAccount) newFlowFromResult(result *OrderResult) *OrderFlow {
+	flow := newOrderFlow(result.Order)
+	a.flows.Add(flow)
+
+	go func() {
+		defer result.Done()
+		for {
+			select {
+			case <-flow.done:
+				return
+			case order, ok := <-result.Sub.C:
+				if !ok {
+					return
+				}
+				flow.publish(order)
+			}
+		}
+	}()
+
+	return flow
 }

@@ -2,6 +2,7 @@ package exchanges_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,9 +13,15 @@ import (
 
 type localStateStubExchange struct {
 	stubExchange
-	placeResp *exchanges.Order
-	updates   []*exchanges.Order
-	orderCB   exchanges.OrderUpdateCallback
+	placeResp           *exchanges.Order
+	updates             []*exchanges.Order
+	syncPlaceUpdates    []*exchanges.Order
+	syncPlaceWSUpdates  []*exchanges.Order
+	placeReturnDelay    time.Duration
+	placeWSReturnDelay  time.Duration
+	orderCB             exchanges.OrderUpdateCallback
+	watchOrdersCalls    atomic.Int32
+	watchPositionsCalls atomic.Int32
 }
 
 func (s *localStateStubExchange) FetchAccount(context.Context) (*exchanges.Account, error) {
@@ -22,7 +29,13 @@ func (s *localStateStubExchange) FetchAccount(context.Context) (*exchanges.Accou
 }
 
 func (s *localStateStubExchange) WatchOrders(_ context.Context, cb exchanges.OrderUpdateCallback) error {
+	s.watchOrdersCalls.Add(1)
 	s.orderCB = cb
+	return nil
+}
+
+func (s *localStateStubExchange) WatchPositions(_ context.Context, _ exchanges.PositionUpdateCallback) error {
+	s.watchPositionsCalls.Add(1)
 	return nil
 }
 
@@ -41,6 +54,19 @@ func (s *localStateStubExchange) PlaceOrder(ctx context.Context, params *exchang
 	}
 
 	updates := append([]*exchanges.Order(nil), s.updates...)
+	syncUpdates := append([]*exchanges.Order(nil), s.syncPlaceUpdates...)
+	if s.orderCB != nil {
+		for _, update := range syncUpdates {
+			if update == nil {
+				continue
+			}
+			copy := *update
+			s.orderCB(&copy)
+		}
+	}
+	if s.placeReturnDelay > 0 {
+		time.Sleep(s.placeReturnDelay)
+	}
 	if s.orderCB != nil && len(updates) > 0 {
 		go func() {
 			for _, update := range updates {
@@ -60,6 +86,19 @@ func (s *localStateStubExchange) PlaceOrder(ctx context.Context, params *exchang
 
 func (s *localStateStubExchange) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
 	updates := append([]*exchanges.Order(nil), s.updates...)
+	syncUpdates := append([]*exchanges.Order(nil), s.syncPlaceWSUpdates...)
+	if s.orderCB != nil {
+		for _, update := range syncUpdates {
+			if update == nil {
+				continue
+			}
+			copy := *update
+			s.orderCB(&copy)
+		}
+	}
+	if s.placeWSReturnDelay > 0 {
+		time.Sleep(s.placeWSReturnDelay)
+	}
 	if s.orderCB != nil && len(updates) > 0 {
 		go func() {
 			for _, update := range updates {
