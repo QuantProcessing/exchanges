@@ -362,10 +362,6 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		}
 	}
 
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-
 	a.metaMu.RLock()
 	mid, ok := a.symbolToID[a.FormatSymbol(params.Symbol)]
 	meta, hasMeta := a.marketMeta[mid]
@@ -436,7 +432,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		ClientOrderId: clientOidInt,
 	}
 
-	_, err = a.wsClient.PlaceOrder(ctx, a.client, req)
+	_, err = a.client.PlaceOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +440,108 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	return newSubmittedOrder(params, strconv.FormatInt(clientOidInt, 10), time.Now()), nil
 }
 
+func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if params.Type == exchanges.OrderTypeMarket && params.Slippage.IsZero() {
+		params.Slippage = decimal.NewFromFloat(0.02)
+	}
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
+	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
+	if err == nil {
+		if params.Type == exchanges.OrderTypeLimit || params.Price.IsPositive() {
+			params.Price = exchanges.RoundToPrecision(params.Price, details.PricePrecision)
+		}
+		params.Quantity = exchanges.FloorToPrecision(params.Quantity, details.QuantityPrecision)
+		if params.Quantity.LessThan(details.MinQuantity) {
+			return fmt.Errorf("quantity %v less than min quantity %v", params.Quantity, details.MinQuantity)
+		}
+	}
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(params.Symbol)]
+	meta, hasMeta := a.marketMeta[mid]
+	a.metaMu.RUnlock()
+	if !ok || !hasMeta {
+		return fmt.Errorf("unknown symbol or missing meta: %s", params.Symbol)
+	}
+
+	isAsk := uint32(0)
+	if params.Side == exchanges.OrderSideSell {
+		isAsk = 1
+	}
+	orderType := uint32(lighter.OrderTypeLimit)
+	tif := uint32(lighter.OrderTimeInForceGoodTillTime)
+	switch params.Type {
+	case exchanges.OrderTypeLimit:
+		orderType = lighter.OrderTypeLimit
+	case exchanges.OrderTypeMarket:
+		orderType = lighter.OrderTypeMarket
+	case exchanges.OrderTypePostOnly:
+		orderType = lighter.OrderTypeLimit
+		tif = lighter.OrderTimeInForcePostOnly
+	}
+	switch params.TimeInForce {
+	case exchanges.TimeInForceIOC:
+		tif = lighter.OrderTimeInForceImmediateOrCancel
+	case exchanges.TimeInForcePO:
+		tif = lighter.OrderTimeInForcePostOnly
+	}
+	expiry := int64(0)
+	if tif != lighter.OrderTimeInForceImmediateOrCancel {
+		expiry = time.Now().Add(time.Hour).UnixMilli()
+	}
+
+	priceVal := a.scalePrice(params.Price.InexactFloat64(), meta)
+	sizeVal := a.scaleSize(params.Quantity.InexactFloat64(), meta)
+	clientOidInt, err := strconv.ParseInt(params.ClientID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("client order id is not int64: %s", params.ClientID)
+	}
+
+	req := lighter.CreateOrderRequest{
+		MarketId:      mid,
+		Price:         uint32(priceVal),
+		BaseAmount:    int64(sizeVal),
+		IsAsk:         isAsk,
+		OrderType:     orderType,
+		TimeInForce:   tif,
+		ReduceOnly:    0,
+		OrderExpiry:   expiry,
+		ClientOrderId: clientOidInt,
+	}
+
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err = a.wsClient.PlaceOrder(ctx, a.client, req)
+	return err
+}
+
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", symbol)
+	}
+
+	oid, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid order id: %s", orderID)
+	}
+
+	req := lighter.CancelOrderRequest{
+		MarketId: mid,
+		OrderId:  oid,
+	}
+	_, err = a.client.CancelOrder(ctx, req)
+	return err
+}
+
+func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}

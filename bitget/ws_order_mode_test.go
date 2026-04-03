@@ -18,15 +18,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClassicOrderModeWSRoutesPlaceOrderToWS(t *testing.T) {
+func TestClassicPlaceOrderWSRoutesToWS(t *testing.T) {
 	var restHits atomic.Int32
 	restServer := newRejectingRESTServer(t, &restHits)
 	wsServer := newPrivateTradeWSServer(t, true)
 
-	adp := newClassicSpotOrderModeTestAdapter(t, restServer.URL, wsServer)
-	adp.SetOrderMode(exchanges.OrderModeWS)
+	adp := newClassicSpotWSTestAdapter(t, restServer.URL, wsServer)
 
-	order, err := adp.PlaceOrder(context.Background(), &exchanges.OrderParams{
+	err := adp.PlaceOrderWS(context.Background(), &exchanges.OrderParams{
 		Symbol:      "BTC",
 		Side:        exchanges.OrderSideBuy,
 		Type:        exchanges.OrderTypeLimit,
@@ -36,32 +35,29 @@ func TestClassicOrderModeWSRoutesPlaceOrderToWS(t *testing.T) {
 		ClientID:    "cid-classic",
 	})
 	require.NoError(t, err)
-	require.Equal(t, int32(0), restHits.Load(), "OrderModeWS should avoid the classic REST place-order path")
-	require.Equal(t, "ws-order", order.OrderID)
+	require.Equal(t, int32(0), restHits.Load(), "PlaceOrderWS should avoid the classic REST place-order path")
 }
 
-func TestClassicOrderModeWSRoutesCancelOrderToWS(t *testing.T) {
+func TestClassicCancelOrderWSRoutesToWS(t *testing.T) {
 	var restHits atomic.Int32
 	restServer := newRejectingRESTServer(t, &restHits)
 	wsServer := newPrivateTradeWSServer(t, true)
 
-	adp := newClassicPerpOrderModeTestAdapter(t, restServer.URL, wsServer)
-	adp.SetOrderMode(exchanges.OrderModeWS)
+	adp := newClassicPerpWSTestAdapter(t, restServer.URL, wsServer)
 
-	err := adp.CancelOrder(context.Background(), "cancel-me", "BTC")
+	err := adp.CancelOrderWS(context.Background(), "cancel-me", "BTC")
 	require.NoError(t, err)
-	require.Equal(t, int32(0), restHits.Load(), "OrderModeWS should avoid the classic REST cancel-order path")
+	require.Equal(t, int32(0), restHits.Load(), "CancelOrderWS should avoid the classic REST cancel-order path")
 }
 
-func TestBitgetWSOrderModeDoesNotSilentlyFallbackToREST(t *testing.T) {
+func TestBitgetPlaceOrderWSDoesNotSilentlyFallbackToREST(t *testing.T) {
 	var restHits atomic.Int32
 	restServer := newRejectingRESTServer(t, &restHits)
 	wsServer := newPrivateTradeErrorWSServer(t)
 
-	adp := newClassicSpotOrderModeTestAdapter(t, restServer.URL, wsServer)
-	adp.SetOrderMode(exchanges.OrderModeWS)
+	adp := newClassicSpotWSTestAdapter(t, restServer.URL, wsServer)
 
-	_, err := adp.PlaceOrder(context.Background(), &exchanges.OrderParams{
+	err := adp.PlaceOrderWS(context.Background(), &exchanges.OrderParams{
 		Symbol:      "BTC",
 		Side:        exchanges.OrderSideBuy,
 		Type:        exchanges.OrderTypeLimit,
@@ -70,10 +66,10 @@ func TestBitgetWSOrderModeDoesNotSilentlyFallbackToREST(t *testing.T) {
 		TimeInForce: exchanges.TimeInForceGTC,
 	})
 	require.Error(t, err)
-	require.Equal(t, int32(0), restHits.Load(), "WS mode failure must not fallback to REST")
+	require.Equal(t, int32(0), restHits.Load(), "WS failure must not fallback to REST")
 }
 
-func TestClassicOrderModeWSKeepsModifyOrderOnREST(t *testing.T) {
+func TestClassicModifyOrderRemainsPrimaryRESTPath(t *testing.T) {
 	var modifyHits atomic.Int32
 	var detailHits atomic.Int32
 	restServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,44 +87,16 @@ func TestClassicOrderModeWSKeepsModifyOrderOnREST(t *testing.T) {
 	t.Cleanup(restServer.Close)
 
 	wsServer := newPrivateTradeWSServer(t, true)
-	adp := newClassicPerpOrderModeTestAdapter(t, restServer.URL, wsServer)
-	adp.SetOrderMode(exchanges.OrderModeWS)
+	adp := newClassicPerpWSTestAdapter(t, restServer.URL, wsServer)
 
 	order, err := adp.ModifyOrder(context.Background(), "existing-order", "BTC", &exchanges.ModifyOrderParams{
 		Quantity: decimal.RequireFromString("0.2"),
 		Price:    decimal.RequireFromString("101"),
 	})
 	require.NoError(t, err)
-	require.Equal(t, int32(1), modifyHits.Load(), "modify should keep using REST in the controlled hybrid contract")
+	require.Equal(t, int32(1), modifyHits.Load(), "modify should keep using the primary REST path")
 	require.Equal(t, int32(1), detailHits.Load(), "modify should still refresh from the REST detail endpoint")
 	require.Equal(t, "modified-order", order.OrderID)
-}
-
-func TestBitgetConstructorsDefaultToRESTOrderMode(t *testing.T) {
-	client := newTestClient(func(r *http.Request) (*http.Response, error) {
-		switch r.URL.Path {
-		case "/api/v3/market/instruments":
-			category := r.URL.Query().Get("category")
-			switch category {
-			case categorySpot:
-				return jsonHTTPResponse(`{"code":"00000","msg":"success","requestTime":1,"data":[{"symbol":"BTCUSDT","category":"SPOT","baseCoin":"BTC","quoteCoin":"USDT","minOrderQty":"0.0001","minOrderAmount":"5","pricePrecision":"2","quantityPrecision":"4","status":"online"}]}`), nil
-			case categoryUSDTFutures:
-				return jsonHTTPResponse(`{"code":"00000","msg":"success","requestTime":1,"data":[{"symbol":"BTCUSDT","category":"USDT-FUTURES","baseCoin":"BTC","quoteCoin":"USDT","minOrderQty":"0.001","minOrderAmount":"5","pricePrecision":"1","quantityPrecision":"3","status":"online"}]}`), nil
-			default:
-				return nil, nil
-			}
-		default:
-			return nil, nil
-		}
-	})
-
-	spot, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDT, client)
-	require.NoError(t, err)
-	require.Equal(t, exchanges.OrderModeREST, spot.GetOrderMode(), "spot adapter should preserve the REST default")
-
-	perp, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDT, client)
-	require.NoError(t, err)
-	require.Equal(t, exchanges.OrderModeREST, perp.GetOrderMode(), "perp adapter should preserve the REST default")
 }
 
 func newRejectingRESTServer(t *testing.T, hits *atomic.Int32) *httptest.Server {
@@ -237,7 +205,7 @@ func buildTradeAck(t *testing.T, payload []byte, classic bool) []byte {
 	return out
 }
 
-func newClassicSpotOrderModeTestAdapter(t *testing.T, restURL, wsURL string) *SpotAdapter {
+func newClassicSpotWSTestAdapter(t *testing.T, restURL, wsURL string) *SpotAdapter {
 	t.Helper()
 
 	client := sdk.NewClient().
@@ -262,7 +230,7 @@ func newClassicSpotOrderModeTestAdapter(t *testing.T, restURL, wsURL string) *Sp
 	return adp
 }
 
-func newClassicPerpOrderModeTestAdapter(t *testing.T, restURL, wsURL string) *Adapter {
+func newClassicPerpWSTestAdapter(t *testing.T, restURL, wsURL string) *Adapter {
 	t.Helper()
 
 	client := sdk.NewClient().

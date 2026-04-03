@@ -43,8 +43,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 
 func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*Adapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypePerp, opts.logger())
-	// Bitget defaults order transport to REST; only classic place/cancel paths switch on OrderModeWS.
-	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, quoteToPerpCategory(quote), "")
 	if err != nil {
@@ -148,8 +146,16 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	return a.private.PlaceOrder(ctx, params)
 }
 
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	return a.private.PlaceOrderWS(ctx, params)
+}
+
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	return a.private.CancelOrder(ctx, orderID, symbol)
+}
+
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	return a.private.CancelOrderWS(ctx, orderID, symbol)
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
@@ -202,6 +208,10 @@ func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) 
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return a.private.ModifyOrder(ctx, orderID, symbol, params)
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	return a.private.ModifyOrderWS(ctx, orderID, symbol, params)
 }
 
 func (a *Adapter) WsOrderConnected(ctx context.Context) error {

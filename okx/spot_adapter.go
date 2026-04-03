@@ -335,17 +335,17 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		TgtCcy:  tgtCcy, // 计价货币
 	}
 
-	resp, err := a.wsPrivate.PlaceOrderWS(req)
+	resp, err := a.client.PlaceOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil {
+	if len(resp) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
 
 	return &exchanges.Order{
-		OrderID:       resp.OrdId,
-		ClientOrderID: resp.ClOrdId,
+		OrderID:       resp[0].OrdId,
+		ClientOrderID: resp[0].ClOrdId,
 		Symbol:        params.Symbol,
 		Side:          params.Side,
 		Type:          params.Type,
@@ -354,6 +354,68 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		Status:        exchanges.OrderStatusPending,
 		Timestamp:     time.Now().UnixMilli(),
 	}, nil
+}
+
+func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	instId := a.FormatSymbol(params.Symbol)
+
+	side := "buy"
+	if params.Side == exchanges.OrderSideSell {
+		side = "sell"
+	}
+
+	ordType := a.mapOrderType(params)
+	sz := fmt.Sprintf("%v", params.Quantity)
+
+	var clOrdId *string
+	if params.ClientID != "" {
+		clOrdId = &params.ClientID
+	}
+
+	var px *string
+	if params.Price.IsPositive() {
+		a.mu.RLock()
+		inst, ok := a.instruments[instId]
+		a.mu.RUnlock()
+
+		if ok {
+			prec := exchanges.CountDecimalPlaces(inst.TickSz)
+			s := params.Price.StringFixed(prec)
+			px = &s
+		} else {
+			s := fmt.Sprintf("%v", params.Price)
+			px = &s
+		}
+	}
+
+	ccy := a.quoteCurrency
+	var tgtCcy *string
+	if ordType == "market" {
+		t := "base_ccy"
+		tgtCcy = &t
+	}
+
+	req := &okx.OrderRequest{
+		InstId:  instId,
+		TdMode:  "cash",
+		Side:    side,
+		PosSide: nil,
+		OrdType: ordType,
+		Sz:      sz,
+		Px:      px,
+		ClOrdId: clOrdId,
+		Ccy:     &ccy,
+		TgtCcy:  tgtCcy,
+	}
+
+	_, err := a.wsPrivate.PlaceOrderWS(req)
+	return err
 }
 
 func (a *SpotAdapter) mapOrderType(params *exchanges.OrderParams) string {
@@ -375,6 +437,12 @@ func (a *SpotAdapter) mapOrderType(params *exchanges.OrderParams) string {
 }
 
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	instId := a.FormatSymbol(symbol)
+	_, err := a.client.CancelOrder(ctx, instId, orderID, "")
+	return err
+}
+
+func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
@@ -384,8 +452,40 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 }
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	if err := a.WsOrderConnected(ctx); err != nil {
+	instId := a.FormatSymbol(symbol)
+
+	req := &okx.ModifyOrderRequest{
+		InstId: instId,
+		OrdId:  &orderID,
+	}
+	if params.Quantity.IsPositive() {
+		sz := fmt.Sprintf("%v", params.Quantity)
+		req.NewSz = &sz
+	}
+	if params.Price.IsPositive() {
+		px := fmt.Sprintf("%v", params.Price)
+		req.NewPx = &px
+	}
+
+	resp, err := a.client.ModifyOrder(ctx, req)
+	if err != nil {
 		return nil, err
+	}
+	if len(resp) == 0 {
+		return nil, fmt.Errorf("no response")
+	}
+
+	return &exchanges.Order{
+		OrderID:       resp[0].OrdId,
+		ClientOrderID: resp[0].ClOrdId,
+		Symbol:        symbol,
+		Status:        exchanges.OrderStatusPending,
+	}, nil
+}
+
+func (a *SpotAdapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
 	}
 	instId := a.FormatSymbol(symbol)
 
@@ -404,17 +504,12 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 
 	resp, err := a.wsPrivate.ModifyOrderWS(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.SCode != "0" {
-		return nil, fmt.Errorf("modify error: %s", resp.SMsg)
+		return fmt.Errorf("modify error: %s", resp.SMsg)
 	}
-
-	return &exchanges.Order{
-		OrderID: resp.OrdId,
-		Symbol:  symbol,
-		Status:  exchanges.OrderStatusPending,
-	}, nil
+	return nil
 }
 
 func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {

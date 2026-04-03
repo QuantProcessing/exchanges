@@ -52,8 +52,6 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		return nil, err
 	}
 	base := exchanges.NewBaseAdapter("BACKPACK", exchanges.MarketTypePerp, opts.logger())
-	// Backpack places and cancels orders over REST in this adapter pass.
-	base.SetOrderMode(exchanges.OrderModeREST)
 	base.SetSymbolDetails(buildSymbolDetails(markets, quote, exchanges.MarketTypePerp))
 	return &Adapter{
 		BaseAdapter: base,
@@ -179,9 +177,17 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	return order, nil
 }
 
+func (a *Adapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	_, err := a.client.CancelOrder(ctx, toCancelOrderRequest(orderID, a.FormatSymbol(symbol)))
 	return err
+}
+
+func (a *Adapter) CancelOrderWS(context.Context, string, string) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
@@ -344,6 +350,10 @@ func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.Funding
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) ModifyOrderWS(context.Context, string, string, *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
 }
 
 func toOrderBook(symbol string, raw *sdk.Depth) *exchanges.OrderBook {

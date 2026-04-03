@@ -222,26 +222,52 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		p.NewClientOrderID = params.ClientID
 	}
 
-	// REST mode: use HTTP client directly
-	if a.IsRESTMode() {
-		resp, err := a.client.PlaceOrder(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		return a.normalizeOrderResponse(resp)
-	}
-
-	// WS mode: use WebSocket API
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
-	resp, err := a.wsAPI.PlaceOrderWS(a.apiKey, a.secretKey, p, reqID)
+	resp, err := a.client.PlaceOrder(ctx, p)
 	if err != nil {
 		return nil, err
 	}
 
 	return a.normalizeOrderResponse(resp)
+}
+
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
+	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
+	if err == nil {
+		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
+			return err
+		}
+	}
+
+	formattedSymbol := a.FormatSymbol(params.Symbol)
+	p := perp.PlaceOrderParams{
+		Symbol:           formattedSymbol,
+		Side:             string(params.Side),
+		Type:             a.mapOrderType(params.Type),
+		Quantity:         params.Quantity.String(),
+		NewClientOrderID: params.ClientID,
+	}
+
+	if params.Price.IsPositive() {
+		p.Price = params.Price.String()
+	}
+
+	p.TimeInForce = a.mapTimeInForce(params)
+	if params.Type == exchanges.OrderTypePostOnly {
+		p.Type = "LIMIT"
+	}
+
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err = a.wsAPI.PlaceOrderWS(a.apiKey, a.secretKey, p, reqID)
+	return err
 }
 
 func (a *Adapter) mapOrderType(t exchanges.OrderType) string {
@@ -294,13 +320,16 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retE
 		OrderID: orderID,
 	}
 
-	// REST mode
-	if a.IsRESTMode() {
-		_, err := a.client.CancelOrder(ctx, p)
-		return err
-	}
+	_, err := a.client.CancelOrder(ctx, p)
+	return err
+}
 
-	// WS mode
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	p := perp.CancelOrderParams{
+		Symbol:  formattedSymbol,
+		OrderID: orderID,
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
@@ -311,8 +340,26 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retE
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (_ *exchanges.Order, retErr error) {
 	formattedSymbol := a.FormatSymbol(symbol)
-	if err := a.WsOrderConnected(ctx); err != nil {
+	oid, _ := strconv.ParseInt(orderID, 10, 64)
+	p := perp.ModifyOrderParams{
+		Symbol:   formattedSymbol,
+		OrderID:  oid,
+		Quantity: params.Quantity.String(),
+		Price:    params.Price.String(),
+	}
+
+	resp, err := a.client.ModifyOrder(ctx, p)
+	if err != nil {
 		return nil, err
+	}
+
+	return a.normalizeOrderResponse(resp)
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
 	}
 
 	oid, _ := strconv.ParseInt(orderID, 10, 64)
@@ -324,12 +371,8 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	}
 
 	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
-	resp, err := a.wsAPI.ModifyOrderWS(a.apiKey, a.secretKey, p, reqID)
-	if err != nil {
-		return nil, err
-	}
-
-	return a.normalizeOrderResponse(resp)
+	_, err := a.wsAPI.ModifyOrderWS(a.apiKey, a.secretKey, p, reqID)
+	return err
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {
@@ -390,18 +433,7 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr er
 	p := perp.CancelAllOrdersParams{
 		Symbol: formattedSymbol,
 	}
-
-	// REST mode
-	if a.IsRESTMode() {
-		return a.client.CancelAllOpenOrders(ctx, p)
-	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
-	return a.wsAPI.CancelAllOrdersWS(a.apiKey, a.secretKey, p, reqID)
+	return a.client.CancelAllOpenOrders(ctx, p)
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) (retErr error) {

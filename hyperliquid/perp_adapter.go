@@ -2,7 +2,6 @@ package hyperliquid
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -309,112 +308,12 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		OrderType:     a.mapOrderType(params),
 	}
 
-	// REST mode: use HTTP client directly
-	if a.IsRESTMode() {
-		status, err := a.client.PlaceOrder(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		var oid int64
-		if status.Resting != nil {
-			oid = status.Resting.Oid
-		} else if status.Filled != nil {
-			oid = int64(status.Filled.Oid)
-		}
-		return &exchanges.Order{
-			OrderID:       fmt.Sprintf("%d", oid),
-			ClientOrderID: params.ClientID,
-			Symbol:        params.Symbol,
-			Side:          params.Side,
-			Type:          params.Type,
-			Quantity:      params.Quantity,
-			Price:         params.Price,
-			Status:        exchanges.OrderStatusPending,
-			Timestamp:     time.Now().UnixMilli(),
-		}, nil
-	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
+	status, err := a.client.PlaceOrder(ctx, req)
+	if err != nil {
 		return nil, err
 	}
-
-	ch, err := a.wsClient.PlaceOrder(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("hyperliquid place order failed: %w", err)
-	}
-
-	res := <-ch
-	if res.Error != nil {
-		return nil, fmt.Errorf("place order error: %v", res.Error)
-	}
-
-	// Parse response
-	// Response payload matches: {"status":"ok","response":{"type":"order","data":{"statuses":[{"filling":...} OR {"error":...}]}}}
-	var respPayload struct {
-		Status   string `json:"status"`
-		Response struct {
-			Type string `json:"type"`
-			Data struct {
-				Statuses []struct {
-					Error   string `json:"error"`
-					Filling struct {
-						Oid int64 `json:"oid"`
-					} `json:"filling"`
-					Resting struct {
-						Oid int64 `json:"oid"`
-					} `json:"resting"`
-					Filled struct {
-						TotalSz string `json:"totalSz"`
-						AvgPx   string `json:"avgPx"`
-						Oid     int64  `json:"oid"`
-					} `json:"filled"`
-				} `json:"statuses"`
-			} `json:"data"`
-		} `json:"response"`
-	}
-
-	if err := json.Unmarshal(res.Response.Payload, &respPayload); err != nil {
-		// TODO: logger.Error("Failed to unmarshal place order response", zap.Error(err), zap.String("payload", string(res.Response.Payload)))
-	} else {
-		if respPayload.Status == "ok" && len(respPayload.Response.Data.Statuses) > 0 {
-			status := respPayload.Response.Data.Statuses[0]
-			if status.Error != "" {
-				return nil, fmt.Errorf("hyperliquid API error: %s", status.Error)
-			}
-			// Capture OID
-			var oid int64
-			if status.Filling.Oid > 0 {
-				oid = status.Filling.Oid
-			} else if status.Resting.Oid > 0 {
-				oid = status.Resting.Oid
-			} else if status.Filled.Oid > 0 {
-				oid = status.Filled.Oid
-			}
-
-			if oid > 0 {
-				// TODO: logger.Debug("PlaceOrder Success", zap.Int64("oid", oid))
-				// Return success with OID
-				return &exchanges.Order{
-					OrderID:       fmt.Sprintf("%d", oid),
-					ClientOrderID: params.ClientID,
-					Symbol:        params.Symbol,
-					Side:          params.Side,
-					Type:          params.Type,
-					Quantity:      params.Quantity,
-					Price:         params.Price,
-					Status:        exchanges.OrderStatusPending, // or New
-					Timestamp:     time.Now().UnixMilli(),
-				}, nil
-			}
-		} else if respPayload.Status == "error" {
-			// Try to parse error from response if available (structure might differ)
-			return nil, fmt.Errorf("hyperliquid API error status: %v", string(res.Response.Payload))
-		}
-	}
-
-	// Fallback if parsing fails or structure mismatches (shouldn't happen on success)
 	return &exchanges.Order{
+		OrderID:       extractPerpOrderID(status),
 		ClientOrderID: params.ClientID,
 		Symbol:        params.Symbol,
 		Side:          params.Side,
@@ -426,7 +325,56 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}, nil
 }
 
-// PlaceMarketOrder places a market order (aggressive limit)
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if params.Type == exchanges.OrderTypeMarket && params.Slippage.IsZero() {
+		params.Slippage = decimal.NewFromFloat(0.02)
+	}
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
+	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
+	if err == nil {
+		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
+			return err
+		}
+		if params.Type == exchanges.OrderTypeLimit || params.Price.IsPositive() {
+			params.Price = exchanges.RoundToSignificantFigures(params.Price, details.PricePrecision)
+		}
+	}
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	assetID, ok := a.getAssetID(params.Symbol)
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", params.Symbol)
+	}
+	cloid := &params.ClientID
+	req := perp.PlaceOrderRequest{
+		AssetID:       assetID,
+		IsBuy:         params.Side == exchanges.OrderSideBuy,
+		Price:         params.Price.InexactFloat64(),
+		Size:          params.Quantity.InexactFloat64(),
+		ReduceOnly:    params.ReduceOnly,
+		ClientOrderID: cloid,
+		OrderType:     a.mapOrderType(params),
+	}
+	ch, err := a.wsClient.PlaceOrder(ctx, req)
+	if err != nil {
+		return fmt.Errorf("hyperliquid place order failed: %w", err)
+	}
+	res := <-ch
+	if res.Error != nil {
+		return fmt.Errorf("place order error: %v", res.Error)
+	}
+	return nil
+}
+
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := a.requireWriteAccess(); err != nil {
 		return err
@@ -445,23 +393,33 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 		AssetID: assetID,
 		OrderID: oid,
 	}
+	_, err = a.client.CancelOrder(ctx, req)
+	return err
+}
 
-	// REST mode
-	if a.IsRESTMode() {
-		_, err := a.client.CancelOrder(ctx, req)
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	if err := a.requireWriteAccess(); err != nil {
 		return err
 	}
-
-	// WS mode
+	assetID, ok := a.getAssetID(symbol)
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", symbol)
+	}
+	oid, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid order id: %s", orderID)
+	}
+	req := perp.CancelOrderRequest{
+		AssetID: assetID,
+		OrderID: oid,
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
-
 	ch, err := a.wsClient.CancelOrder(ctx, req)
 	if err != nil {
 		return err
 	}
-
 	res := <-ch
 	if res.Error != nil {
 		return res.Error
@@ -473,10 +431,6 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	if err := a.requireWriteAccess(); err != nil {
 		return nil, err
 	}
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-	// Logic from trader: fetch original order, cancel replace (Modify API)
 	assetID, ok := a.getAssetID(symbol)
 	if !ok {
 		return nil, fmt.Errorf("unknown symbol: %s", symbol)
@@ -507,24 +461,65 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 			},
 		},
 	}
-
-	ch, err := a.wsClient.ModifyOrder(ctx, req)
+	status, err := a.client.ModifyOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	res := <-ch
-	if res.Error != nil {
-		return nil, fmt.Errorf("modify order error: %v", res.Error)
-	}
 
 	return &exchanges.Order{
-		OrderID:   orderID,
-		Symbol:    symbol,
-		Quantity:  params.Quantity,
-		Price:     params.Price,
-		Status:    exchanges.OrderStatusPending,
-		Timestamp: time.Now().UnixMilli(),
+		OrderID:       firstNonEmpty(extractPerpOrderID(status), orderID),
+		ClientOrderID: origOrder.ClientOrderID,
+		Symbol:        symbol,
+		Side:          origOrder.Side,
+		Type:          origOrder.Type,
+		Quantity:      params.Quantity,
+		Price:         params.Price,
+		Status:        exchanges.OrderStatusPending,
+		Timestamp:     time.Now().UnixMilli(),
 	}, nil
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	if err := a.requireWriteAccess(); err != nil {
+		return err
+	}
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	assetID, ok := a.getAssetID(symbol)
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", symbol)
+	}
+	oid, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid order id: %s", orderID)
+	}
+	origOrder, err := a.FetchOrderByID(ctx, orderID, symbol)
+	if err != nil {
+		return fmt.Errorf("failed to fetch original order: %w", err)
+	}
+	req := perp.ModifyOrderRequest{
+		Oid: &oid,
+		Order: perp.PlaceOrderRequest{
+			AssetID:    assetID,
+			IsBuy:      origOrder.Side == exchanges.OrderSideBuy,
+			Price:      params.Price.InexactFloat64(),
+			Size:       params.Quantity.InexactFloat64(),
+			ReduceOnly: false,
+			OrderType: perp.OrderType{
+				Limit: &perp.OrderTypeLimit{Tif: hyperliquid.TifGtc},
+			},
+		},
+	}
+	ch, err := a.wsClient.ModifyOrder(ctx, req)
+	if err != nil {
+		return err
+	}
+	res := <-ch
+	if res.Error != nil {
+		return fmt.Errorf("modify order error: %v", res.Error)
+	}
+	return nil
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {

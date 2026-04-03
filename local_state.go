@@ -298,7 +298,37 @@ func (s *LocalState) PlaceOrder(ctx context.Context, params *OrderParams) (*Orde
 		return nil, err
 	}
 
-	// 3. Create a filtered subscription for this specific order
+	return s.trackOrderResult(allSub, order), nil
+}
+
+// PlaceOrderWS submits an order via the adapter's explicit WS path and tracks
+// the resulting lifecycle updates by ClientID.
+func (s *LocalState) PlaceOrderWS(ctx context.Context, params *OrderParams) (*OrderResult, error) {
+	if params.ClientID == "" {
+		return nil, fmt.Errorf("client id required for PlaceOrderWS")
+	}
+
+	allSub := s.orderBus.Subscribe()
+	if err := s.adp.PlaceOrderWS(ctx, params); err != nil {
+		allSub.Unsubscribe()
+		return nil, err
+	}
+
+	order := &Order{
+		ClientOrderID: params.ClientID,
+		Symbol:        params.Symbol,
+		Side:          params.Side,
+		Type:          params.Type,
+		Quantity:      params.Quantity,
+		Price:         params.Price,
+		Status:        OrderStatusPending,
+		Timestamp:     time.Now().UnixMilli(),
+	}
+
+	return s.trackOrderResult(allSub, order), nil
+}
+
+func (s *LocalState) trackOrderResult(allSub *Subscription[Order], order *Order) *OrderResult {
 	orderID := order.OrderID
 	clientOrderID := order.ClientOrderID
 	filteredCh := make(chan *Order, 16)
@@ -344,7 +374,7 @@ func (s *LocalState) PlaceOrder(ctx context.Context, params *OrderParams) (*Orde
 	}
 
 	result.Sub = filteredSub
-	return result, nil
+	return result
 }
 
 // ============================================================================

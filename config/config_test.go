@@ -67,7 +67,11 @@ func (s *stubExchange) PlaceOrder(context.Context, *exchanges.OrderParams) (*exc
 	return nil, nil
 }
 
+func (s *stubExchange) PlaceOrderWS(context.Context, *exchanges.OrderParams) error { return nil }
+
 func (s *stubExchange) CancelOrder(context.Context, string, string) error { return nil }
+
+func (s *stubExchange) CancelOrderWS(context.Context, string, string) error { return nil }
 
 func (s *stubExchange) CancelAllOrders(context.Context, string) error { return nil }
 

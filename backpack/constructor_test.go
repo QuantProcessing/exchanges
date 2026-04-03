@@ -11,14 +11,14 @@ import (
 
 var _ adapterRESTClient = (*backpackStubClient)(nil)
 
-func TestNewPerpAdapterWithClientDefaultsToRESTOrderMode(t *testing.T) {
+func TestNewPerpAdapterWithClientAllowsConstruction(t *testing.T) {
 	adp, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDC, &backpackStubClient{
 		marketsFn: func(context.Context) ([]sdk.Market, error) {
 			return []sdk.Market{testBackpackPerpMarket()}, nil
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, exchanges.OrderModeREST, adp.GetOrderMode())
+	require.NotNil(t, adp)
 }
 
 func TestNewAdapterWithClientAllowsPublicOnlyConstruction(t *testing.T) {
@@ -36,14 +36,14 @@ func TestNewAdapterWithClientRejectsPartialCredentials(t *testing.T) {
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
 }
 
-func TestNewSpotAdapterWithClientDefaultsToRESTOrderMode(t *testing.T) {
+func TestNewSpotAdapterWithClientAllowsConstruction(t *testing.T) {
 	adp, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDC, &backpackStubClient{
 		marketsFn: func(context.Context) ([]sdk.Market, error) {
 			return []sdk.Market{testBackpackSpotMarket()}, nil
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, exchanges.OrderModeREST, adp.GetOrderMode())
+	require.NotNil(t, adp)
 }
 
 func TestNewSpotAdapterWithClientRejectsPartialCredentials(t *testing.T) {

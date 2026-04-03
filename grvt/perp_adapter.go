@@ -69,7 +69,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	tradeRpcWs := grvt.NewAccountRpcWebsocketClient(ctx, client)
 
 	base := exchanges.NewBaseAdapter("GRVT", exchanges.MarketTypePerp, opts.logger())
-	// GRVT currently switches only place/cancel/cancel-all order flows with OrderMode.
 
 	a := &Adapter{
 		BaseAdapter:   base,
@@ -276,41 +275,75 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		},
 	}
 
-	// REST mode
-	if a.IsRESTMode() {
-		a.mu.RLock()
-		instruments := a.instruments
-		a.mu.RUnlock()
-		res, err := a.client.CreateOrder(ctx, req, instruments)
-		if err != nil {
-			return nil, err
-		}
-		return a.mapGrvtOrder(&res.Result), nil
-	}
-
-	// WebSocket Order Placement
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-
-	res, err := a.wsTradeRpc.PlaceOrder(ctx, &req.Order)
+	a.mu.RLock()
+	instruments := a.instruments
+	a.mu.RUnlock()
+	res, err := a.client.CreateOrder(ctx, req, instruments)
 	if err != nil {
 		return nil, err
 	}
-
 	return a.mapGrvtOrder(&res.Result), nil
+}
+
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
+	if err == nil {
+		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
+			return err
+		}
+	}
+
+	isMarket := params.Type == exchanges.OrderTypeMarket
+
+	tif := grvt.GTT
+	switch params.TimeInForce {
+	case exchanges.TimeInForceIOC:
+		tif = grvt.IOC
+	case exchanges.TimeInForceFOK:
+		tif = grvt.FOK
+	}
+
+	req := &grvt.OrderRequest{
+		SubAccountID: a.subAccountID,
+		IsMarket:     isMarket,
+		TimeInForce:  tif,
+		PostOnly:     params.Type == exchanges.OrderTypePostOnly,
+		ReduceOnly:   params.ReduceOnly,
+		Legs: []grvt.OrderLeg{{
+			Instrument:    a.FormatSymbol(params.Symbol),
+			Size:          params.Quantity.String(),
+			LimitPrice:    params.Price.String(),
+			IsBuyintAsset: params.Side == exchanges.OrderSideBuy,
+		}},
+		Metadata: grvt.OrderMetadata{
+			ClientOrderID: params.ClientID,
+		},
+	}
+
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err = a.wsTradeRpc.PlaceOrder(ctx, req)
+	return err
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := a.requirePrivateAccess(); err != nil {
 		return err
 	}
-	// REST mode
-	if a.IsRESTMode() {
-		return a.client.CancelOrder(ctx, orderID)
-	}
+	return a.client.CancelOrder(ctx, orderID)
+}
 
-	// WS mode
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	if err := a.requirePrivateAccess(); err != nil {
+		return err
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
@@ -325,6 +358,10 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -354,38 +391,7 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	if err := a.requirePrivateAccess(); err != nil {
 		return err
 	}
-	// REST mode
-	if a.IsRESTMode() {
-		return a.client.CancelAllOrders(ctx)
-	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-	saID := strconv.FormatUint(a.subAccountID, 10)
-	req := &grvt.CancelAllOrderRequest{
-		SubAccountID: saID,
-	}
-
-	if symbol != "" {
-		instrumentKey := a.FormatSymbol(symbol)
-		a.mu.RLock()
-		inst, ok := a.instruments[instrumentKey]
-		a.mu.RUnlock()
-
-		if ok {
-			base := []string{inst.Base}
-			quote := []string{inst.Quote}
-			req.Base = &base
-			req.Quote = &quote
-			kind := []string{"PERPETUAL"}
-			req.Kind = &kind
-		}
-	}
-
-	_, err := a.wsTradeRpc.CancelAllOrders(ctx, req)
-	return err
+	return a.client.CancelAllOrders(ctx)
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) error {

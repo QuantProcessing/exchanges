@@ -21,9 +21,8 @@ func TestPrivatePathsWithoutCredentialsReturnAuthSentinel(t *testing.T) {
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
 }
 
-func TestRestModePrivatePathsWithoutCredentialsReturnAuthSentinel(t *testing.T) {
+func TestPrimaryWritePathsWithoutCredentialsReturnAuthSentinel(t *testing.T) {
 	adp := &Adapter{BaseAdapter: exchanges.NewBaseAdapter("GRVT", exchanges.MarketTypePerp, exchanges.NopLogger)}
-	adp.SetOrderMode(exchanges.OrderModeREST)
 
 	require.ErrorIs(t, adp.CancelOrder(context.Background(), "1", "BTC"), exchanges.ErrAuthFailed)
 	require.ErrorIs(t, adp.CancelAllOrders(context.Background(), "BTC"), exchanges.ErrAuthFailed)

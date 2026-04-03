@@ -34,7 +34,13 @@ func (s stubExchange) FetchKlines(ctx context.Context, symbol string, interval e
 func (s stubExchange) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
 	return nil, exchanges.ErrNotSupported
 }
+func (s stubExchange) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
 func (s stubExchange) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	return exchanges.ErrNotSupported
+}
+func (s stubExchange) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	return exchanges.ErrNotSupported
 }
 func (s stubExchange) CancelAllOrders(ctx context.Context, symbol string) error {

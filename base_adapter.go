@@ -21,7 +21,6 @@ import (
 type BaseAdapter struct {
 	Name       string
 	MarketType MarketType
-	orderMode  OrderMode // WS (default) or REST
 	Logger     Logger    // Logger for this adapter
 
 	// Connection tracking
@@ -61,24 +60,6 @@ func (b *BaseAdapter) GetExchange() string {
 // GetMarketType returns the market type
 func (b *BaseAdapter) GetMarketType() MarketType {
 	return b.MarketType
-}
-
-// SetOrderMode sets whether order operations use WS or REST transport.
-func (b *BaseAdapter) SetOrderMode(mode OrderMode) {
-	b.orderMode = mode
-}
-
-// GetOrderMode returns the current order mode (defaults to WS).
-func (b *BaseAdapter) GetOrderMode() OrderMode {
-	if b.orderMode == "" {
-		return OrderModeWS
-	}
-	return b.orderMode
-}
-
-// IsRESTMode returns true if orders should use REST/HTTP transport.
-func (b *BaseAdapter) IsRESTMode() bool {
-	return b.GetOrderMode() == OrderModeREST
 }
 
 // ================= Connection Tracking =================

@@ -50,8 +50,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	wsAccount := perp.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 
 	base := exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypePerp, opts.logger())
-	// Aster uses REST for private order placement and cancellation in this adapter.
-	base.SetOrderMode(exchanges.OrderModeREST)
 
 	a := &Adapter{
 		BaseAdapter:   base,
@@ -239,6 +237,10 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	return a.normalizeOrderResponse(resp)
 }
 
+func (a *Adapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *Adapter) mapOrderType(t exchanges.OrderType) (perp.OrderType, error) {
 	switch t {
 	case exchanges.OrderTypeLimit:
@@ -302,6 +304,10 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retE
 	return err
 }
 
+func (a *Adapter) CancelOrderWS(context.Context, string, string) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (_ *exchanges.Order, retErr error) {
 	if err := a.requirePrivateAccess(); err != nil {
 		return nil, err
@@ -321,6 +327,10 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	}
 
 	return a.normalizeOrderResponse(resp)
+}
+
+func (a *Adapter) ModifyOrderWS(context.Context, string, string, *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {

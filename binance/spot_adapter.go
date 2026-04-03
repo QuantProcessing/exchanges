@@ -159,9 +159,6 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
 	}
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
 
 	formattedSymbol := strings.ToUpper(a.FormatSymbol(params.Symbol))
 
@@ -192,8 +189,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		}
 	}
 
-	reqID := fmt.Sprintf("order-%d", time.Now().UnixNano())
-	resp, err := a.wsAPI.PlaceOrderWS(a.apiKey, a.secretKey, p, reqID)
+	resp, err := a.client.PlaceOrder(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +197,57 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	return a.normalizeOrderResponse(resp)
 }
 
+func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(params.Symbol))
+	side := "BUY"
+	if params.Side == exchanges.OrderSideSell {
+		side = "SELL"
+	}
+	orderType := strings.ToUpper(string(params.Type))
+
+	p := spot.PlaceOrderParams{
+		Symbol:           formattedSymbol,
+		Side:             side,
+		Type:             orderType,
+		Quantity:         params.Quantity.String(),
+		NewClientOrderID: params.ClientID,
+	}
+
+	if params.Type == exchanges.OrderTypeLimit || params.Type == exchanges.OrderTypePostOnly {
+		p.Price = params.Price.String()
+		p.TimeInForce = "GTC"
+		if params.Type == exchanges.OrderTypePostOnly {
+			p.TimeInForce = "GTC"
+		}
+	}
+
+	reqID := fmt.Sprintf("order-%d", time.Now().UnixNano())
+	_, err := a.wsAPI.PlaceOrderWS(a.apiKey, a.secretKey, p, reqID)
+	return err
+}
+
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	formattedSymbol := strings.ToUpper(a.FormatSymbol(symbol))
+	oid, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid order id: %w", err)
+	}
+
+	_, err = a.client.CancelOrder(ctx, formattedSymbol, oid, "")
+	return err
+}
+
+func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
@@ -218,10 +264,6 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 }
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-
 	// Binance spot supports cancel-replace
 	formattedSymbol := a.FormatSymbol(symbol)
 	oid, err := strconv.ParseInt(orderID, 10, 64)
@@ -251,8 +293,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 		CancelOrderID:     oid,
 	}
 
-	reqID := fmt.Sprintf("modify-%d", time.Now().UnixNano())
-	resp, err := a.wsAPI.ModifyOrderWS(a.apiKey, a.secretKey, p, reqID)
+	resp, err := a.client.ModifyOrder(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -262,6 +303,43 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}
 
 	return a.normalizeOrderResponse(resp.NewOrderResponse)
+}
+
+func (a *SpotAdapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+
+	formattedSymbol := a.FormatSymbol(symbol)
+	oid, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid order id: %w", err)
+	}
+
+	existingOrder, err := a.FetchOrderByID(ctx, orderID, symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get existing order: %w", err)
+	}
+
+	side := "BUY"
+	if existingOrder.Side == exchanges.OrderSideSell {
+		side = "SELL"
+	}
+
+	p := spot.CancelReplaceOrderParams{
+		Symbol:            formattedSymbol,
+		Side:              side,
+		Type:              "LIMIT",
+		CancelReplaceMode: "STOP_ON_FAILURE",
+		TimeInForce:       "GTC",
+		Quantity:          params.Quantity.String(),
+		Price:             params.Price.String(),
+		CancelOrderID:     oid,
+	}
+
+	reqID := fmt.Sprintf("modify-%d", time.Now().UnixNano())
+	_, err = a.wsAPI.ModifyOrderWS(a.apiKey, a.secretKey, p, reqID)
+	return err
 }
 
 func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {

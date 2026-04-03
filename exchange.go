@@ -8,21 +8,6 @@ import (
 )
 
 // ============================================================================
-// Order Mode
-// ============================================================================
-
-// OrderMode controls whether trading operations (PlaceOrder, CancelOrder, etc.)
-// use WebSocket or REST/HTTP transport.
-type OrderMode string
-
-const (
-	// OrderModeWS uses WebSocket for order operations (default, lower latency).
-	OrderModeWS OrderMode = "ws"
-	// OrderModeREST uses REST/HTTP for order operations (no persistent connection needed).
-	OrderModeREST OrderMode = "rest"
-)
-
-// ============================================================================
 // Core Interface: Exchange
 // ============================================================================
 
@@ -54,8 +39,12 @@ type Exchange interface {
 	FetchKlines(ctx context.Context, symbol string, interval Interval, opts *KlineOpts) ([]Kline, error)
 
 	// === Trading ===
+	// Unsuffixed write methods are the adapter's primary non-WS write path.
+	// *WS methods are explicit WebSocket submissions and return only transport/ACK errors.
 	PlaceOrder(ctx context.Context, params *OrderParams) (*Order, error)
+	PlaceOrderWS(ctx context.Context, params *OrderParams) error
 	CancelOrder(ctx context.Context, orderID, symbol string) error
+	CancelOrderWS(ctx context.Context, orderID, symbol string) error
 	CancelAllOrders(ctx context.Context, symbol string) error
 	FetchOrderByID(ctx context.Context, orderID, symbol string) (*Order, error)
 	FetchOrders(ctx context.Context, symbol string) ([]Order, error)
@@ -93,6 +82,7 @@ type PerpExchange interface {
 	FetchFundingRate(ctx context.Context, symbol string) (*FundingRate, error)
 	FetchAllFundingRates(ctx context.Context) ([]FundingRate, error)
 	ModifyOrder(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) (*Order, error)
+	ModifyOrderWS(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) error
 }
 
 // SpotExchange extends Exchange with spot-specific capabilities.

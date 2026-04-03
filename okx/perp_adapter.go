@@ -317,9 +317,6 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		}
 	}
 
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(params.Symbol)
 
 	side := "buy"
@@ -418,43 +415,16 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		req.ReduceOnly = &ro
 	}
 
-	// REST mode
-	if a.IsRESTMode() {
-		ids, err := a.client.PlaceOrder(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(ids) == 0 {
-			return nil, fmt.Errorf("no response")
-		}
-		return &exchanges.Order{
-			OrderID:       ids[0].OrdId,
-			ClientOrderID: ids[0].ClOrdId,
-			Symbol:        params.Symbol,
-			Side:          params.Side,
-			Type:          params.Type,
-			Quantity:      params.Quantity,
-			Price:         params.Price,
-			Status:        exchanges.OrderStatusPending,
-			Timestamp:     time.Now().UnixMilli(),
-		}, nil
-	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := a.wsPrivate.PlaceOrderWS(req)
+	ids, err := a.client.PlaceOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil {
+	if len(ids) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
-
 	return &exchanges.Order{
-		OrderID:       resp.OrdId,
-		ClientOrderID: resp.ClOrdId,
+		OrderID:       ids[0].OrdId,
+		ClientOrderID: ids[0].ClOrdId,
 		Symbol:        params.Symbol,
 		Side:          params.Side,
 		Type:          params.Type,
@@ -463,6 +433,83 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		Status:        exchanges.OrderStatusPending,
 		Timestamp:     time.Now().UnixMilli(),
 	}, nil
+}
+
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	instId := a.FormatSymbol(params.Symbol)
+	side := "buy"
+	if params.Side == exchanges.OrderSideSell {
+		side = "sell"
+	}
+	ordType := a.mapOrderType(params)
+	sz := fmt.Sprintf("%v", params.Quantity)
+
+	a.mu.RLock()
+	pm := a.posMode
+	a.mu.RUnlock()
+
+	var posSide *string
+	if pm == "long_short_mode" {
+		val := "long"
+		if params.Side == exchanges.OrderSideBuy {
+			if params.ReduceOnly {
+				val = "short"
+			} else {
+				val = "long"
+			}
+		} else if params.ReduceOnly {
+			val = "long"
+		} else {
+			val = "short"
+		}
+		posSide = &val
+	}
+
+	var clOrdId *string
+	if params.ClientID != "" {
+		clOrdId = &params.ClientID
+	}
+
+	var px *string
+	if params.Type != exchanges.OrderTypeMarket && params.Price.IsPositive() {
+		if ctVal := a.getCtVal(ctx, instId); !ctVal.IsZero() {
+			contracts := params.Quantity.Div(ctVal)
+			sz = fmt.Sprintf("%v", contracts)
+		}
+		if inst, ok := a.instruments[instId]; ok {
+			prec := exchanges.CountDecimalPlaces(inst.TickSz)
+			s := params.Price.StringFixed(prec)
+			px = &s
+		} else {
+			s := fmt.Sprintf("%v", params.Price)
+			px = &s
+		}
+	}
+
+	req := &okx.OrderRequest{
+		InstId:  instId,
+		TdMode:  "isolated",
+		Side:    side,
+		PosSide: posSide,
+		OrdType: ordType,
+		Sz:      sz,
+		Px:      px,
+		ClOrdId: clOrdId,
+	}
+
+	if params.ReduceOnly {
+		ro := true
+		req.ReduceOnly = &ro
+	}
+
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err := a.wsPrivate.PlaceOrderWS(req)
+	return err
 }
 
 func (a *Adapter) mapOrderType(params *exchanges.OrderParams) string {
@@ -485,14 +532,12 @@ func (a *Adapter) mapOrderType(params *exchanges.OrderParams) string {
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	instId := a.FormatSymbol(symbol)
+	_, err := a.client.CancelOrder(ctx, instId, orderID, "")
+	return err
+}
 
-	// REST mode
-	if a.IsRESTMode() {
-		_, err := a.client.CancelOrder(ctx, instId, orderID, "")
-		return err
-	}
-
-	// WS mode
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	instId := a.FormatSymbol(symbol)
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
@@ -501,9 +546,6 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
 	instId := a.FormatSymbol(symbol)
 
 	req := &okx.ModifyOrderRequest{
@@ -519,19 +561,49 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 		req.NewPx = &px
 	}
 
-	resp, err := a.wsPrivate.ModifyOrderWS(req)
+	resp, err := a.client.ModifyOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.SCode != "0" {
-		return nil, fmt.Errorf("modify error: %s", resp.SMsg)
+	if len(resp) == 0 {
+		return nil, fmt.Errorf("no response")
 	}
 
 	return &exchanges.Order{
-		OrderID: resp.OrdId,
-		Symbol:  symbol,
-		Status:  exchanges.OrderStatusPending,
+		OrderID:       resp[0].OrdId,
+		ClientOrderID: resp[0].ClOrdId,
+		Symbol:        symbol,
+		Status:        exchanges.OrderStatusPending,
 	}, nil
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	instId := a.FormatSymbol(symbol)
+
+	req := &okx.ModifyOrderRequest{
+		InstId: instId,
+		OrdId:  &orderID,
+	}
+	if params.Quantity.IsPositive() {
+		sz := fmt.Sprintf("%v", params.Quantity)
+		req.NewSz = &sz
+	}
+	if params.Price.IsPositive() {
+		px := fmt.Sprintf("%v", params.Price)
+		req.NewPx = &px
+	}
+
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	resp, err := a.wsPrivate.ModifyOrderWS(req)
+	if err != nil {
+		return err
+	}
+	if resp.SCode != "0" {
+		return fmt.Errorf("modify error: %s", resp.SMsg)
+	}
+	return nil
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -600,33 +672,13 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 		reqs = append(reqs, okx.CancelOrderRequest{InstId: instId, OrdId: &oid})
 	}
 
-	// REST mode
-	if a.IsRESTMode() {
-		chunkSize := 20
-		for i := 0; i < len(reqs); i += chunkSize {
-			end := i + chunkSize
-			if end > len(reqs) {
-				end = len(reqs)
-			}
-			_, err := a.client.CancelOrders(ctx, reqs[i:end])
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
 	chunkSize := 20
 	for i := 0; i < len(reqs); i += chunkSize {
 		end := i + chunkSize
 		if end > len(reqs) {
 			end = len(reqs)
 		}
-		_, err := a.wsPrivate.CancelOrdersWS(reqs[i:end])
+		_, err := a.client.CancelOrders(ctx, reqs[i:end])
 		if err != nil {
 			return err
 		}

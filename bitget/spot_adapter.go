@@ -42,8 +42,6 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 
 func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*SpotAdapter, error) {
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, opts.logger())
-	// Bitget defaults order transport to REST; only classic place/cancel paths switch on OrderModeWS.
-	base.SetOrderMode(exchanges.OrderModeREST)
 
 	instruments, err := client.GetInstruments(ctx, categorySpot, "")
 	if err != nil {
@@ -146,8 +144,16 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	return a.private.PlaceOrder(ctx, params)
 }
 
+func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	return a.private.PlaceOrderWS(ctx, params)
+}
+
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	return a.private.CancelOrder(ctx, orderID, symbol)
+}
+
+func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	return a.private.CancelOrderWS(ctx, orderID, symbol)
 }
 
 func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {

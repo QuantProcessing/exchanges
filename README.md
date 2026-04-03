@@ -34,7 +34,9 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 ### Exchange Notes
 
 - Bitget currently supports the classic private API surface only.
-- Bitget defaults to `OrderModeREST`. Explicit `OrderModeWS` is opt-in and requires Bitget to enable classic WebSocket trade access for the API key.
+- Use unsuffixed write methods such as `PlaceOrder` and `CancelOrder` for the adapter's primary non-WS write path.
+- Use explicit `*WS` methods such as `PlaceOrderWS` and `CancelOrderWS` for WebSocket writes. `PlaceOrderWS` returns only `error` and requires `OrderParams.ClientID` so follow-up order updates can be matched.
+- Bitget classic WebSocket writes still require Bitget to enable classic trade-socket access for the API key.
 - Decibel is perp-only in this repository. It uses authenticated REST/WebSocket reads plus Aptos-signed on-chain trading writes, with credentials `api_key + private_key + subaccount_addr`.
 
 ## Adding New Exchanges

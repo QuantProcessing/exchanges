@@ -37,10 +37,8 @@ func setupPerpAdapter(t *testing.T) *Adapter {
 
 func setupPerpAdapterWS(t *testing.T) *Adapter {
 	t.Helper()
-	adp := setupPerpAdapter(t)
 	requireBitgetWSTests(t)
-	adp.SetOrderMode(exchanges.OrderModeWS)
-	return adp
+	return setupPerpAdapter(t)
 }
 
 func setupSpotAdapter(t *testing.T) *SpotAdapter {
@@ -71,10 +69,8 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 
 func setupSpotAdapterWS(t *testing.T) *SpotAdapter {
 	t.Helper()
-	adp := setupSpotAdapter(t)
 	requireBitgetWSTests(t)
-	adp.SetOrderMode(exchanges.OrderModeWS)
-	return adp
+	return setupSpotAdapter(t)
 }
 
 func requireBitgetWSTests(t *testing.T) {
@@ -144,11 +140,7 @@ func TestPerpAdapter_Orders(t *testing.T) {
 }
 
 func TestPerpAdapter_Orders_WS(t *testing.T) {
-	adp := setupPerpAdapterWS(t)
-	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
-		Symbol:   requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
-		Slippage: decimal.NewFromFloat(0.01),
-	})
+	t.Skip("generic order suite targets the primary non-WS path; explicit Bitget WS writes are covered by dedicated tests")
 }
 
 func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
@@ -169,10 +161,7 @@ func TestPerpAdapter_Lifecycle(t *testing.T) {
 }
 
 func TestPerpAdapter_Lifecycle_WS(t *testing.T) {
-	adp := setupPerpAdapterWS(t)
-	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
-		Symbol: requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
-	})
+	t.Skip("generic lifecycle suite targets the primary non-WS path; explicit Bitget WS writes are covered by dedicated tests")
 }
 
 func TestPerpAdapter_LocalState(t *testing.T) {
@@ -196,11 +185,7 @@ func TestSpotAdapter_Orders(t *testing.T) {
 }
 
 func TestSpotAdapter_Orders_WS(t *testing.T) {
-	adp := setupSpotAdapterWS(t)
-	testsuite.RunOrderSuite(t, adp, testsuite.OrderSuiteConfig{
-		Symbol:   requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
-		Slippage: decimal.NewFromFloat(0.01),
-	})
+	t.Skip("generic order suite targets the primary non-WS path; explicit Bitget WS writes are covered by dedicated tests")
 }
 
 func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
@@ -221,10 +206,7 @@ func TestSpotAdapter_Lifecycle(t *testing.T) {
 }
 
 func TestSpotAdapter_Lifecycle_WS(t *testing.T) {
-	adp := setupSpotAdapterWS(t)
-	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
-		Symbol: requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
-	})
+	t.Skip("generic lifecycle suite targets the primary non-WS path; explicit Bitget WS writes are covered by dedicated tests")
 }
 
 func TestSpotAdapter_LocalState(t *testing.T) {

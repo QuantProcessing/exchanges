@@ -388,7 +388,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
 	}
-	if err := a.WsOrderConnected(ctx); err != nil {
+	if err := a.requirePrivateAccess(); err != nil {
 		return nil, err
 	}
 	productID, err := a.getProductId(params.Symbol)
@@ -446,22 +446,11 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		input.OrderType = nado.OrderTypeFOK
 	}
 
-	// Prepare order (sign and calculate hash) locally
-	prepared, err := a.apiClient.PrepareOrder(ctx, input)
+	resp, err := a.httpClient.PlaceOrder(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-
-	// Cache original quantity for WS update calculation - BEFORE execution to avoid race
-	a.orderMap.Store(prepared.Digest, params.Quantity)
-
-	// Execute
-	resp, err := a.apiClient.ExecutePreparedOrder(ctx, prepared)
-	if err != nil {
-		// Cleanup on failure
-		a.orderMap.Delete(prepared.Digest)
-		return nil, err
-	}
+	a.orderMap.Store(resp.Digest, params.Quantity)
 
 	return &exchanges.Order{
 		OrderID:   resp.Digest,
@@ -475,7 +464,100 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	}, nil
 }
 
+func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	productID, err := a.getProductId(params.Symbol)
+	if err != nil {
+		return err
+	}
+
+	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
+	if err == nil {
+		if params.Type == exchanges.OrderTypeMarket && params.Price.IsZero() {
+			ticker, err := a.FetchTicker(ctx, params.Symbol)
+			if err != nil {
+				return fmt.Errorf("failed to get ticker for market order price: %w", err)
+			}
+			if params.Side == exchanges.OrderSideBuy {
+				params.Price = ticker.LastPrice.Mul(decimal.NewFromFloat(1.05))
+			} else {
+				params.Price = ticker.LastPrice.Mul(decimal.NewFromFloat(0.95))
+			}
+		}
+
+		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
+			return err
+		}
+	}
+
+	side := nado.OrderSideBuy
+	if params.Side == exchanges.OrderSideSell {
+		side = nado.OrderSideSell
+	}
+
+	ot := nado.OrderTypeLimit
+	switch params.Type {
+	case exchanges.OrderTypeMarket:
+		ot = nado.OrderTypeMarket
+	case exchanges.OrderTypePostOnly:
+		ot = nado.OrderTypeLimit
+	}
+
+	input := nado.ClientOrderInput{
+		ProductId:  int64(productID),
+		Side:       side,
+		Price:      params.Price.StringFixed(details.PricePrecision),
+		Amount:     params.Quantity.StringFixed(details.QuantityPrecision),
+		OrderType:  ot,
+		PostOnly:   params.Type == exchanges.OrderTypePostOnly,
+		ReduceOnly: params.ReduceOnly,
+	}
+
+	switch params.TimeInForce {
+	case exchanges.TimeInForceIOC:
+		input.OrderType = nado.OrderTypeIOC
+	case exchanges.TimeInForceFOK:
+		input.OrderType = nado.OrderTypeFOK
+	}
+
+	prepared, err := a.apiClient.PrepareOrder(ctx, input)
+	if err != nil {
+		return err
+	}
+
+	a.orderMap.Store(prepared.Digest, params.Quantity)
+
+	if _, err := a.apiClient.ExecutePreparedOrder(ctx, prepared); err != nil {
+		a.orderMap.Delete(prepared.Digest)
+		return err
+	}
+	return nil
+}
+
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	productID, err := a.getProductId(symbol)
+	if err != nil {
+		return err
+	}
+
+	input := nado.CancelOrdersInput{
+		ProductIds: []int64{productID},
+		Digests:    []string{orderID},
+	}
+	_, err = a.httpClient.CancelOrders(ctx, input)
+	return err
+}
+
+func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}

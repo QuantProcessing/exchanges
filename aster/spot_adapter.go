@@ -46,8 +46,6 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	wsAccount := spot.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
 
 	base := exchanges.NewBaseAdapter("ASTER", exchanges.MarketTypeSpot, opts.logger())
-	// Aster spot uses REST for private order placement and cancellation in this adapter.
-	base.SetOrderMode(exchanges.OrderModeREST)
 
 	a := &SpotAdapter{
 		BaseAdapter:   base,
@@ -192,6 +190,10 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	return a.normalizeOrderResponse(resp)
 }
 
+func (a *SpotAdapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := a.requirePrivateAccess(); err != nil {
 		return err
@@ -200,6 +202,10 @@ func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) e
 	oid, _ := strconv.ParseInt(orderID, 10, 64)
 	_, err := a.client.CancelOrder(ctx, formattedSymbol, oid, "")
 	return err
+}
+
+func (a *SpotAdapter) CancelOrderWS(context.Context, string, string) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {

@@ -381,6 +381,10 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	return order, nil
 }
 
+func (a *Adapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return unsupported("PlaceOrderWS")
+}
+
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := a.requireTrading(); err != nil {
 		return err
@@ -395,6 +399,10 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 		MarketAddr:     meta.MarketAddr,
 	})
 	return err
+}
+
+func (a *Adapter) CancelOrderWS(context.Context, string, string) error {
+	return unsupported("CancelOrderWS")
 }
 
 func (a *Adapter) CancelAllOrders(context.Context, string) error {
@@ -729,6 +737,10 @@ func (a *Adapter) FetchAllFundingRates(context.Context) ([]exchanges.FundingRate
 
 func (a *Adapter) ModifyOrder(context.Context, string, string, *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return nil, unsupported("ModifyOrder")
+}
+
+func (a *Adapter) ModifyOrderWS(context.Context, string, string, *exchanges.ModifyOrderParams) error {
+	return unsupported("ModifyOrderWS")
 }
 
 func (a *Adapter) handleDepthUpdate(symbol string, msg decibelws.MarketDepthMessage) {

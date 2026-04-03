@@ -70,7 +70,6 @@ func NewAdapter(ctx context.Context, opts Options) (exchanges.Exchange, error) {
 	wsApi := standx.NewWsApiClient(aCtx, client)
 
 	base := exchanges.NewBaseAdapter("STANDX", exchanges.MarketTypePerp, opts.logger())
-	// StandX is a controlled hybrid adapter: place/cancel switch on OrderMode, while some private setup stays WS-backed.
 
 	a := &Adapter{
 		BaseAdapter:      base,
@@ -254,7 +253,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
 	}
-	if err := a.ensureAPIReady(ctx); err != nil {
+	if err := a.requirePrivateAccess(); err != nil {
 		return nil, err
 	}
 
@@ -281,34 +280,55 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		req.Price = a.formatPrice(params.Price, params.Symbol)
 	}
 
-	// REST mode: use HTTP client directly
-	if a.IsRESTMode() {
-		resp, err := a.client.CreateOrder(ctx, req, nil)
-		if err != nil {
-			return nil, err
-		}
-		if resp.Code != 0 {
-			return nil, fmt.Errorf("create order failed: code=%d msg=%s", resp.Code, resp.Message)
-		}
-		return newSubmittedOrder(params, params.ClientID, time.Now()), nil
-	}
-
-	// WS mode: Send Request via WS API
-	resp, err := a.wsApi.CreateOrder(ctx, &req)
+	resp, err := a.client.CreateOrder(ctx, req, nil)
 	if err != nil {
 		return nil, err
 	}
-
 	if resp.Code != 0 {
 		return nil, fmt.Errorf("create order failed: code=%d msg=%s", resp.Code, resp.Message)
 	}
-
-	// Success
 	return newSubmittedOrder(params, params.ClientID, time.Now()), nil
 }
 
-func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
 	if err := a.ensureAPIReady(ctx); err != nil {
+		return err
+	}
+	if err := a.normalizeOrderParams(ctx, params); err != nil {
+		return fmt.Errorf("invalid order params: %w", err)
+	}
+
+	req := standx.CreateOrderRequest{
+		Symbol:      a.toExchangeSymbol(params.Symbol),
+		Side:        mapAdapterSideToSDKSide(params.Side),
+		OrderType:   mapAdapterTypeToSDKType(params.Type),
+		Qty:         a.formatQuantity(params.Quantity, params.Symbol),
+		TimeInForce: mapAdapterTIFToSDKTIF(params.TimeInForce),
+		ClientOrdID: params.ClientID,
+		ReduceOnly:  params.ReduceOnly,
+	}
+	if params.Type == exchanges.OrderTypeLimit {
+		req.Price = a.formatPrice(params.Price, params.Symbol)
+	}
+
+	resp, err := a.wsApi.CreateOrder(ctx, &req)
+	if err != nil {
+		return err
+	}
+	if resp.Code != 0 {
+		return fmt.Errorf("create order failed: code=%d msg=%s", resp.Code, resp.Message)
+	}
+	return nil
+}
+
+func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
+	if err := a.requirePrivateAccess(); err != nil {
 		return err
 	}
 
@@ -322,19 +342,30 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 		req.ClOrdID = orderID
 	}
 
-	// REST mode
-	if a.IsRESTMode() {
-		resp, err := a.client.CancelOrder(ctx, req)
-		if err != nil {
-			return err
-		}
-		if resp.Code != 0 {
-			return fmt.Errorf("cancel order failed: code=%d msg=%s", resp.Code, resp.Message)
-		}
-		return nil
+	resp, err := a.client.CancelOrder(ctx, req)
+	if err != nil {
+		return err
+	}
+	if resp.Code != 0 {
+		return fmt.Errorf("cancel order failed: code=%d msg=%s", resp.Code, resp.Message)
+	}
+	return nil
+}
+
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	if err := a.ensureAPIReady(ctx); err != nil {
+		return err
 	}
 
-	// WS mode
+	req := standx.CancelOrderRequest{
+		Symbol: a.toExchangeSymbol(symbol),
+	}
+	if _, err := strconv.ParseInt(orderID, 10, 64); err == nil {
+		req.OrderID = orderID
+	} else {
+		req.ClOrdID = orderID
+	}
+
 	resp, err := a.wsApi.CancelOrder(ctx, &req)
 	if err != nil {
 		return err
@@ -346,7 +377,7 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 }
 
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	if err := a.ensureAPIReady(ctx); err != nil {
+	if err := a.requirePrivateAccess(); err != nil {
 		return err
 	}
 
@@ -376,6 +407,10 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {

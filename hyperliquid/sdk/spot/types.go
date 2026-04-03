@@ -15,6 +15,28 @@ type PlaceOrderRequest struct {
 	ClientOrderID *string
 }
 
+type PlaceOrderResponse struct {
+	Statuses []OrderStatus `json:"statuses"`
+}
+
+type OrderStatus struct {
+	Resting *OrderResting `json:"resting,omitempty"`
+	Filled  *OrderFilled  `json:"filled,omitempty"`
+	Error   *string       `json:"error,omitempty"`
+}
+
+type OrderResting struct {
+	Oid      int64   `json:"oid"`
+	ClientID *string `json:"cloid"`
+	Status   string  `json:"status"`
+}
+
+type OrderFilled struct {
+	TotalSz string `json:"totalSz"`
+	AvgPx   string `json:"avgPx"`
+	Oid     int    `json:"oid"`
+}
+
 type OrderType struct {
 	Limit   *OrderTypeLimit
 	Trigger *OrderTypeTrigger
@@ -42,4 +64,12 @@ type ModifyOrderRequest struct {
 	Oid   *int64
 	Cloid *string
 	Order PlaceOrderRequest
+}
+
+type ModifyOrderResponse struct {
+	Statuses []OrderStatus `json:"statuses"`
+}
+
+type CancelOrderResponse struct {
+	Statuses hyperliquid.MixedArray `json:"statuses"`
 }

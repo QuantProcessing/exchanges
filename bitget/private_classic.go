@@ -3,6 +3,7 @@ package bitget
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -12,13 +13,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// classicPerpProfile owns Bitget's current hybrid transport subset:
-// place/cancel honor OrderModeWS, while the rest of private trading remains REST-backed.
+// classicPerpProfile owns Bitget's current split transport subset:
+// the primary write path remains REST, while explicit *WS methods use the trade socket.
 type classicPerpProfile struct {
 	adp *Adapter
 }
 
-// classicSpotProfile mirrors the classic perp hybrid split for spot place/cancel flows.
+// classicSpotProfile mirrors the classic perp split for spot place/cancel flows.
 type classicSpotProfile struct {
 	adp *SpotAdapter
 }
@@ -46,15 +47,7 @@ func (p *classicPerpProfile) PlaceOrder(ctx context.Context, params *exchanges.O
 	if tradeSide == "close" {
 		req.Side = oppositeBitgetSide(req.Side)
 	}
-	var raw *sdk.PlaceOrderResponse
-	if p.adp.IsRESTMode() {
-		raw, err = p.adp.client.PlaceClassicMixOrder(ctx, req, p.adp.perpCategory, p.marginCoin())
-	} else {
-		if err := p.adp.WsOrderConnected(ctx); err != nil {
-			return nil, err
-		}
-		raw, err = p.adp.privateWS.PlaceClassicPerpOrderWS(req, p.adp.perpCategory, p.marginCoin())
-	}
+	raw, err := p.adp.client.PlaceClassicMixOrder(ctx, req, p.adp.perpCategory, p.marginCoin())
 	if err != nil {
 		return nil, err
 	}
@@ -73,12 +66,49 @@ func (p *classicPerpProfile) PlaceOrder(ctx context.Context, params *exchanges.O
 	}, nil
 }
 
+func (p *classicPerpProfile) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if err := requirePrivateAccess(p.adp.client); err != nil {
+		return err
+	}
+	if err := p.adp.BaseAdapter.ApplySlippage(ctx, params, p.adp.FetchTicker); err != nil {
+		return err
+	}
+	if err := p.adp.BaseAdapter.ValidateOrder(params); err != nil {
+		return err
+	}
+	req, err := toPlaceOrderRequest(ctx, p.adp, p.adp.perpCategory, params)
+	if err != nil {
+		return err
+	}
+	marginMode, tradeSide, err := p.orderContext(ctx, params.Symbol, params.ReduceOnly)
+	if err != nil {
+		return err
+	}
+	req.MarginMode = marginMode
+	req.TradeSide = tradeSide
+	if tradeSide == "close" {
+		req.Side = oppositeBitgetSide(req.Side)
+	}
+	if err := p.adp.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err = p.adp.privateWS.PlaceClassicPerpOrderWS(req, p.adp.perpCategory, p.marginCoin())
+	return err
+}
+
 func (p *classicPerpProfile) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
-	if p.adp.IsRESTMode() {
-		_, err := p.adp.client.CancelClassicMixOrder(ctx, p.adp.FormatSymbol(symbol), p.adp.perpCategory, p.marginCoin(), orderID, "")
+	_, err := p.adp.client.CancelClassicMixOrder(ctx, p.adp.FormatSymbol(symbol), p.adp.perpCategory, p.marginCoin(), orderID, "")
+	return err
+}
+
+func (p *classicPerpProfile) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
 	if err := p.adp.WsOrderConnected(ctx); err != nil {
@@ -232,6 +262,10 @@ func (p *classicPerpProfile) ModifyOrder(ctx context.Context, orderID, symbol st
 	return p.FetchOrderByID(ctx, firstNonEmpty(raw.OrderID, orderID), symbol)
 }
 
+func (p *classicPerpProfile) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 func (p *classicPerpProfile) WatchOrders(ctx context.Context, cb exchanges.OrderUpdateCallback) error {
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
@@ -377,15 +411,7 @@ func (p *classicSpotProfile) PlaceOrder(ctx context.Context, params *exchanges.O
 	if err != nil {
 		return nil, err
 	}
-	var raw *sdk.PlaceOrderResponse
-	if p.adp.IsRESTMode() {
-		raw, err = p.adp.client.PlaceClassicSpotOrder(ctx, req)
-	} else {
-		if err := p.adp.WsOrderConnected(ctx); err != nil {
-			return nil, err
-		}
-		raw, err = p.adp.privateWS.PlaceClassicSpotOrderWS(req)
-	}
+	raw, err := p.adp.client.PlaceClassicSpotOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -403,12 +429,40 @@ func (p *classicSpotProfile) PlaceOrder(ctx context.Context, params *exchanges.O
 	}, nil
 }
 
+func (p *classicSpotProfile) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	if err := requirePrivateAccess(p.adp.client); err != nil {
+		return err
+	}
+	if err := p.adp.BaseAdapter.ApplySlippage(ctx, params, p.adp.FetchTicker); err != nil {
+		return err
+	}
+	if err := p.adp.BaseAdapter.ValidateOrder(params); err != nil {
+		return err
+	}
+	req, err := toPlaceOrderRequest(ctx, p.adp, categorySpot, params)
+	if err != nil {
+		return err
+	}
+	if err := p.adp.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	_, err = p.adp.privateWS.PlaceClassicSpotOrderWS(req)
+	return err
+}
+
 func (p *classicSpotProfile) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
-	if p.adp.IsRESTMode() {
-		_, err := p.adp.client.CancelClassicSpotOrder(ctx, p.adp.FormatSymbol(symbol), orderID, "")
+	_, err := p.adp.client.CancelClassicSpotOrder(ctx, p.adp.FormatSymbol(symbol), orderID, "")
+	return err
+}
+
+func (p *classicSpotProfile) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	if err := requirePrivateAccess(p.adp.client); err != nil {
 		return err
 	}
 	if err := p.adp.WsOrderConnected(ctx); err != nil {

@@ -52,8 +52,6 @@ func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		return nil, err
 	}
 	base := exchanges.NewBaseAdapter("BACKPACK", exchanges.MarketTypeSpot, opts.logger())
-	// Backpack places and cancels orders over REST in this adapter pass.
-	base.SetOrderMode(exchanges.OrderModeREST)
 	base.SetSymbolDetails(buildSymbolDetails(markets, quote, exchanges.MarketTypeSpot))
 	return &SpotAdapter{
 		BaseAdapter: base,
@@ -179,9 +177,17 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 	return order, nil
 }
 
+func (a *SpotAdapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	_, err := a.client.CancelOrder(ctx, toCancelOrderRequest(orderID, a.FormatSymbol(symbol)))
 	return err
+}
+
+func (a *SpotAdapter) CancelOrderWS(context.Context, string, string) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {

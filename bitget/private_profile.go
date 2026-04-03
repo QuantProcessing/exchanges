@@ -12,7 +12,9 @@ import (
 // This split is a Bitget exception, not the repository default adapter pattern.
 type privateProfile interface {
 	PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error)
+	PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error
 	CancelOrder(ctx context.Context, orderID, symbol string) error
+	CancelOrderWS(ctx context.Context, orderID, symbol string) error
 	CancelAllOrders(ctx context.Context, symbol string) error
 	FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error)
 	FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error)
@@ -31,6 +33,7 @@ type perpPrivateProfile interface {
 	FetchPositions(ctx context.Context) ([]exchanges.Position, error)
 	SetLeverage(ctx context.Context, symbol string, leverage int) error
 	ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error)
+	ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error
 	WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error
 	StopWatchPositions(ctx context.Context) error
 }

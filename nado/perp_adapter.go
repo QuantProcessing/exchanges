@@ -356,7 +356,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
 		return nil, err
 	}
-	if err := a.WsOrderConnected(ctx); err != nil {
+	if err := a.requirePrivateAccess(); err != nil {
 		return nil, err
 	}
 	productID, err := a.getProductId(params.Symbol)
@@ -414,57 +414,16 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		input.OrderType = nado.OrderTypeFOK
 	}
 
-	// REST mode: use HTTP client directly (PlaceOrder handles signing internally)
-	if a.IsRESTMode() {
-		resp, err := a.httpClient.PlaceOrder(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-		// Cache mapping for WatchOrders to resolve ClientOrderID
-		if params.ClientID != "" {
-			a.orderMap.Store(resp.Digest, orderMeta{
-				OriginalQty:   params.Quantity,
-				ClientOrderID: params.ClientID,
-			})
-		}
-		return &exchanges.Order{
-			OrderID:       resp.Digest,
+	resp, err := a.httpClient.PlaceOrder(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if params.ClientID != "" {
+		a.orderMap.Store(resp.Digest, orderMeta{
+			OriginalQty:   params.Quantity,
 			ClientOrderID: params.ClientID,
-			Symbol:        params.Symbol,
-			Side:          params.Side,
-			Type:          params.Type,
-			Quantity:      params.Quantity,
-			Price:         params.Price,
-			Status:        exchanges.OrderStatusPending,
-			Timestamp:     time.Now().UnixMilli(),
-		}, nil
+		})
 	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return nil, err
-	}
-
-	// Prepare order (sign and calculate hash) locally
-	prepared, err := a.apiClient.PrepareOrder(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache order metadata for WS update calculation - BEFORE execution to avoid race
-	a.orderMap.Store(prepared.Digest, orderMeta{
-		OriginalQty:   params.Quantity,
-		ClientOrderID: params.ClientID,
-	})
-
-	// Execute
-	resp, err := a.apiClient.ExecutePreparedOrder(ctx, prepared)
-	if err != nil {
-		// Cleanup on failure
-		a.orderMap.Delete(prepared.Digest)
-		return nil, err
-	}
-
 	return &exchanges.Order{
 		OrderID:       resp.Digest,
 		ClientOrderID: params.ClientID,
@@ -478,6 +437,88 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}, nil
 }
 
+func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if strings.TrimSpace(params.ClientID) == "" {
+		return fmt.Errorf("client id required for PlaceOrderWS")
+	}
+	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
+	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
+		return err
+	}
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	productID, err := a.getProductId(params.Symbol)
+	if err != nil {
+		return err
+	}
+
+	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
+	if err == nil {
+		if params.Type == exchanges.OrderTypeMarket && params.Price.IsZero() {
+			ticker, err := a.FetchTicker(ctx, params.Symbol)
+			if err != nil {
+				return fmt.Errorf("failed to get ticker for market order price: %w", err)
+			}
+			if params.Side == exchanges.OrderSideBuy {
+				params.Price = ticker.LastPrice.Mul(decimal.NewFromFloat(1.05))
+			} else {
+				params.Price = ticker.LastPrice.Mul(decimal.NewFromFloat(0.95))
+			}
+		}
+
+		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
+			return err
+		}
+	}
+
+	side := nado.OrderSideBuy
+	if params.Side == exchanges.OrderSideSell {
+		side = nado.OrderSideSell
+	}
+
+	ot := nado.OrderTypeLimit
+	switch params.Type {
+	case exchanges.OrderTypeMarket:
+		ot = nado.OrderTypeMarket
+	case exchanges.OrderTypePostOnly:
+		ot = nado.OrderTypeLimit
+	}
+
+	input := nado.ClientOrderInput{
+		ProductId:  int64(productID),
+		Side:       side,
+		Price:      params.Price.StringFixed(details.PricePrecision),
+		Amount:     params.Quantity.StringFixed(details.QuantityPrecision),
+		OrderType:  ot,
+		PostOnly:   params.Type == exchanges.OrderTypePostOnly,
+		ReduceOnly: params.ReduceOnly,
+	}
+
+	switch params.TimeInForce {
+	case exchanges.TimeInForceIOC:
+		input.OrderType = nado.OrderTypeIOC
+	case exchanges.TimeInForceFOK:
+		input.OrderType = nado.OrderTypeFOK
+	}
+
+	prepared, err := a.apiClient.PrepareOrder(ctx, input)
+	if err != nil {
+		return err
+	}
+
+	a.orderMap.Store(prepared.Digest, orderMeta{
+		OriginalQty:   params.Quantity,
+		ClientOrderID: params.ClientID,
+	})
+
+	if _, err := a.apiClient.ExecutePreparedOrder(ctx, prepared); err != nil {
+		a.orderMap.Delete(prepared.Digest)
+		return err
+	}
+	return nil
+}
+
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	productID, err := a.getProductId(symbol)
 	if err != nil {
@@ -488,16 +529,22 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 		ProductIds: []int64{productID},
 		Digests:    []string{orderID},
 	}
+	_, err = a.httpClient.CancelOrders(ctx, input)
+	return err
+}
 
-	// REST mode
-	if a.IsRESTMode() {
-		_, err = a.httpClient.CancelOrders(ctx, input)
+func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	productID, err := a.getProductId(symbol)
+	if err != nil {
 		return err
 	}
 
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
+	input := nado.CancelOrdersInput{
+		ProductIds: []int64{productID},
+		Digests:    []string{orderID},
 	}
 	_, err = a.apiClient.CancelOrders(ctx, input)
 	return err
@@ -505,6 +552,10 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error
 
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -567,24 +618,7 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	if err != nil {
 		return err
 	}
-
-	// REST mode
-	if a.IsRESTMode() {
-		_, err = a.httpClient.CancelProductOrders(ctx, []int64{productID})
-		return err
-	}
-
-	// WS mode
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-
-	tx := nado.TxCancelProductOrders{
-		Sender:     nado.BuildSender(a.apiClient.Signer.GetAddress(), a.subaccount),
-		ProductIds: []int64{productID},
-		Nonce:      strconv.FormatInt(nado.GetNonce(), 10),
-	}
-	_, err = a.apiClient.WsCancelProductOrders(tx)
+	_, err = a.httpClient.CancelProductOrders(ctx, []int64{productID})
 	return err
 }
 

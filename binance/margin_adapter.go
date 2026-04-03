@@ -240,6 +240,10 @@ func (a *MarginAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderP
 	return o, nil
 }
 
+func (a *MarginAdapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 // Override FetchOrderByID
 func (a *MarginAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
 	formattedSymbol := spot.FormatSymbol(symbol)
@@ -295,6 +299,10 @@ func (a *MarginAdapter) CancelOrder(ctx context.Context, orderID, symbol string)
 
 	_, err = a.marginClient.CancelOrder(ctx, formattedSymbol, oid, "", false)
 	return err
+}
+
+func (a *MarginAdapter) CancelOrderWS(context.Context, string, string) error {
+	return exchanges.ErrNotSupported
 }
 
 // Override SubscribeOrderUpdate

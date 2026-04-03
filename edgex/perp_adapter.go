@@ -63,8 +63,6 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	}
 
 	base := exchanges.NewBaseAdapter("EDGEX", exchanges.MarketTypePerp, opts.logger())
-	// EdgeX uses REST for private order placement and cancellation in this adapter.
-	base.SetOrderMode(exchanges.OrderModeREST)
 
 	a := &Adapter{
 		BaseAdapter:      base,
@@ -360,13 +358,25 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}, nil
 }
 
+func (a *Adapter) PlaceOrderWS(context.Context, *exchanges.OrderParams) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	_, err := a.client.CancelOrder(ctx, orderID)
 	return err
 }
 
+func (a *Adapter) CancelOrderWS(context.Context, string, string) error {
+	return exchanges.ErrNotSupported
+}
+
 func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
 	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) ModifyOrderWS(context.Context, string, string, *exchanges.ModifyOrderParams) error {
+	return exchanges.ErrNotSupported
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
