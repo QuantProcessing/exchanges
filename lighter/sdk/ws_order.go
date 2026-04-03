@@ -146,6 +146,7 @@ func (c *WebsocketClient) PlaceOrder(ctx context.Context, client *Client, req Cr
 		return ethCommon.Bytes2Hex(hash), err
 	}
 	if resp != nil && !resp.IsSuccess() {
+		client.InvalidateNonce()
 		return ethCommon.Bytes2Hex(hash), fmt.Errorf("order rejected: %s", resp.Error())
 	}
 
@@ -197,6 +198,7 @@ func (c *WebsocketClient) CancelOrder(ctx context.Context, client *Client, req C
 		return ethCommon.Bytes2Hex(hash), err
 	}
 	if resp != nil && !resp.IsSuccess() {
+		client.InvalidateNonce()
 		return ethCommon.Bytes2Hex(hash), fmt.Errorf("cancel rejected: %s", resp.Error())
 	}
 
@@ -242,6 +244,7 @@ func (c *WebsocketClient) ModifyOrder(ctx context.Context, client *Client, req M
 		return ethCommon.Bytes2Hex(hash), err
 	}
 	if resp != nil && !resp.IsSuccess() {
+		client.InvalidateNonce()
 		return ethCommon.Bytes2Hex(hash), fmt.Errorf("modify rejected: %s", resp.Error())
 	}
 
@@ -293,6 +296,7 @@ func (c *WebsocketClient) CancelAllOrders(ctx context.Context, client *Client, r
 		return ethCommon.Bytes2Hex(hash), err
 	}
 	if resp != nil && !resp.IsSuccess() {
+		client.InvalidateNonce()
 		return ethCommon.Bytes2Hex(hash), fmt.Errorf("cancel all rejected: %s", resp.Error())
 	}
 

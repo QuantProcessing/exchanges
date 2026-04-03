@@ -441,17 +441,7 @@ func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderPar
 		return nil, err
 	}
 
-	return &exchanges.Order{
-		Symbol:        params.Symbol,
-		Side:          params.Side,
-		Type:          params.Type,
-		Quantity:      params.Quantity,
-		Price:         params.Price,
-		Status:        exchanges.OrderStatusPending,
-		Timestamp:     time.Now().UnixMilli(),
-		OrderID:       strconv.FormatInt(clientOidInt, 10),
-		ClientOrderID: strconv.FormatInt(clientOidInt, 10),
-	}, nil
+	return newSubmittedOrder(params, strconv.FormatInt(clientOidInt, 10), time.Now()), nil
 }
 
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
@@ -552,9 +542,9 @@ func (a *SpotAdapter) mapOrder(o *lighter.Order) *exchanges.Order {
 
 	status := exchanges.OrderStatusUnknown
 	switch o.Status {
-	case lighter.OrderStatusOpen, lighter.OrderStatusPending:
+	case lighter.OrderStatusInProgress, lighter.OrderStatusOpen, lighter.OrderStatusPending:
 		status = exchanges.OrderStatusNew
-		if o.Status == lighter.OrderStatusPending {
+		if o.Status == lighter.OrderStatusPending || o.Status == lighter.OrderStatusInProgress {
 			status = exchanges.OrderStatusPending
 		}
 	case lighter.OrderStatusFilled:
@@ -565,7 +555,8 @@ func (a *SpotAdapter) mapOrder(o *lighter.Order) *exchanges.Order {
 		lighter.OrderStatusCanceledPositionNotAllowed, lighter.OrderStatusCanceledMarginNotAllowed,
 		lighter.OrderStatusCanceledTooMuchSlippage, lighter.OrderStatusCanceledNotEnoughLiquidity,
 		lighter.OrderStatusCanceledSelfTrade, lighter.OrderStatusCanceledExpired, lighter.OrderStatusCanceledOco,
-		lighter.OrderStatusCanceledChild, lighter.OrderStatusCanceledLiquidation:
+		lighter.OrderStatusCanceledChild, lighter.OrderStatusCanceledLiquidation,
+		lighter.OrderStatusCanceledInvalidBalance:
 		status = exchanges.OrderStatusCancelled
 	case lighter.OrderStatusRejected:
 		status = exchanges.OrderStatusRejected
@@ -782,7 +773,10 @@ func (a *SpotAdapter) WatchOrders(ctx context.Context, callback exchanges.OrderU
 }
 
 func (a *SpotAdapter) WatchTicker(ctx context.Context, symbol string, callback exchanges.TickerCallback) error {
-	return exchanges.ErrNotSupported
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+	return a.watchTickerWithWS(ctx, a.wsClient, symbol, callback)
 }
 
 // WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
@@ -790,38 +784,21 @@ func (a *SpotAdapter) WatchOrderBook(ctx context.Context, symbol string, depth i
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
+
+	return a.watchOrderBookWithWS(ctx, a.wsClient, symbol, depth, callback)
+}
+
+func (a *SpotAdapter) watchOrderBookWithWS(ctx context.Context, ws lighterOrderBookWS, symbol string, depth int, callback exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)
-
-	a.cancelMu.Lock()
-	if a.cancels == nil {
-		a.cancels = make(map[string]context.CancelFunc)
-	}
-	if cancel, ok := a.cancels[formattedSymbol]; ok {
-		cancel()
-	}
-
-	ob := NewOrderBook(formattedSymbol)
-	a.SetLocalOrderBook(formattedSymbol, ob)
-
-	_, cancel := context.WithCancel(context.Background())
-	a.cancels[formattedSymbol] = cancel
-	a.cancelMu.Unlock()
-
 	mid, ok := a.symbolToID[formattedSymbol]
 	if !ok {
 		return fmt.Errorf("unknown symbol: %s", symbol)
 	}
 
-	err := a.wsClient.SubscribeOrderBook(mid, func(msg []byte) {
-		ob.ProcessUpdate(msg)
-		if callback != nil {
-			callback(ob.ToAdapterOrderBook(depth))
-		}
-	})
-	if err != nil {
-		return err
+	if a.cancels == nil {
+		a.cancels = make(map[string]context.CancelFunc)
 	}
-	return a.BaseAdapter.WaitOrderBookReady(ctx, formattedSymbol)
+	return startLighterOrderBookWatch(ctx, a.BaseAdapter, &a.cancelMu, a.cancels, ws, formattedSymbol, mid, depth, callback)
 }
 
 func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
@@ -829,7 +806,10 @@ func (a *SpotAdapter) WatchKlines(ctx context.Context, symbol string, interval e
 }
 
 func (a *SpotAdapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
-	return exchanges.ErrNotSupported
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+	return a.watchTradesWithWS(ctx, a.wsClient, symbol, callback)
 }
 
 // Unsubscribe methods
@@ -870,7 +850,14 @@ func (a *SpotAdapter) StopWatchFills(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) StopWatchTicker(ctx context.Context, symbol string) error {
-	return exchanges.ErrNotSupported
+	_ = ctx
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", symbol)
+	}
+	return a.wsClient.UnsubscribeSpotMarketStats(mid)
 }
 
 func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
@@ -878,7 +865,14 @@ func (a *SpotAdapter) StopWatchKlines(ctx context.Context, symbol string, interv
 }
 
 func (a *SpotAdapter) StopWatchTrades(ctx context.Context, symbol string) error {
-	return exchanges.ErrNotSupported
+	_ = ctx
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", symbol)
+	}
+	return a.wsClient.UnsubscribeTrades(mid)
 }
 
 func (a *SpotAdapter) WaitOrderBookReady(ctx context.Context, symbol string) error {
@@ -958,6 +952,12 @@ func (a *SpotAdapter) StopWatchOrderBook(ctx context.Context, symbol string) err
 	}
 	a.cancelMu.Unlock()
 	a.RemoveLocalOrderBook(formattedSymbol)
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[formattedSymbol]
+	a.metaMu.RUnlock()
+	if ok {
+		return a.wsClient.UnsubscribeOrderBook(mid)
+	}
 	return nil
 }
 

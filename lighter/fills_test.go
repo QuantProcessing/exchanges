@@ -20,7 +20,7 @@ func TestMapLighterTradeToFillReturnsPerpExecutionDetails(t *testing.T) {
 		AskAccountId: 123,
 		BidAccountId: 456,
 		IsMakerAsk:   true,
-		Timestamp:    1700000000,
+		Timestamp:    1700000000000,
 	}, map[int]string{1: "BTC"}, 123)
 
 	require.NotNil(t, fill)
@@ -45,7 +45,7 @@ func TestMapLighterTradeToFillReturnsSpotExecutionDetails(t *testing.T) {
 		AskAccountId: 123,
 		BidAccountId: 456,
 		IsMakerAsk:   false,
-		Timestamp:    1700000123,
+		Timestamp:    1700000123000,
 	}, map[int]string{2: "ETH"}, 456)
 
 	require.NotNil(t, fill)

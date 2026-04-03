@@ -70,6 +70,7 @@ const (
 	OrderStatusCanceledOco                OrderStatus = "canceled-oco"
 	OrderStatusCanceledChild              OrderStatus = "canceled-child"
 	OrderStatusCanceledLiquidation        OrderStatus = "canceled-liquidation"
+	OrderStatusCanceledInvalidBalance     OrderStatus = "canceled-invalid-balance"
 
 	// lighter not provided
 	OrderStatusRejected        OrderStatus = "rejected"
@@ -128,40 +129,44 @@ type Asset struct {
 
 // Order represents an order in the system
 type Order struct {
-	OrderIndex          int64         `json:"order_index"`
-	ClientOrderIndex    int64         `json:"client_order_index"`
-	OrderId             string        `json:"order_id"`
-	ClientOrderId       string        `json:"client_order_id"`
-	MarketIndex         int           `json:"market_index"`
-	OwnerAccountIndex   int           `json:"owner_account_index"`
-	InitialBaseAmount   string        `json:"initial_base_amount"`
-	Price               string        `json:"price"`
-	Nonce               int64         `json:"nonce"`
-	RemainingBaseAmount string        `json:"remaining_base_amount"`
-	IsAsk               bool          `json:"is_ask"`
-	BaseSize            int64         `json:"base_size"`
-	BasePrice           int64         `json:"base_price"`
-	FilledBaseAmount    string        `json:"filled_base_amount"`
-	FilledQuoteAmount   string        `json:"filled_quote_amount"`
-	Side                string        `json:"side"`
-	OrderType           OrderTypeResp `json:"type"`
-	TimeInForce         string        `json:"time_in_force"`
-	ReduceOnly          bool          `json:"reduce_only"`
-	TriggerPrice        string        `json:"trigger_price"`
-	OrderExpiry         int64         `json:"order_expiry"`
-	Status              OrderStatus   `json:"status"`
-	TriggerStatus       string        `json:"trigger_status"`
-	TriggerTime         int64         `json:"trigger_time"`
-	ParentOrderIndex    int64         `json:"parent_order_index"`
-	ParentOrderId       string        `json:"parent_order_id"`
-	ToTriggerOrderId0   string        `json:"to_trigger_order_id_0"`
-	ToTriggerOrderId1   string        `json:"to_trigger_order_id_1"`
-	ToTriggerOrderId2   string        `json:"to_trigger_order_id_2"`
-	ToCancelOrderId0    string        `json:"to_cancel_order_id_0"`
-	BlockHeight         int64         `json:"block_height"`
-	Timestamp           int64         `json:"timestamp"`
-	CreatedAt           int64         `json:"created_at"`
-	UpdatedAt           int64         `json:"updated_at"`
+	OrderIndex                  int64         `json:"order_index"`
+	ClientOrderIndex            int64         `json:"client_order_index"`
+	OrderId                     string        `json:"order_id"`
+	ClientOrderId               string        `json:"client_order_id"`
+	MarketIndex                 int           `json:"market_index"`
+	OwnerAccountIndex           int           `json:"owner_account_index"`
+	InitialBaseAmount           string        `json:"initial_base_amount"`
+	Price                       string        `json:"price"`
+	Nonce                       int64         `json:"nonce"`
+	RemainingBaseAmount         string        `json:"remaining_base_amount"`
+	IsAsk                       bool          `json:"is_ask"`
+	BaseSize                    int64         `json:"base_size"`
+	BasePrice                   int64         `json:"base_price"`
+	FilledBaseAmount            string        `json:"filled_base_amount"`
+	FilledQuoteAmount           string        `json:"filled_quote_amount"`
+	Side                        string        `json:"side"`
+	OrderType                   OrderTypeResp `json:"type"`
+	TimeInForce                 string        `json:"time_in_force"`
+	ReduceOnly                  bool          `json:"reduce_only"`
+	TriggerPrice                string        `json:"trigger_price"`
+	OrderExpiry                 int64         `json:"order_expiry"`
+	Status                      OrderStatus   `json:"status"`
+	TriggerStatus               string        `json:"trigger_status"`
+	TriggerTime                 int64         `json:"trigger_time"`
+	ParentOrderIndex            int64         `json:"parent_order_index"`
+	ParentOrderId               string        `json:"parent_order_id"`
+	ToTriggerOrderId0           string        `json:"to_trigger_order_id_0"`
+	ToTriggerOrderId1           string        `json:"to_trigger_order_id_1"`
+	ToTriggerOrderId2           string        `json:"to_trigger_order_id_2"`
+	ToCancelOrderId0            string        `json:"to_cancel_order_id_0"`
+	IntegratorFeeCollectorIndex string        `json:"integrator_fee_collector_index"`
+	IntegratorTakerFee          string        `json:"integrator_taker_fee"`
+	IntegratorMakerFee          string        `json:"integrator_maker_fee"`
+	BlockHeight                 int64         `json:"block_height"`
+	Timestamp                   int64         `json:"timestamp"`
+	CreatedAt                   int64         `json:"created_at"`
+	UpdatedAt                   int64         `json:"updated_at"`
+	TransactionTime             int64         `json:"transaction_time"`
 }
 
 // AccountInfo represents account information
@@ -311,6 +316,7 @@ type RecentTradesResponse struct {
 
 type Trade struct {
 	TradeId                          int64  `json:"trade_id"`
+	TradeIdStr                       string `json:"trade_id_str"`
 	TxHash                           string `json:"tx_hash"`
 	TradeType                        string `json:"type"`
 	MarketId                         int    `json:"market_id"`
@@ -318,7 +324,13 @@ type Trade struct {
 	Price                            string `json:"price"`
 	UsdAmount                        string `json:"usd_amount"`
 	AskId                            int64  `json:"ask_id"`
+	AskIdStr                         string `json:"ask_id_str"`
 	BidId                            int64  `json:"bid_id"`
+	BidIdStr                         string `json:"bid_id_str"`
+	AskClientId                      int64  `json:"ask_client_id"`
+	AskClientIdStr                   string `json:"ask_client_id_str"`
+	BidClientId                      int64  `json:"bid_client_id"`
+	BidClientIdStr                   string `json:"bid_client_id_str"`
 	AskAccountId                     int64  `json:"ask_account_id"`
 	BidAccountId                     int64  `json:"bid_account_id"`
 	IsMakerAsk                       bool   `json:"is_maker_ask"`
@@ -334,6 +346,9 @@ type Trade struct {
 	MakerEntryQuoteBefore            string `json:"maker_entry_quote_before"`
 	MakerInitialMarginFractionBefore int    `json:"maker_initial_margin_fraction_before"`
 	MakerPositionSignChanged         bool   `json:"maker_position_sign_changed"`
+	TransactionTime                  int64  `json:"transaction_time"`
+	AskAccountPnl                    string `json:"ask_account_pnl"`
+	BidAccountPnl                    string `json:"bid_account_pnl"`
 }
 
 type AccountResponse struct {
@@ -392,6 +407,7 @@ type Position struct {
 	TotalFundingPaidOut    string `json:"total_funding_paid_out"`
 	MarginMode             int32  `json:"margin_mode"`
 	AllocatedMargin        string `json:"allocated_margin"`
+	TotalDiscount          string `json:"total_discount"`
 }
 
 type PoolInfo struct {
@@ -419,6 +435,8 @@ type Share struct {
 	PublicPoolIndex int64  `json:"public_pool_index"`
 	SharesAmount    int64  `json:"shares_amount"`
 	EntryUsdc       string `json:"entry_usdc"`
+	PrincipalAmount string `json:"principal_amount"`
+	EntryTimestamp  int64  `json:"entry_timestamp"`
 }
 
 type AccountInactiveOrdersResponse struct {
@@ -435,6 +453,7 @@ type AccountTxsResponse struct {
 }
 
 type Tx struct {
+	Type             uint8  `json:"type"`
 	Hash             string `json:"hash"`
 	TxType           uint8  `json:"tx_type"`
 	Info             string `json:"info"`
@@ -447,8 +466,11 @@ type Tx struct {
 	ExpireAt         int64  `json:"expire_at"`
 	BlockHeight      int64  `json:"block_height"`
 	QueuedAt         int64  `json:"queued_at"`
+	ExecutedAt       int64  `json:"executed_at"`
 	SequenceIndex    int64  `json:"sequence_index"`
 	ParentHash       string `json:"parent_hash"`
+	APIKeyIndex      int    `json:"api_key_index"`
+	TransactionTime  int64  `json:"transaction_time"`
 }
 
 type PnlResponse struct {
@@ -512,6 +534,7 @@ type PositionFunding struct {
 	Rate         string `json:"rate"`
 	PositionSize string `json:"position_size"`
 	PositionSide string `json:"position_side"`
+	Discount     string `json:"discount"`
 }
 
 type ModifyOrderResponse struct {

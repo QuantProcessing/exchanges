@@ -76,6 +76,78 @@ func TestWSClientRawCallbackReceivesNormalizedJSONAfterMsgpackDecode(t *testing.
 	require.Equal(t, float64(123), got["height"])
 }
 
+func TestWSClientRawCallbackNormalizesNestedIntegerMapKeysFromMsgpack(t *testing.T) {
+	client := NewWebsocketClient(context.Background())
+
+	var got map[string]any
+	require.NoError(t, client.registerRawSubscription("account_all_orders/42", nil, func(data []byte) {
+		require.NoError(t, json.Unmarshal(data, &got))
+	}))
+
+	raw, err := msgpack.Marshal(map[string]any{
+		"channel": "account_all_orders:42",
+		"type":    "subscribed/account_all_orders",
+		"orders": map[any]any{
+			int64(0): []any{
+				map[string]any{
+					"order_id":            "123",
+					"client_order_id":     "456",
+					"market_index":        int64(0),
+					"initial_base_amount": "0.01",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, client.handleIncomingFrame(websocket.BinaryMessage, raw))
+	require.Equal(t, "account_all_orders:42", got["channel"])
+	require.Equal(t, "subscribed/account_all_orders", got["type"])
+	orders, ok := got["orders"].(map[string]any)
+	require.True(t, ok)
+	bucket, ok := orders["0"].([]any)
+	require.True(t, ok)
+	require.Len(t, bucket, 1)
+	entry, ok := bucket[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "123", entry["order_id"])
+	require.Equal(t, "456", entry["client_order_id"])
+}
+
+func TestWSClientTypedDispatcherHandlesNestedIntegerMapKeysFromMsgpack(t *testing.T) {
+	client := NewWebsocketClient(context.Background())
+
+	var got WsAccountAllOrdersEvent
+	require.NoError(t, client.registerTypedSubscription("account_all_orders/42", nil, func(env *Envelope) error {
+		return env.Unmarshal(&got)
+	}))
+
+	raw, err := msgpack.Marshal(map[string]any{
+		"channel": "account_all_orders:42",
+		"type":    "update/account_all_orders",
+		"orders": map[any]any{
+			int64(2048): []any{
+				map[string]any{
+					"order_id":            "789",
+					"client_order_id":     "999",
+					"market_index":        int64(2048),
+					"initial_base_amount": "0.02",
+					"filled_base_amount":  "0.01",
+					"status":              "open",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, client.handleIncomingFrame(websocket.BinaryMessage, raw))
+	require.Contains(t, got.Orders, "2048")
+	require.Len(t, got.Orders["2048"], 1)
+	require.Equal(t, "789", got.Orders["2048"][0].OrderId)
+	require.Equal(t, "999", got.Orders["2048"][0].ClientOrderId)
+	require.Equal(t, OrderStatusOpen, got.Orders["2048"][0].Status)
+}
+
 func TestWSClientBuildURLIncludesReadonlyAndEncoding(t *testing.T) {
 	client := NewWebsocketClientWithConfig(context.Background(), WSConfig{
 		URL:      MainnetWSURL,
@@ -86,6 +158,14 @@ func TestWSClientBuildURLIncludesReadonlyAndEncoding(t *testing.T) {
 	got, err := client.buildURL()
 	require.NoError(t, err)
 	require.Equal(t, "wss://mainnet.zklighter.elliot.ai/stream?encoding=msgpack&readonly=true", got)
+}
+
+func TestWSClientDefaultsToMsgpackEncoding(t *testing.T) {
+	client := NewWebsocketClient(context.Background())
+
+	got, err := client.buildURL()
+	require.NoError(t, err)
+	require.Equal(t, "wss://mainnet.zklighter.elliot.ai/stream?encoding=msgpack", got)
 }
 
 func TestWSClientPingLoopSendsControlPing(t *testing.T) {

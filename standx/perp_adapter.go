@@ -290,17 +290,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		if resp.Code != 0 {
 			return nil, fmt.Errorf("create order failed: code=%d msg=%s", resp.Code, resp.Message)
 		}
-		return &exchanges.Order{
-			OrderID:       params.ClientID,
-			Symbol:        params.Symbol,
-			Side:          params.Side,
-			Type:          params.Type,
-			Quantity:      params.Quantity,
-			Price:         params.Price,
-			Status:        exchanges.OrderStatusNew,
-			ClientOrderID: params.ClientID,
-			Timestamp:     time.Now().UnixMilli(),
-		}, nil
+		return newSubmittedOrder(params, params.ClientID, time.Now()), nil
 	}
 
 	// WS mode: Send Request via WS API
@@ -314,17 +304,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	}
 
 	// Success
-	return &exchanges.Order{
-		OrderID:       params.ClientID, // server not return order id, use client order id instead
-		Symbol:        params.Symbol,
-		Side:          params.Side,
-		Type:          params.Type,
-		Quantity:      params.Quantity,
-		Price:         params.Price,
-		Status:        exchanges.OrderStatusNew,
-		ClientOrderID: params.ClientID,
-		Timestamp:     time.Now().UnixMilli(),
-	}, nil
+	return newSubmittedOrder(params, params.ClientID, time.Now()), nil
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {

@@ -431,17 +431,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		if err != nil {
 			return nil, err
 		}
-		return &exchanges.Order{
-			Symbol:        params.Symbol,
-			Side:          params.Side,
-			Type:          params.Type,
-			Quantity:      params.Quantity,
-			Price:         params.Price,
-			Status:        exchanges.OrderStatusPending,
-			Timestamp:     time.Now().UnixMilli(),
-			OrderID:       strconv.FormatInt(clientOidInt, 10),
-			ClientOrderID: strconv.FormatInt(clientOidInt, 10),
-		}, nil
+		return newSubmittedOrder(params, strconv.FormatInt(clientOidInt, 10), time.Now()), nil
 	}
 
 	// WS mode
@@ -453,17 +443,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 		return nil, err
 	}
 
-	return &exchanges.Order{
-		Symbol:        params.Symbol,
-		Side:          params.Side,
-		Type:          params.Type,
-		Quantity:      params.Quantity,
-		Price:         params.Price,
-		Status:        exchanges.OrderStatusPending,
-		Timestamp:     time.Now().UnixMilli(),
-		OrderID:       strconv.FormatInt(clientOidInt, 10),
-		ClientOrderID: strconv.FormatInt(clientOidInt, 10),
-	}, nil
+	return newSubmittedOrder(params, strconv.FormatInt(clientOidInt, 10), time.Now()), nil
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
@@ -836,35 +816,7 @@ func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback excha
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
-	a.metaMu.RLock()
-	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
-	a.metaMu.RUnlock()
-	if !ok {
-		return fmt.Errorf("unknown symbol: %s", symbol)
-	}
-
-	return a.wsClient.SubscribeMarketStats(mid, func(data []byte) {
-		var res struct {
-			Stats struct {
-				LastTradePrice       float64 `json:"last_trade_price"`
-				DailyBaseTokenVolume float64 `json:"daily_base_token_volume"`
-				DailyPriceHigh       float64 `json:"daily_price_high"`
-				DailyPriceLow        float64 `json:"daily_price_low"`
-			} `json:"market_stats"`
-		}
-		if err := json.Unmarshal(data, &res); err != nil {
-			return
-		}
-
-		callback(&exchanges.Ticker{
-			Symbol:    symbol,
-			LastPrice: decimal.NewFromFloat(res.Stats.LastTradePrice),
-			Volume24h: decimal.NewFromFloat(res.Stats.DailyBaseTokenVolume),
-			High24h:   decimal.NewFromFloat(res.Stats.DailyPriceHigh),
-			Low24h:    decimal.NewFromFloat(res.Stats.DailyPriceLow),
-			Timestamp: time.Now().UnixMilli(),
-		})
-	})
+	return a.watchTickerWithWS(ctx, a.wsClient, symbol, callback)
 }
 
 func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
@@ -875,40 +827,7 @@ func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback excha
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
-	formattedSymbol := a.FormatSymbol(symbol)
-	a.metaMu.RLock()
-	mid, ok := a.symbolToID[formattedSymbol]
-	a.metaMu.RUnlock()
-	if !ok {
-		return fmt.Errorf("unknown symbol: %s", symbol)
-	}
-
-	return a.wsClient.SubscribeTrades(mid, func(data []byte) {
-		var t struct {
-			Price      string `json:"price"`
-			Size       string `json:"size"`
-			Timestamp  int64  `json:"timestamp"`
-			IsMakerAsk bool   `json:"is_maker_ask"`
-			TradeId    int64  `json:"trade_id"`
-		}
-		if err := json.Unmarshal(data, &t); err != nil {
-			return
-		}
-
-		side := exchanges.TradeSideSell
-		if !t.IsMakerAsk {
-			side = exchanges.TradeSideBuy
-		}
-
-		callback(&exchanges.Trade{
-			ID:        fmt.Sprintf("%d", t.TradeId),
-			Symbol:    symbol,
-			Price:     parseLighterFloat(t.Price),
-			Quantity:  parseLighterFloat(t.Size),
-			Side:      side,
-			Timestamp: t.Timestamp * 1000,
-		})
-	})
+	return a.watchTradesWithWS(ctx, a.wsClient, symbol, callback)
 }
 
 func (a *Adapter) StopWatchOrders(ctx context.Context) error { return nil }
@@ -942,58 +861,36 @@ func (a *Adapter) StopWatchFills(ctx context.Context) error {
 	}
 	return a.wsClient.Unsubscribe(fmt.Sprintf("account_all_trades/%d", a.client.AccountIndex))
 }
-func (a *Adapter) StopWatchPositions(ctx context.Context) error             { return nil }
-func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error { return nil }
+func (a *Adapter) StopWatchPositions(ctx context.Context) error { return nil }
+func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
+	_ = ctx
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown symbol: %s", symbol)
+	}
+	if err := a.wsClient.UnsubscribeTicker(mid); err != nil {
+		return err
+	}
+	return a.wsClient.UnsubscribeMarketStats(mid)
+}
 func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	if err := a.WsMarketConnected(ctx); err != nil {
 		return err
 	}
 
+	return a.watchOrderBookWithWS(ctx, a.wsClient, symbol, depth, cb)
+}
+
+func (a *Adapter) watchOrderBookWithWS(ctx context.Context, ws lighterOrderBookWS, symbol string, depth int, cb exchanges.OrderBookCallback) error {
 	formattedSymbol := a.FormatSymbol(symbol)
 	mid, ok := a.symbolToID[formattedSymbol]
 	if !ok {
 		return fmt.Errorf("unknown symbol: %s", symbol)
 	}
 
-	// Create local orderbook
-	ob := NewOrderBook(formattedSymbol)
-	a.SetLocalOrderBook(formattedSymbol, ob)
-
-	// Subscribe to WS order book updates
-	if err := a.wsClient.SubscribeOrderBook(mid, func(data []byte) {
-		ob.ProcessUpdate(data)
-	}); err != nil {
-		return err
-	}
-
-	// Wait for initial snapshot
-	if !ob.WaitReady(ctx, 10*time.Second) {
-		return fmt.Errorf("orderbook %s not ready within timeout", symbol)
-	}
-
-	// Start polling goroutine to push snapshots
-	subCtx, cancel := context.WithCancel(ctx)
-	a.cancelMu.Lock()
-	a.cancels[formattedSymbol] = cancel
-	a.cancelMu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-subCtx.Done():
-				return
-			case <-ticker.C:
-				if cb != nil {
-					snap := ob.ToAdapterOrderBook(depth)
-					cb(snap)
-				}
-			}
-		}
-	}()
-
-	return nil
+	return startLighterOrderBookWatch(ctx, a.BaseAdapter, &a.cancelMu, a.cancels, ws, formattedSymbol, mid, depth, cb)
 }
 
 func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
@@ -1005,6 +902,12 @@ func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
 	}
 	a.cancelMu.Unlock()
 	a.RemoveLocalOrderBook(formattedSymbol)
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[formattedSymbol]
+	a.metaMu.RUnlock()
+	if ok {
+		return a.wsClient.UnsubscribeOrderBook(mid)
+	}
 	return nil
 }
 func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
@@ -1042,9 +945,9 @@ func (a *Adapter) mapOrder(o *lighter.Order) *exchanges.Order {
 
 	status := exchanges.OrderStatusUnknown
 	switch o.Status {
-	case lighter.OrderStatusOpen, lighter.OrderStatusPending:
+	case lighter.OrderStatusInProgress, lighter.OrderStatusOpen, lighter.OrderStatusPending:
 		status = exchanges.OrderStatusNew // or Open
-		if o.Status == lighter.OrderStatusPending {
+		if o.Status == lighter.OrderStatusPending || o.Status == lighter.OrderStatusInProgress {
 			status = exchanges.OrderStatusPending
 		}
 	case lighter.OrderStatusFilled:
@@ -1055,7 +958,8 @@ func (a *Adapter) mapOrder(o *lighter.Order) *exchanges.Order {
 		lighter.OrderStatusCanceledPositionNotAllowed, lighter.OrderStatusCanceledMarginNotAllowed,
 		lighter.OrderStatusCanceledTooMuchSlippage, lighter.OrderStatusCanceledNotEnoughLiquidity,
 		lighter.OrderStatusCanceledSelfTrade, lighter.OrderStatusCanceledExpired, lighter.OrderStatusCanceledOco,
-		lighter.OrderStatusCanceledChild, lighter.OrderStatusCanceledLiquidation:
+		lighter.OrderStatusCanceledChild, lighter.OrderStatusCanceledLiquidation,
+		lighter.OrderStatusCanceledInvalidBalance:
 		// Map all cancel/reject reasons to Cancelled or Rejected
 		status = exchanges.OrderStatusCancelled
 	case lighter.OrderStatusRejected:
@@ -1103,7 +1007,7 @@ func mapLighterTradeToFill(trade lighter.Trade, idToSymbol map[int]string, accou
 		Price:     parseLighterFloat(trade.Price),
 		Quantity:  parseLighterFloat(trade.Size),
 		IsMaker:   isMaker,
-		Timestamp: trade.Timestamp * 1000,
+		Timestamp: trade.Timestamp,
 	}
 	if orderID > 0 {
 		fill.OrderID = fmt.Sprintf("%d", orderID)

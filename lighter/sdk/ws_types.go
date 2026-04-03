@@ -47,24 +47,38 @@ type SubscribeRequest struct {
 
 // WsOrderBookEvent represents an order book update
 type WsOrderBookEvent struct {
-	Channel   string `json:"channel"`
-	Offset    int64  `json:"offset"`
-	Type      string `json:"type"`
-	OrderBook struct {
-		Code       int64            `json:"code"`
-		Asks       []OrderBookLevel `json:"asks"`
-		Bids       []OrderBookLevel `json:"bids"`
-		Offset     int64            `json:"offset"`
-		Nonce      int64            `json:"nonce"`
-		BeginNonce int64            `json:"begin_nonce"`
-		Timestamp  int64            `json:"timestamp"`
+	Channel       string `json:"channel"`
+	Offset        int64  `json:"offset"`
+	Type          string `json:"type"`
+	Timestamp     int64  `json:"timestamp"`
+	LastUpdatedAt int64  `json:"last_updated_at"`
+	OrderBook     struct {
+		Code          int64            `json:"code"`
+		Asks          []OrderBookLevel `json:"asks"`
+		Bids          []OrderBookLevel `json:"bids"`
+		Offset        int64            `json:"offset"`
+		Nonce         int64            `json:"nonce"`
+		BeginNonce    int64            `json:"begin_nonce"`
+		LastUpdatedAt int64            `json:"last_updated_at"`
 	} `json:"order_book"`
+}
+
+type WsTickerEvent struct {
+	Channel       string `json:"channel"`
+	Type          string `json:"type"`
+	Timestamp     int64  `json:"timestamp"`
+	LastUpdatedAt int64  `json:"last_updated_at"`
+	Ticker        struct {
+		A OrderBookLevel `json:"a"`
+		B OrderBookLevel `json:"b"`
+	} `json:"ticker"`
 }
 
 // WsMarketStatsEvent represents market statistics update
 type WsMarketStatsEvent struct {
 	Channel     string `json:"channel"`
 	Type        string `json:"type"`
+	Timestamp   int64  `json:"timestamp"`
 	MarketStats struct {
 		MarketId              uint8   `json:"market_id"`
 		IndexPrice            string  `json:"index_price"`
@@ -82,18 +96,39 @@ type WsMarketStatsEvent struct {
 	} `json:"market_stats"`
 }
 
+type WsSpotMarketStats struct {
+	MarketID              int     `json:"market_id"`
+	MidPrice              string  `json:"mid_price"`
+	LastTradePrice        string  `json:"last_trade_price"`
+	DailyBaseTokenVolume  float64 `json:"daily_base_token_volume"`
+	DailyQuoteTokenVolume float64 `json:"daily_quote_token_volume"`
+	DailyPriceLow         float64 `json:"daily_price_low"`
+	DailyPriceHigh        float64 `json:"daily_price_high"`
+	DailyPriceChange      float64 `json:"daily_price_change"`
+}
+
+type WsSpotMarketStatsEvent struct {
+	Channel         string                       `json:"channel"`
+	Type            string                       `json:"type"`
+	Timestamp       int64                        `json:"timestamp"`
+	SpotMarketStats map[string]WsSpotMarketStats `json:"spot_market_stats"`
+}
+
 // WsTradeEvent represents trade updates
 type WsTradeEvent struct {
-	Channel string  `json:"channel"`
-	Type    string  `json:"type"`
-	Trades  []Trade `json:"trades"`
+	Channel           string  `json:"channel"`
+	Type              string  `json:"type"`
+	Nonce             int64   `json:"nonce"`
+	Trades            []Trade `json:"trades"`
+	LiquidationTrades []Trade `json:"liquidation_trades"`
 }
 
 // WsHeightEvent represents blockchain height updates
 type WsHeightEvent struct {
-	Channel string `json:"channel"`
-	Type    string `json:"type"`
-	Height  int64  `json:"height"`
+	Channel   string `json:"channel"`
+	Type      string `json:"type"`
+	Height    int64  `json:"height"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 // FundingHistory represents a funding payment
@@ -112,6 +147,7 @@ type WsAccountAllEvent struct {
 	Channel            string                      `json:"channel"`
 	Type               string                      `json:"type"`
 	Account            int64                       `json:"account"`
+	Assets             map[string]*SpotAsset       `json:"assets"`
 	DailyTradesCount   int64                       `json:"daily_trades_count"`
 	DailyVolume        float64                     `json:"daily_volume"`
 	WeeklyTradesCount  int64                       `json:"weekly_trades_count"`
@@ -128,12 +164,14 @@ type WsAccountAllEvent struct {
 
 // WsAccountMarketEvent represents account data for a specific market
 type WsAccountMarketEvent struct {
-	Channel  string    `json:"channel"`
-	Type     string    `json:"type"`
-	Account  int64     `json:"account"`
-	Position *Position `json:"position"`
-	Orders   []*Order  `json:"orders"`
-	Trades   []Trade   `json:"trades"`
+	Channel        string           `json:"channel"`
+	Type           string           `json:"type"`
+	Account        int64            `json:"account"`
+	Assets         []*SpotAsset     `json:"assets"`
+	FundingHistory *PositionFunding `json:"funding_history"`
+	Position       *Position        `json:"position"`
+	Orders         []*Order         `json:"orders"`
+	Trades         []Trade          `json:"trades"`
 }
 
 // AccountStats represents account statistics
@@ -151,14 +189,15 @@ type WsUserStatsEvent struct {
 	Channel string `json:"channel"`
 	Type    string `json:"type"`
 	Stats   struct {
-		Collateral       string       `json:"collateral"`
-		PortfolioValue   string       `json:"portfolio_value"`
-		Leverage         string       `json:"leverage"`
-		AvailableBalance string       `json:"available_balance"`
-		MarginUsage      string       `json:"margin_usage"`
-		BuyingPower      string       `json:"buying_power"`
-		CrossStats       AccountStats `json:"cross_stats"`
-		TotalStats       AccountStats `json:"total_stats"`
+		Collateral         string       `json:"collateral"`
+		PortfolioValue     string       `json:"portfolio_value"`
+		Leverage           string       `json:"leverage"`
+		AvailableBalance   string       `json:"available_balance"`
+		MarginUsage        string       `json:"margin_usage"`
+		BuyingPower        string       `json:"buying_power"`
+		AccountTradingMode int          `json:"account_trading_mode"`
+		CrossStats         AccountStats `json:"cross_stats"`
+		TotalStats         AccountStats `json:"total_stats"`
 	} `json:"stats"`
 }
 
@@ -209,9 +248,13 @@ type WsNotificationEvent struct {
 
 // WsAccountAllTradesEvent represents all account trades
 type WsAccountAllTradesEvent struct {
-	Channel string             `json:"channel"`
-	Type    string             `json:"type"`
-	Trades  map[string][]Trade `json:"trades"`
+	Channel       string             `json:"channel"`
+	Type          string             `json:"type"`
+	Trades        map[string][]Trade `json:"trades"`
+	TotalVolume   float64            `json:"total_volume"`
+	MonthlyVolume float64            `json:"monthly_volume"`
+	WeeklyVolume  float64            `json:"weekly_volume"`
+	DailyVolume   float64            `json:"daily_volume"`
 }
 
 // WsAccountAllPositionsEvent represents all account positions
@@ -219,4 +262,54 @@ type WsAccountAllPositionsEvent struct {
 	Channel   string               `json:"channel"`
 	Type      string               `json:"type"`
 	Positions map[string]*Position `json:"positions"`
+	Shares    []Share              `json:"shares"`
+}
+
+type WsAccountAllAssetsEvent struct {
+	Channel   string                `json:"channel"`
+	Type      string                `json:"type"`
+	Timestamp int64                 `json:"timestamp"`
+	Assets    map[string]*SpotAsset `json:"assets"`
+}
+
+type SpotAvgEntryPrice struct {
+	AssetID       int    `json:"asset_id"`
+	AvgEntryPrice string `json:"avg_entry_price"`
+	AssetSize     string `json:"asset_size"`
+	LastTradeID   int64  `json:"last_trade_id"`
+}
+
+type WsAccountSpotAvgEntryPricesEvent struct {
+	Channel        string                       `json:"channel"`
+	Type           string                       `json:"type"`
+	Timestamp      int64                        `json:"timestamp"`
+	AvgEntryPrices map[string]SpotAvgEntryPrice `json:"avg_entry_prices"`
+}
+
+type WsPoolDataEvent struct {
+	Channel          string                       `json:"channel"`
+	Type             string                       `json:"type"`
+	Account          int64                        `json:"account"`
+	Trades           map[string][]Trade           `json:"trades"`
+	Orders           map[string][]*Order          `json:"orders"`
+	Positions        map[string]*Position         `json:"positions"`
+	Shares           []Share                      `json:"shares"`
+	FundingHistories map[string][]PositionFunding `json:"funding_histories"`
+}
+
+type WsPoolInfo struct {
+	Status                uint8        `json:"status"`
+	OperatorFee           string       `json:"operator_fee"`
+	MinOperatorShareRate  string       `json:"min_operator_share_rate"`
+	TotalShares           int64        `json:"total_shares"`
+	OperatorShares        int64        `json:"operator_shares"`
+	AnnualPercentageYield float64      `json:"annual_percentage_yield"`
+	DailyReturns          *DailyReturn `json:"daily_returns"`
+	SharePrice            *SharePrice  `json:"share_prices"`
+}
+
+type WsPoolInfoEvent struct {
+	Channel  string      `json:"channel"`
+	Type     string      `json:"type"`
+	PoolInfo *WsPoolInfo `json:"pool_info"`
 }

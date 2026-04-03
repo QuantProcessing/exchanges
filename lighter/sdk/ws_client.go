@@ -1,6 +1,7 @@
 package lighter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,6 +83,9 @@ func NewWebsocketClientWithConfig(ctx context.Context, cfg WSConfig) *WebsocketC
 
 	if cfg.URL == "" {
 		cfg.URL = MainnetWSURL
+	}
+	if cfg.Encoding == "" {
+		cfg.Encoding = WSEncodingMsgpack
 	}
 	if cfg.KeepaliveInterval <= 0 {
 		cfg.KeepaliveInterval = 30 * time.Second
@@ -330,7 +334,7 @@ func (c *WebsocketClient) registerRawSubscription(channel string, authToken *str
 	}
 
 	c.Subscriptions[channel] = &subscription{
-		authToken: copyStringPointer(authToken),
+		authToken:  copyStringPointer(authToken),
 		rawHandler: handler,
 	}
 	return nil
@@ -394,7 +398,7 @@ func (c *WebsocketClient) decodeEnvelope(messageType int, payload []byte) (*Enve
 		normalized = payload
 		err = json.Unmarshal(payload, &decoded)
 	case websocket.BinaryMessage:
-		err = msgpack.Unmarshal(payload, &decoded)
+		decoded, err = decodeMsgpackPayload(payload)
 		if err == nil {
 			normalized, err = json.Marshal(decoded)
 		}
@@ -413,6 +417,53 @@ func (c *WebsocketClient) decodeEnvelope(messageType int, payload []byte) (*Enve
 		raw:           normalized,
 	}
 	return env, normalized, nil
+}
+
+func decodeMsgpackPayload(payload []byte) (map[string]any, error) {
+	dec := msgpack.NewDecoder(bytes.NewReader(payload))
+	dec.UseLooseInterfaceDecoding(true)
+	dec.SetMapDecoder(func(d *msgpack.Decoder) (interface{}, error) {
+		return d.DecodeUntypedMap()
+	})
+
+	var raw any
+	if err := dec.Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	normalized := normalizeMsgpackValue(raw)
+	msg, ok := normalized.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("unexpected msgpack root type %T", normalized)
+	}
+	return msg, nil
+}
+
+func normalizeMsgpackValue(v any) any {
+	switch x := v.(type) {
+	case map[interface{}]interface{}:
+		out := make(map[string]any, len(x))
+		for k, value := range x {
+			out[fmt.Sprint(k)] = normalizeMsgpackValue(value)
+		}
+		return out
+	case map[string]interface{}:
+		out := make(map[string]any, len(x))
+		for k, value := range x {
+			out[k] = normalizeMsgpackValue(value)
+		}
+		return out
+	case []interface{}:
+		out := make([]any, len(x))
+		for i, value := range x {
+			out[i] = normalizeMsgpackValue(value)
+		}
+		return out
+	case []byte:
+		return string(x)
+	default:
+		return v
+	}
 }
 
 func (c *WebsocketClient) dispatchEnvelope(env *Envelope, normalized []byte) error {

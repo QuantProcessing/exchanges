@@ -70,6 +70,14 @@ func (c *Client) WithCredentials(privateKey string, accountIndex int64, keyIndex
 	return c
 }
 
+// InvalidateNonce clears the local nonce cache so the next write request
+// refreshes from the exchange after a rejected transaction.
+func (c *Client) InvalidateNonce() {
+	c.nonceMu.Lock()
+	defer c.nonceMu.Unlock()
+	c.nonceInit = false
+}
+
 func (c *Client) Post(ctx context.Context, path string, payload any, auth bool) ([]byte, error) {
 	var body io.Reader
 	if payload != nil {

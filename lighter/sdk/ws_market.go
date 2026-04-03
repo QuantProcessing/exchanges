@@ -10,6 +10,12 @@ func (c *WebsocketClient) SubscribeOrderBook(marketId int, cb func([]byte)) erro
 	return c.Subscribe(channel, nil, cb)
 }
 
+// SubscribeTicker subscribes to the best bid/offer ticker channel for a specific market
+func (c *WebsocketClient) SubscribeTicker(marketId int, cb func([]byte)) error {
+	channel := fmt.Sprintf("ticker/%d", marketId)
+	return c.Subscribe(channel, nil, cb)
+}
+
 // SubscribeMarketStats subscribes to market stats for a specific market
 func (c *WebsocketClient) SubscribeMarketStats(marketId int, cb func([]byte)) error {
 	channel := fmt.Sprintf("market_stats/%d", marketId)
@@ -19,6 +25,18 @@ func (c *WebsocketClient) SubscribeMarketStats(marketId int, cb func([]byte)) er
 // SubscribeAllMarketStats subscribes to market stats for all markets
 func (c *WebsocketClient) SubscribeAllMarketStats(cb func([]byte)) error {
 	channel := "market_stats/all"
+	return c.Subscribe(channel, nil, cb)
+}
+
+// SubscribeSpotMarketStats subscribes to spot market stats for a specific market
+func (c *WebsocketClient) SubscribeSpotMarketStats(marketId int, cb func([]byte)) error {
+	channel := fmt.Sprintf("spot_market_stats/%d", marketId)
+	return c.Subscribe(channel, nil, cb)
+}
+
+// SubscribeAllSpotMarketStats subscribes to spot market stats for all spot markets
+func (c *WebsocketClient) SubscribeAllSpotMarketStats(cb func([]byte)) error {
+	channel := "spot_market_stats/all"
 	return c.Subscribe(channel, nil, cb)
 }
 
@@ -39,6 +57,21 @@ func (c *WebsocketClient) SubscribeHeight(cb func([]byte)) error {
 
 func (c *WebsocketClient) UnsubscribeOrderBook(marketId int) error {
 	channel := fmt.Sprintf("order_book/%d", marketId)
+	return c.Unsubscribe(channel)
+}
+
+func (c *WebsocketClient) UnsubscribeTicker(marketId int) error {
+	channel := fmt.Sprintf("ticker/%d", marketId)
+	return c.Unsubscribe(channel)
+}
+
+func (c *WebsocketClient) UnsubscribeMarketStats(marketId int) error {
+	channel := fmt.Sprintf("market_stats/%d", marketId)
+	return c.Unsubscribe(channel)
+}
+
+func (c *WebsocketClient) UnsubscribeSpotMarketStats(marketId int) error {
+	channel := fmt.Sprintf("spot_market_stats/%d", marketId)
 	return c.Unsubscribe(channel)
 }
 

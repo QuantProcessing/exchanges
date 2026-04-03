@@ -238,8 +238,9 @@ func (s *LocalState) SubscribePositions() *Subscription[Position] {
 // OrderResult holds the result of PlaceOrder along with a filtered subscription
 // for tracking this specific order's lifecycle.
 type OrderResult struct {
-	Order *Order               // Initial order snapshot
-	Sub   *Subscription[Order] // Filtered updates for this order only
+	Order  *Order               // Initial order snapshot
+	Sub    *Subscription[Order] // Filtered updates for this order only
+	cancel func()
 }
 
 // WaitTerminal blocks until the order reaches a terminal state
@@ -258,14 +259,24 @@ func (r *OrderResult) WaitTerminal(timeout time.Duration) (*Order, error) {
 				return o, nil
 			}
 		case <-timer:
-			return nil, fmt.Errorf("timeout waiting for order %s to reach terminal state", r.Order.OrderID)
+			orderID := r.Order.OrderID
+			if orderID == "" {
+				orderID = r.Order.ClientOrderID
+			}
+			return nil, fmt.Errorf("timeout waiting for order %s to reach terminal state", orderID)
 		}
 	}
 }
 
 // Done releases the subscription resources. Always call this when finished.
 func (r *OrderResult) Done() {
-	r.Sub.Unsubscribe()
+	if r.cancel != nil {
+		r.cancel()
+		return
+	}
+	if r.Sub != nil {
+		r.Sub.Unsubscribe()
+	}
 }
 
 // PlaceOrder places an order and returns an OrderResult with a subscription
@@ -291,6 +302,10 @@ func (s *LocalState) PlaceOrder(ctx context.Context, params *OrderParams) (*Orde
 	orderID := order.OrderID
 	clientOrderID := order.ClientOrderID
 	filteredCh := make(chan *Order, 16)
+	result := &OrderResult{
+		Order:  order,
+		cancel: allSub.Unsubscribe,
+	}
 
 	go func() {
 		defer close(filteredCh)
@@ -298,6 +313,17 @@ func (s *LocalState) PlaceOrder(ctx context.Context, params *OrderParams) (*Orde
 			match := (orderID != "" && o.OrderID == orderID) ||
 				(clientOrderID != "" && o.ClientOrderID == clientOrderID)
 			if match {
+				updated := *o
+				if updated.OrderID == "" {
+					updated.OrderID = result.Order.OrderID
+				}
+				if updated.ClientOrderID == "" {
+					updated.ClientOrderID = result.Order.ClientOrderID
+				}
+				*result.Order = updated
+				orderID = result.Order.OrderID
+				clientOrderID = result.Order.ClientOrderID
+
 				select {
 				case filteredCh <- o:
 				default:
@@ -314,15 +340,11 @@ func (s *LocalState) PlaceOrder(ctx context.Context, params *OrderParams) (*Orde
 	}()
 
 	filteredSub := &Subscription[Order]{
-		C:   filteredCh,
-		ch:  filteredCh,
-		bus: s.orderBus,
+		C: filteredCh,
 	}
 
-	return &OrderResult{
-		Order: order,
-		Sub:   filteredSub,
-	}, nil
+	result.Sub = filteredSub
+	return result, nil
 }
 
 // ============================================================================
