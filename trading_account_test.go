@@ -115,6 +115,56 @@ func TestTradingAccountCloseClosesTrackedFlows(t *testing.T) {
 	require.EqualError(t, waitErr, "order flow closed")
 }
 
+func TestTradingAccountCloseClosesPreStartTrackedFlowsAndSubscriptions(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		fetchAccountErr: errors.New("fetch-account"),
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+
+	flow, err := acct.Track("", "prestart-cli")
+	require.NoError(t, err)
+	orderSub := acct.SubscribeOrders()
+	positionSub := acct.SubscribePositions()
+
+	err = acct.Start(context.Background())
+	require.ErrorContains(t, err, "fetch-account")
+
+	acct.Close()
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	waitErrCh := make(chan error, 1)
+	go func() {
+		_, waitErr := flow.Wait(waitCtx, func(*exchanges.Order) bool {
+			return false
+		})
+		waitErrCh <- waitErr
+	}()
+
+	select {
+	case waitErr := <-waitErrCh:
+		require.EqualError(t, waitErr, "order flow closed")
+	case <-time.After(time.Second):
+		t.Fatal("expected pre-start tracked flow to close")
+	}
+
+	select {
+	case _, ok := <-orderSub.C:
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("expected pre-start order subscription to close")
+	}
+
+	select {
+	case _, ok := <-positionSub.C:
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("expected pre-start position subscription to close")
+	}
+}
+
 func TestTradingAccountStartIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -447,6 +497,35 @@ func TestTradingAccountIgnoresLateUpdatesAfterClose(t *testing.T) {
 		_, orderOK := acct.OpenOrder("late-order")
 		_, posOK := acct.Position("BTC")
 		return orderOK || posOK
+	}, 100*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestTradingAccountIgnoresStaleCallbacksAfterRestart(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		keepCanceledCallbacks: true,
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+
+	acct.Close()
+
+	require.Eventually(t, func() bool {
+		return adp.watchOrdersCanceled.Load() == 1 && adp.watchPositionsCanceled.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	adp.EmitStaleOrder(&exchanges.Order{
+		OrderID: "stale-order",
+		Status:  exchanges.OrderStatusNew,
+	})
+
+	require.Never(t, func() bool {
+		_, ok := acct.OpenOrder("stale-order")
+		return ok
 	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 

@@ -80,22 +80,13 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 }
 
 func (a *TradingAccount) Close() {
-	runCancel, hadRun := a.currentRunCancel()
+	runCancel, _ := a.currentRunCancel()
 	if runCancel != nil {
 		runCancel()
 	}
 
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
-
-	if !hadRun {
-		a.runMu.RLock()
-		hadRun = a.started || a.starting || a.runCancel != nil
-		a.runMu.RUnlock()
-	}
-	if !hadRun {
-		return
-	}
 
 	a.closeRun()
 	a.resetSnapshotState()

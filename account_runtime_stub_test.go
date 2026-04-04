@@ -205,6 +205,22 @@ func (s *accountRuntimeStubExchange) EmitOrder(order *exchanges.Order) {
 	}
 }
 
+func (s *accountRuntimeStubExchange) EmitStaleOrder(order *exchanges.Order) {
+	s.watchMu.Lock()
+	callbacks := append([]exchanges.OrderUpdateCallback(nil), s.staleOrderCBs...)
+	s.watchMu.Unlock()
+	if len(callbacks) == 0 || order == nil {
+		return
+	}
+	for _, cb := range callbacks {
+		if cb == nil {
+			continue
+		}
+		copy := *order
+		cb(&copy)
+	}
+}
+
 func (s *accountRuntimeStubExchange) EmitPosition(pos *exchanges.Position) {
 	s.watchMu.Lock()
 	callbacks := make([]exchanges.PositionUpdateCallback, 0, 1+len(s.stalePositionCBs))
