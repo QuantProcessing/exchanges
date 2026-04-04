@@ -1,6 +1,10 @@
-package exchanges
+package account
 
-import "sync"
+import (
+	"sync"
+
+	exchanges "github.com/QuantProcessing/exchanges"
+)
 
 type orderFlowRegistry struct {
 	mu         sync.Mutex
@@ -17,7 +21,7 @@ func newOrderFlowRegistry() *orderFlowRegistry {
 	}
 }
 
-func (r *orderFlowRegistry) Register(initial *Order) *OrderFlow {
+func (r *orderFlowRegistry) Register(initial *exchanges.Order) *OrderFlow {
 	flow := newOrderFlow(initial)
 
 	r.mu.Lock()
@@ -67,7 +71,7 @@ func (r *orderFlowRegistry) CloseAll() {
 	}
 }
 
-func (r *orderFlowRegistry) Route(update *Order) {
+func (r *orderFlowRegistry) Route(update *exchanges.Order) {
 	if update == nil {
 		return
 	}

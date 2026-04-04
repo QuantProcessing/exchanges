@@ -311,9 +311,11 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 ### TradingAccount + OrderFlow（统一状态管理）
 
 ```go
-// TradingAccount 是公开的账户运行时入口。
+import "github.com/QuantProcessing/exchanges/account"
+
+// TradingAccount 现在位于公开的 account 子包。
 // Place 会返回一个 OrderFlow，方便你查看最新快照或流式读取更新。
-acct := exchanges.NewTradingAccount(adp, nil)
+acct := account.NewTradingAccount(adp, nil)
 if err := acct.Start(ctx); err != nil {
     panic(err)
 }
@@ -347,7 +349,7 @@ fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
-> TradingAccount 是当前发布面向外部的账户运行时入口。新的集成应基于 `TradingAccount + OrderFlow`。
+> TradingAccount 是当前发布面向外部的账户运行时入口，位于 `github.com/QuantProcessing/exchanges/account`。新的集成应基于 `TradingAccount + OrderFlow`。
 
 ## Migration Order
 
@@ -655,13 +657,11 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 ├── errors.go               哨兵错误 + ExchangeError 类型
 ├── base_adapter.go         共享适配器逻辑（深度簿、校验、通用辅助）
 ├── local_orderbook.go      本地订单簿缓存与同步辅助
-├── order_flow.go           OrderFlow 生命周期流 + 最新快照辅助
-├── trading_account.go      TradingAccount 运行时入口
-├── trading_account_state.go TradingAccount 状态机与快照
-├── trading_account_streams.go TradingAccount 流式连接与扇出
-├── trading_account_place.go TradingAccount 下单与对账
-├── event_bus.go            通用 EventBus[T] fan-out 发布/订阅
 ├── log.go                  Logger 接口 + NopLogger
+├── account/                公开的账户运行时子包
+│   ├── trading_account.go  TradingAccount 运行时入口
+│   ├── order_flow.go       OrderFlow 生命周期流 + 最新快照辅助
+│   └── ...                 内部运行时同步辅助
 ├── testsuite/              适配器一致性测试套件
 ├── binance/                Binance 适配器 + SDK
 │   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}

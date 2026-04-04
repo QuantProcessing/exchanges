@@ -1,17 +1,19 @@
-package exchanges
+package account
 
 import (
 	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 type OrderFlow struct {
 	mu         sync.Mutex
-	latest     *Order
-	ch         chan *Order
-	publicQ    []*Order
+	latest     *exchanges.Order
+	ch         chan *exchanges.Order
+	publicQ    []*exchanges.Order
 	publicWake chan struct{}
 	waiters    map[*orderFlowWaiter]struct{}
 	done       chan struct{}
@@ -21,13 +23,13 @@ type OrderFlow struct {
 }
 
 type orderFlowWaiter struct {
-	predicate func(*Order) bool
-	ch        chan *Order
+	predicate func(*exchanges.Order) bool
+	ch        chan *exchanges.Order
 }
 
-func newOrderFlow(initial *Order) *OrderFlow {
+func newOrderFlow(initial *exchanges.Order) *OrderFlow {
 	f := &OrderFlow{
-		ch:         make(chan *Order),
+		ch:         make(chan *exchanges.Order),
 		publicWake: make(chan struct{}, 1),
 		waiters:    make(map[*orderFlowWaiter]struct{}),
 		done:       make(chan struct{}),
@@ -40,17 +42,17 @@ func newOrderFlow(initial *Order) *OrderFlow {
 	return f
 }
 
-func (f *OrderFlow) C() <-chan *Order {
+func (f *OrderFlow) C() <-chan *exchanges.Order {
 	return f.ch
 }
 
-func (f *OrderFlow) Latest() *Order {
+func (f *OrderFlow) Latest() *exchanges.Order {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return cloneOrder(f.latest)
 }
 
-func (f *OrderFlow) Wait(ctx context.Context, predicate func(*Order) bool) (*Order, error) {
+func (f *OrderFlow) Wait(ctx context.Context, predicate func(*exchanges.Order) bool) (*exchanges.Order, error) {
 	if predicate == nil {
 		return nil, fmt.Errorf("predicate required")
 	}
@@ -69,7 +71,7 @@ func (f *OrderFlow) Wait(ctx context.Context, predicate func(*Order) bool) (*Ord
 
 	waiter := &orderFlowWaiter{
 		predicate: predicate,
-		ch:        make(chan *Order, 1),
+		ch:        make(chan *exchanges.Order, 1),
 	}
 
 	f.mu.Lock()
@@ -122,7 +124,7 @@ func (f *OrderFlow) Close() {
 	})
 }
 
-func (f *OrderFlow) publish(order *Order) {
+func (f *OrderFlow) publish(order *exchanges.Order) {
 	if order == nil {
 		return
 	}
@@ -228,7 +230,7 @@ func (f *OrderFlow) removeWaiter(waiter *orderFlowWaiter) {
 	delete(f.waiters, waiter)
 }
 
-func cloneOrder(order *Order) *Order {
+func cloneOrder(order *exchanges.Order) *exchanges.Order {
 	if order == nil {
 		return nil
 	}

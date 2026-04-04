@@ -1,4 +1,4 @@
-package exchanges_test
+package account_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/account"
 	"github.com/shopspring/decimal"
 )
 
@@ -35,7 +36,7 @@ func ExampleNewTradingAccount() {
 		}},
 	}
 
-	acct := exchanges.NewTradingAccount(adp, nil)
+	acct := account.NewTradingAccount(adp, nil)
 	if err := acct.Start(ctx); err != nil {
 		panic(err)
 	}

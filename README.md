@@ -317,9 +317,11 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 ### TradingAccount + OrderFlow (Unified State Management)
 
 ```go
-// TradingAccount is the public account-runtime surface.
+import "github.com/QuantProcessing/exchanges/account"
+
+// TradingAccount lives in the public account package.
 // Place returns an OrderFlow so you can inspect the latest snapshot or stream updates.
-acct := exchanges.NewTradingAccount(adp, nil)
+acct := account.NewTradingAccount(adp, nil)
 if err := acct.Start(ctx); err != nil {
     panic(err)
 }
@@ -353,7 +355,7 @@ fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
-> TradingAccount is the release-facing account runtime. New integrations should build on `TradingAccount + OrderFlow`.
+> TradingAccount is the release-facing account runtime in `github.com/QuantProcessing/exchanges/account`. New integrations should build on `TradingAccount + OrderFlow`.
 
 ## Migration Order
 
@@ -661,13 +663,11 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── errors.go               Sentinel errors + ExchangeError type
 ├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
 ├── local_orderbook.go      Local orderbook cache and sync helpers
-├── order_flow.go           OrderFlow lifecycle stream + latest snapshot helper
-├── trading_account.go      TradingAccount runtime entrypoint
-├── trading_account_state.go TradingAccount state machine and snapshots
-├── trading_account_streams.go TradingAccount stream wiring and fan-out
-├── trading_account_place.go TradingAccount order placement and reconciliation
-├── event_bus.go            Generic EventBus[T] for fan-out pub/sub
 ├── log.go                  Logger interface + NopLogger
+├── account/                Public account runtime helpers
+│   ├── trading_account.go  TradingAccount runtime entrypoint
+│   ├── order_flow.go       OrderFlow lifecycle stream + latest snapshot helper
+│   └── ...                 Internal runtime synchronization helpers
 ├── testsuite/              Adapter compliance test suite
 ├── binance/                Binance adapter + SDK
 │   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}

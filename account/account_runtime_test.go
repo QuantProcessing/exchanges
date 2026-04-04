@@ -1,13 +1,133 @@
-package exchanges_test
+package account_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/account"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type stubExchange struct {
+	placed *exchanges.OrderParams
+}
+
+func (s *stubExchange) GetExchange() string { return "stub" }
+
+func (s *stubExchange) GetMarketType() exchanges.MarketType { return exchanges.MarketTypeSpot }
+
+func (s *stubExchange) Close() error { return nil }
+
+func (s *stubExchange) FormatSymbol(symbol string) string { return symbol }
+
+func (s *stubExchange) ExtractSymbol(symbol string) string { return symbol }
+
+func (s *stubExchange) ListSymbols() []string { return nil }
+
+func (s *stubExchange) FetchTicker(context.Context, string) (*exchanges.Ticker, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchOrderBook(context.Context, string, int) (*exchanges.OrderBook, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchTrades(context.Context, string, int) ([]exchanges.Trade, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchKlines(context.Context, string, exchanges.Interval, *exchanges.KlineOpts) ([]exchanges.Kline, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) PlaceOrder(_ context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
+	copy := *params
+	s.placed = &copy
+	return &exchanges.Order{}, nil
+}
+
+func (s *stubExchange) PlaceOrderWS(context.Context, *exchanges.OrderParams) error { return nil }
+
+func (s *stubExchange) CancelOrder(context.Context, string, string) error { return nil }
+
+func (s *stubExchange) CancelOrderWS(context.Context, string, string) error { return nil }
+
+func (s *stubExchange) CancelAllOrders(context.Context, string) error { return nil }
+
+func (s *stubExchange) FetchOrderByID(context.Context, string, string) (*exchanges.Order, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchOrders(context.Context, string) ([]exchanges.Order, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchOpenOrders(context.Context, string) ([]exchanges.Order, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchAccount(context.Context) (*exchanges.Account, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchBalance(context.Context) (decimal.Decimal, error) {
+	return decimal.Zero, nil
+}
+
+func (s *stubExchange) FetchSymbolDetails(context.Context, string) (*exchanges.SymbolDetails, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) FetchFeeRate(context.Context, string) (*exchanges.FeeRate, error) {
+	return nil, nil
+}
+
+func (s *stubExchange) WatchOrderBook(context.Context, string, int, exchanges.OrderBookCallback) error {
+	return nil
+}
+
+func (s *stubExchange) GetLocalOrderBook(string, int) *exchanges.OrderBook { return nil }
+
+func (s *stubExchange) StopWatchOrderBook(context.Context, string) error { return nil }
+
+func (s *stubExchange) WatchOrders(context.Context, exchanges.OrderUpdateCallback) error { return nil }
+
+func (s *stubExchange) WatchFills(context.Context, exchanges.FillCallback) error { return nil }
+
+func (s *stubExchange) WatchPositions(context.Context, exchanges.PositionUpdateCallback) error {
+	return nil
+}
+
+func (s *stubExchange) WatchTicker(context.Context, string, exchanges.TickerCallback) error {
+	return nil
+}
+
+func (s *stubExchange) WatchTrades(context.Context, string, exchanges.TradeCallback) error {
+	return nil
+}
+
+func (s *stubExchange) WatchKlines(context.Context, string, exchanges.Interval, exchanges.KlineCallback) error {
+	return nil
+}
+
+func (s *stubExchange) StopWatchOrders(context.Context) error { return nil }
+
+func (s *stubExchange) StopWatchFills(context.Context) error { return nil }
+
+func (s *stubExchange) StopWatchPositions(context.Context) error { return nil }
+
+func (s *stubExchange) StopWatchTicker(context.Context, string) error { return nil }
+
+func (s *stubExchange) StopWatchTrades(context.Context, string) error { return nil }
+
+func (s *stubExchange) StopWatchKlines(context.Context, string, exchanges.Interval) error { return nil }
 
 type accountRuntimeStubExchange struct {
 	stubExchange
@@ -256,4 +376,70 @@ func (s *accountRuntimeStubExchange) emitOrderCallbacks(updates []*exchanges.Ord
 		copy := *update
 		callback(&copy)
 	}
+}
+
+func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		placeResp: &exchanges.Order{
+			ClientOrderID: "cli-1",
+			Symbol:        "ETH",
+			Side:          exchanges.OrderSideBuy,
+			Type:          exchanges.OrderTypeLimit,
+			Quantity:      decimal.RequireFromString("0.1"),
+			Price:         decimal.RequireFromString("100"),
+			Status:        exchanges.OrderStatusPending,
+		},
+		updates: []*exchanges.Order{{
+			OrderID:       "exch-1",
+			ClientOrderID: "cli-1",
+			Symbol:        "ETH",
+			Status:        exchanges.OrderStatusNew,
+		}},
+	}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("0.1"),
+		Price:    decimal.RequireFromString("100"),
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	require.Eventually(t, func() bool {
+		latest := flow.Latest()
+		return latest != nil && latest.OrderID == "exch-1"
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTradingAccountEmptyQueries(t *testing.T) {
+	acct := account.NewTradingAccount(nil, nil)
+
+	_, ok := acct.OpenOrder("nonexistent")
+	assert.False(t, ok)
+
+	orders := acct.OpenOrders()
+	assert.Empty(t, orders)
+
+	positions := acct.Positions()
+	assert.Empty(t, positions)
+}
+
+func TestTradingAccountStartFailsWhenFetchAccountFails(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		fetchAccountErr: errors.New("boom"),
+	}
+	acct := account.NewTradingAccount(adp, nil)
+
+	err := acct.Start(context.Background())
+	require.ErrorContains(t, err, "boom")
 }

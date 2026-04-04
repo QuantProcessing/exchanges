@@ -20,6 +20,7 @@
 // The package is organized into several layers:
 //
 //   - Root package (exchanges): Unified interfaces, models, errors, and utilities
+//   - Account package (account/): TradingAccount and OrderFlow runtime helpers
 //   - Exchange packages (binance/, okx/, ...): Exchange-specific adapters and SDK clients
 //   - Testsuite package: Adapter compliance test suite
 //

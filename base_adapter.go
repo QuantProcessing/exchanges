@@ -17,11 +17,11 @@ import (
 // - Automatic order validation and slippage handling
 //
 // For account runtime state (orders, positions, balance) and tracked order
-// execution flows, use TradingAccount and OrderFlow outside the adapter.
+// execution flows, use the public account package outside the adapter.
 type BaseAdapter struct {
 	Name       string
 	MarketType MarketType
-	Logger     Logger    // Logger for this adapter
+	Logger     Logger // Logger for this adapter
 
 	// Connection tracking
 	marketConnected  bool

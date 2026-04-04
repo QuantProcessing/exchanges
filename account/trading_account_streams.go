@@ -1,4 +1,4 @@
-package exchanges
+package account
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/shopspring/decimal"
 )
 
@@ -58,21 +59,21 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 	a.logger.Infow("trading_account: initial state loaded",
 		"orders", orderCount, "positions", positionCount)
 
-	streamable, ok := a.adp.(Streamable)
+	streamable, ok := a.adp.(exchanges.Streamable)
 	if !ok {
 		return fmt.Errorf("trading_account: adapter %s does not implement Streamable", a.adp.GetExchange())
 	}
 
-	if err := streamable.WatchOrders(runCtx, func(order *Order) {
+	if err := streamable.WatchOrders(runCtx, func(order *exchanges.Order) {
 		a.applyOrderUpdate(runGen, order)
 	}); err != nil {
 		return fmt.Errorf("trading_account: WatchOrders failed: %w", err)
 	}
 
-	if watchErr := streamable.WatchPositions(runCtx, func(position *Position) {
+	if watchErr := streamable.WatchPositions(runCtx, func(position *exchanges.Position) {
 		a.applyPositionUpdate(runGen, position)
 	}); watchErr != nil {
-		if !errors.Is(watchErr, ErrNotSupported) {
+		if !errors.Is(watchErr, exchanges.ErrNotSupported) {
 			return fmt.Errorf("trading_account: WatchPositions failed: %w", watchErr)
 		}
 		a.logger.Warnw("trading_account: WatchPositions failed (may not be supported)", "error", watchErr)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/account"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	t.Log("═══ Phase 1: Start TradingAccount ═══")
 
-	acct := exchanges.NewTradingAccount(adp, nil)
+	acct := account.NewTradingAccount(adp, nil)
 	err := acct.Start(ctx)
 	require.NoError(t, err, "TradingAccount.Start should succeed")
 	defer acct.Close()
@@ -122,7 +123,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	assert.Equal(t, exchanges.OrderStatusFilled, filled.Status)
 	t.Logf("✓ OrderFlow.Wait returned FILLED: qty=%s", filled.FilledQuantity)
 
-	verifySub := func(name string, sub *exchanges.Subscription[exchanges.Order]) {
+	verifySub := func(name string, sub *account.Subscription[exchanges.Order]) {
 		timer := time.After(3 * time.Second)
 		for {
 			select {
@@ -278,7 +279,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	_ = lastPrice
 }
 
-func flowLatest(t *testing.T, flow *exchanges.OrderFlow, label string) *exchanges.Order {
+func flowLatest(t *testing.T, flow *account.OrderFlow, label string) *exchanges.Order {
 	t.Helper()
 
 	order := flow.Latest()
@@ -286,7 +287,7 @@ func flowLatest(t *testing.T, flow *exchanges.OrderFlow, label string) *exchange
 	return order
 }
 
-func flowLatestWithOrderID(t *testing.T, flow *exchanges.OrderFlow, label string) *exchanges.Order {
+func flowLatestWithOrderID(t *testing.T, flow *account.OrderFlow, label string) *exchanges.Order {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -1,10 +1,12 @@
-package exchanges
+package account
 
 import (
 	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 func (a *TradingAccount) Cancel(ctx context.Context, orderID, symbol string) error {
@@ -19,13 +21,13 @@ func (a *TradingAccount) Track(orderID, clientOrderID string) (*OrderFlow, error
 	if strings.TrimSpace(orderID) == "" && strings.TrimSpace(clientOrderID) == "" {
 		return nil, fmt.Errorf("order id or client order id required")
 	}
-	return a.flows.Register(&Order{
+	return a.flows.Register(&exchanges.Order{
 		OrderID:       orderID,
 		ClientOrderID: clientOrderID,
 	}), nil
 }
 
-func (a *TradingAccount) Place(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
+func (a *TradingAccount) Place(ctx context.Context, params *exchanges.OrderParams) (*OrderFlow, error) {
 	allSub := a.SubscribeOrders()
 	order, err := a.adp.PlaceOrder(ctx, params)
 	if err != nil {
@@ -36,7 +38,7 @@ func (a *TradingAccount) Place(ctx context.Context, params *OrderParams) (*Order
 	return a.newPlacedFlow(allSub, order), nil
 }
 
-func (a *TradingAccount) PlaceWS(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
+func (a *TradingAccount) PlaceWS(ctx context.Context, params *exchanges.OrderParams) (*OrderFlow, error) {
 	if strings.TrimSpace(params.ClientID) == "" {
 		return nil, fmt.Errorf("client id required for PlaceWS")
 	}
@@ -47,19 +49,19 @@ func (a *TradingAccount) PlaceWS(ctx context.Context, params *OrderParams) (*Ord
 		return nil, err
 	}
 
-	return a.newPlacedFlow(allSub, &Order{
+	return a.newPlacedFlow(allSub, &exchanges.Order{
 		ClientOrderID: params.ClientID,
 		Symbol:        params.Symbol,
 		Side:          params.Side,
 		Type:          params.Type,
 		Quantity:      params.Quantity,
 		Price:         params.Price,
-		Status:        OrderStatusPending,
+		Status:        exchanges.OrderStatusPending,
 		Timestamp:     time.Now().UnixMilli(),
 	}), nil
 }
 
-func (a *TradingAccount) newPlacedFlow(allSub *Subscription[Order], initial *Order) *OrderFlow {
+func (a *TradingAccount) newPlacedFlow(allSub *Subscription[exchanges.Order], initial *exchanges.Order) *OrderFlow {
 	flow := newOrderFlow(initial)
 	a.flows.Add(flow)
 
@@ -68,7 +70,7 @@ func (a *TradingAccount) newPlacedFlow(allSub *Subscription[Order], initial *Ord
 	return flow
 }
 
-func (a *TradingAccount) bridgePlacedFlow(flow *OrderFlow, allSub *Subscription[Order], initial *Order) {
+func (a *TradingAccount) bridgePlacedFlow(flow *OrderFlow, allSub *Subscription[exchanges.Order], initial *exchanges.Order) {
 	defer allSub.Unsubscribe()
 
 	current := cloneOrder(initial)
@@ -115,7 +117,7 @@ func (a *TradingAccount) bridgePlacedFlow(flow *OrderFlow, allSub *Subscription[
 	}
 }
 
-func matchesTrackedOrder(order *Order, orderID, clientOrderID string) bool {
+func matchesTrackedOrder(order *exchanges.Order, orderID, clientOrderID string) bool {
 	if order == nil {
 		return false
 	}
@@ -123,8 +125,8 @@ func matchesTrackedOrder(order *Order, orderID, clientOrderID string) bool {
 		(clientOrderID != "" && order.ClientOrderID == clientOrderID)
 }
 
-func isTerminalOrderStatus(status OrderStatus) bool {
-	return status == OrderStatusFilled ||
-		status == OrderStatusCancelled ||
-		status == OrderStatusRejected
+func isTerminalOrderStatus(status exchanges.OrderStatus) bool {
+	return status == exchanges.OrderStatusFilled ||
+		status == exchanges.OrderStatusCancelled ||
+		status == exchanges.OrderStatusRejected
 }
