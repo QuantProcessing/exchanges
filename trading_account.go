@@ -13,6 +13,7 @@ import (
 type TradingAccount struct {
 	mu          sync.RWMutex
 	lifecycleMu sync.Mutex
+	runMu       sync.RWMutex
 
 	adp    Exchange
 	logger Logger
@@ -26,7 +27,9 @@ type TradingAccount struct {
 	flows       *orderFlowRegistry
 
 	started   bool
+	starting  bool
 	runCancel context.CancelFunc
+	runGen    uint64
 }
 
 type TradingAccountOption func(*TradingAccount)
@@ -121,16 +124,22 @@ func (a *TradingAccount) PlaceWS(ctx context.Context, params *OrderParams) (*Ord
 }
 
 func (a *TradingAccount) trackOrderResult(allSub *Subscription[Order], order *Order) *OrderResult {
-	orderID := order.OrderID
-	clientOrderID := order.ClientOrderID
+	initial := cloneOrder(order)
+	if initial == nil {
+		initial = &Order{}
+	}
+
+	orderID := initial.OrderID
+	clientOrderID := initial.ClientOrderID
 	filteredCh := make(chan *Order, 16)
 	result := &OrderResult{
-		Order:  order,
+		Order:  initial,
 		cancel: allSub.Unsubscribe,
 	}
 
 	go func() {
 		defer close(filteredCh)
+		current := cloneOrder(initial)
 		for update := range allSub.C {
 			match := (orderID != "" && update.OrderID == orderID) ||
 				(clientOrderID != "" && update.ClientOrderID == clientOrderID)
@@ -138,25 +147,25 @@ func (a *TradingAccount) trackOrderResult(allSub *Subscription[Order], order *Or
 				continue
 			}
 
-			updated := *update
-			if updated.OrderID == "" {
-				updated.OrderID = result.Order.OrderID
+			normalized := *update
+			if normalized.OrderID == "" && current != nil {
+				normalized.OrderID = current.OrderID
 			}
-			if updated.ClientOrderID == "" {
-				updated.ClientOrderID = result.Order.ClientOrderID
+			if normalized.ClientOrderID == "" && current != nil {
+				normalized.ClientOrderID = current.ClientOrderID
 			}
-			*result.Order = updated
-			orderID = result.Order.OrderID
-			clientOrderID = result.Order.ClientOrderID
+			current = cloneOrder(&normalized)
+			orderID = current.OrderID
+			clientOrderID = current.ClientOrderID
 
 			select {
-			case filteredCh <- update:
+			case filteredCh <- cloneOrder(current):
 			default:
 			}
 
-			if update.Status == OrderStatusFilled ||
-				update.Status == OrderStatusCancelled ||
-				update.Status == OrderStatusRejected {
+			if normalized.Status == OrderStatusFilled ||
+				normalized.Status == OrderStatusCancelled ||
+				normalized.Status == OrderStatusRejected {
 				allSub.Unsubscribe()
 				return
 			}

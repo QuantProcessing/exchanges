@@ -260,7 +260,8 @@ func TestTradingAccountStartCancelsWatchOrdersWhenWatchPositionsFails(t *testing
 	t.Parallel()
 
 	adp := &accountRuntimeStubExchange{
-		watchPositionsErr: errors.New("watch-positions"),
+		watchPositionsErr:     errors.New("watch-positions"),
+		keepCanceledCallbacks: true,
 	}
 	acct := exchanges.NewTradingAccount(adp, nil)
 
@@ -275,10 +276,15 @@ func TestTradingAccountStartCancelsWatchOrdersWhenWatchPositionsFails(t *testing
 		OrderID: "should-be-ignored",
 		Status:  exchanges.OrderStatusNew,
 	})
+	adp.EmitPosition(&exchanges.Position{
+		Symbol:   "ETH",
+		Quantity: decimal.RequireFromString("1"),
+	})
 
 	require.Never(t, func() bool {
 		_, ok := acct.OpenOrder("should-be-ignored")
-		return ok
+		_, posOK := acct.Position("ETH")
+		return ok || posOK
 	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
@@ -368,7 +374,7 @@ func TestTradingAccountPlaceWSCapturesSynchronousFirstUpdate(t *testing.T) {
 	require.Equal(t, "ws-exch", got.OrderID)
 }
 
-func TestTradingAccountCloseDuringStartLeavesNoActiveWatchers(t *testing.T) {
+func TestTradingAccountCloseCancelsBlockedStart(t *testing.T) {
 	t.Parallel()
 
 	adp := &accountRuntimeStubExchange{
@@ -394,33 +400,53 @@ func TestTradingAccountCloseDuringStartLeavesNoActiveWatchers(t *testing.T) {
 		acct.Close()
 	}()
 
-	close(adp.fetchAccountBlock)
-
 	select {
 	case err := <-startErrCh:
-		require.NoError(t, err)
+		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
-		t.Fatal("expected Start to complete")
+		t.Fatal("expected Start to abort when Close cancels blocked FetchAccount")
 	}
 
 	select {
 	case <-closeDone:
 	case <-time.After(time.Second):
-		t.Fatal("expected Close to complete")
+		t.Fatal("expected Close to complete without manually releasing FetchAccount")
 	}
 
+	require.Equal(t, int32(1), adp.fetchAccountCalls.Load())
+	require.Zero(t, adp.watchOrdersCalls.Load())
+	require.Zero(t, adp.watchPositionsCalls.Load())
+}
+
+func TestTradingAccountIgnoresLateUpdatesAfterClose(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		keepCanceledCallbacks: true,
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+
+	adp.EmitOrder(&exchanges.Order{OrderID: "open-order", Status: exchanges.OrderStatusNew})
+	adp.EmitPosition(&exchanges.Position{Symbol: "ETH", Quantity: decimal.RequireFromString("1")})
+
 	require.Eventually(t, func() bool {
-		return adp.watchOrdersCanceled.Load() == 1
+		order, orderOK := acct.OpenOrder("open-order")
+		pos, posOK := acct.Position("ETH")
+		return orderOK && posOK &&
+			order.Status == exchanges.OrderStatusNew &&
+			pos.Quantity.Equal(decimal.RequireFromString("1"))
 	}, time.Second, 10*time.Millisecond)
 
-	adp.EmitOrder(&exchanges.Order{
-		OrderID: "close-during-start",
-		Status:  exchanges.OrderStatusNew,
-	})
+	acct.Close()
+
+	adp.EmitOrder(&exchanges.Order{OrderID: "late-order", Status: exchanges.OrderStatusNew})
+	adp.EmitPosition(&exchanges.Position{Symbol: "BTC", Quantity: decimal.RequireFromString("2")})
 
 	require.Never(t, func() bool {
-		_, ok := acct.OpenOrder("close-during-start")
-		return ok
+		_, orderOK := acct.OpenOrder("late-order")
+		_, posOK := acct.Position("BTC")
+		return orderOK || posOK
 	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 

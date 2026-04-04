@@ -2,10 +2,10 @@ package exchanges
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"errors"
 	"github.com/shopspring/decimal"
 )
 
@@ -13,17 +13,22 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
 
-	if a.started {
+	a.runMu.RLock()
+	alreadyStarted := a.started
+	a.runMu.RUnlock()
+	if alreadyStarted {
 		return nil
 	}
 
 	runCtx, runCancel := context.WithCancel(ctx)
+	runGen := a.beginRun(runCancel)
 
 	defer func() {
 		if err == nil {
 			return
 		}
 		runCancel()
+		a.failRunStart(runGen)
 		a.resetSnapshotState()
 	}()
 
@@ -32,7 +37,7 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("trading_account: failed to get initial state: %w", err)
 	}
-	a.applyAccountSnapshot(acc)
+	a.applyAccountSnapshot(runGen, acc)
 	orderCount := 0
 	positionCount := 0
 	if acc != nil {
@@ -47,45 +52,59 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("trading_account: adapter %s does not implement Streamable", a.adp.GetExchange())
 	}
 
-	if err := streamable.WatchOrders(runCtx, a.applyOrderUpdate); err != nil {
+	if err := streamable.WatchOrders(runCtx, func(order *Order) {
+		a.applyOrderUpdate(runGen, order)
+	}); err != nil {
 		return fmt.Errorf("trading_account: WatchOrders failed: %w", err)
 	}
 
-	if watchErr := streamable.WatchPositions(runCtx, a.applyPositionUpdate); watchErr != nil {
+	if watchErr := streamable.WatchPositions(runCtx, func(position *Position) {
+		a.applyPositionUpdate(runGen, position)
+	}); watchErr != nil {
 		if !errors.Is(watchErr, ErrNotSupported) {
 			return fmt.Errorf("trading_account: WatchPositions failed: %w", watchErr)
 		}
 		a.logger.Warnw("trading_account: WatchPositions failed (may not be supported)", "error", watchErr)
 	}
 
-	a.runCancel = runCancel
-	a.started = true
+	if runErr := runCtx.Err(); runErr != nil {
+		return runErr
+	}
+	if !a.finishRunStart(runGen) {
+		return context.Canceled
+	}
 
-	go a.periodicRefresh(runCtx, time.Minute)
+	go a.periodicRefresh(runCtx, time.Minute, runGen)
 
 	return nil
 }
 
 func (a *TradingAccount) Close() {
-	a.lifecycleMu.Lock()
-	defer a.lifecycleMu.Unlock()
-
-	if !a.started {
-		return
-	}
-	a.started = false
-	runCancel := a.runCancel
-	a.runCancel = nil
-
+	runCancel, hadRun := a.currentRunCancel()
 	if runCancel != nil {
 		runCancel()
 	}
+
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
+	if !hadRun {
+		a.runMu.RLock()
+		hadRun = a.started || a.starting || a.runCancel != nil
+		a.runMu.RUnlock()
+	}
+	if !hadRun {
+		return
+	}
+
+	a.closeRun()
+	a.resetSnapshotState()
 	a.orderBus.Close()
 	a.positionBus.Close()
 	a.flows.CloseAll()
 }
 
-func (a *TradingAccount) periodicRefresh(ctx context.Context, interval time.Duration) {
+func (a *TradingAccount) periodicRefresh(ctx context.Context, interval time.Duration, runGen uint64) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -96,10 +115,16 @@ func (a *TradingAccount) periodicRefresh(ctx context.Context, interval time.Dura
 		case <-ticker.C:
 			acc, err := a.adp.FetchAccount(ctx)
 			if err != nil {
+				if ctx.Err() != nil || !a.isActiveRun(runGen) {
+					return
+				}
 				a.logger.Errorw("trading_account: periodic refresh failed", "error", err)
 				continue
 			}
-			a.applyAccountSnapshot(acc)
+			a.applyAccountSnapshot(runGen, acc)
+			if !a.isActiveRun(runGen) {
+				return
+			}
 			balance := decimal.Zero
 			if acc != nil {
 				balance = acc.TotalBalance
@@ -107,4 +132,63 @@ func (a *TradingAccount) periodicRefresh(ctx context.Context, interval time.Dura
 			a.logger.Debugw("trading_account: periodic refresh completed", "balance", balance)
 		}
 	}
+}
+
+func (a *TradingAccount) beginRun(runCancel context.CancelFunc) uint64 {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+
+	a.runGen++
+	a.runCancel = runCancel
+	a.started = false
+	a.starting = true
+	return a.runGen
+}
+
+func (a *TradingAccount) failRunStart(runGen uint64) {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+
+	if a.runGen != runGen {
+		return
+	}
+	a.started = false
+	a.starting = false
+	a.runCancel = nil
+}
+
+func (a *TradingAccount) finishRunStart(runGen uint64) bool {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+
+	if a.runGen != runGen || a.runCancel == nil || !a.starting {
+		return false
+	}
+	a.starting = false
+	a.started = true
+	return true
+}
+
+func (a *TradingAccount) currentRunCancel() (context.CancelFunc, bool) {
+	a.runMu.RLock()
+	defer a.runMu.RUnlock()
+
+	return a.runCancel, a.started || a.starting || a.runCancel != nil
+}
+
+func (a *TradingAccount) closeRun() {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+
+	a.runGen++
+	a.started = false
+	a.starting = false
+	a.runCancel = nil
+}
+
+func (a *TradingAccount) isActiveRun(runGen uint64) bool {
+	a.runMu.RLock()
+	defer a.runMu.RUnlock()
+
+	return a.runGen == runGen && a.runCancel != nil && (a.started || a.starting)
 }

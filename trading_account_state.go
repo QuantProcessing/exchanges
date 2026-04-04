@@ -60,7 +60,10 @@ func (a *TradingAccount) SubscribePositions() *Subscription[Position] {
 	return a.positionBus.Subscribe()
 }
 
-func (a *TradingAccount) applyAccountSnapshot(acc *Account) {
+func (a *TradingAccount) applyAccountSnapshot(runGen uint64, acc *Account) {
+	if !a.isActiveRun(runGen) {
+		return
+	}
 	if acc == nil {
 		acc = &Account{}
 	}
@@ -78,6 +81,10 @@ func (a *TradingAccount) applyAccountSnapshot(acc *Account) {
 	}
 
 	a.mu.Lock()
+	if !a.isActiveRun(runGen) {
+		a.mu.Unlock()
+		return
+	}
 	a.balance = acc.TotalBalance
 	a.orders = orders
 	a.positions = positions
@@ -92,12 +99,16 @@ func (a *TradingAccount) resetSnapshotState() {
 	a.mu.Unlock()
 }
 
-func (a *TradingAccount) applyOrderUpdate(order *Order) {
-	if order == nil {
+func (a *TradingAccount) applyOrderUpdate(runGen uint64, order *Order) {
+	if order == nil || !a.isActiveRun(runGen) {
 		return
 	}
 
 	a.mu.Lock()
+	if !a.isActiveRun(runGen) {
+		a.mu.Unlock()
+		return
+	}
 	isTerminal := order.Status == OrderStatusFilled ||
 		order.Status == OrderStatusCancelled ||
 		order.Status == OrderStatusRejected
@@ -110,19 +121,29 @@ func (a *TradingAccount) applyOrderUpdate(order *Order) {
 	}
 	a.mu.Unlock()
 
+	if !a.isActiveRun(runGen) {
+		return
+	}
 	a.orderBus.Publish(order)
 	a.flows.Route(order)
 }
 
-func (a *TradingAccount) applyPositionUpdate(position *Position) {
-	if position == nil {
+func (a *TradingAccount) applyPositionUpdate(runGen uint64, position *Position) {
+	if position == nil || !a.isActiveRun(runGen) {
 		return
 	}
 
 	a.mu.Lock()
+	if !a.isActiveRun(runGen) {
+		a.mu.Unlock()
+		return
+	}
 	copy := *position
 	a.positions[position.Symbol] = &copy
 	a.mu.Unlock()
 
+	if !a.isActiveRun(runGen) {
+		return
+	}
 	a.positionBus.Publish(position)
 }

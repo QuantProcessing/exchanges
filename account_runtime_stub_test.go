@@ -22,10 +22,13 @@ type accountRuntimeStubExchange struct {
 	positionUpdates        []*exchanges.Position
 	watchOrdersErr         error
 	watchPositionsErr      error
+	keepCanceledCallbacks  bool
 	placeReturnDelay       time.Duration
 	placeWSReturnDelay     time.Duration
 	orderCB                exchanges.OrderUpdateCallback
 	positionCB             exchanges.PositionUpdateCallback
+	staleOrderCBs          []exchanges.OrderUpdateCallback
+	stalePositionCBs       []exchanges.PositionUpdateCallback
 	fetchAccountCalls      atomic.Int32
 	watchOrdersCalls       atomic.Int32
 	watchPositionsCalls    atomic.Int32
@@ -74,6 +77,9 @@ func (s *accountRuntimeStubExchange) WatchOrders(ctx context.Context, cb exchang
 		<-ctx.Done()
 		s.watchMu.Lock()
 		if s.orderWatchID.Load() == watchID {
+			if s.keepCanceledCallbacks && s.orderCB != nil {
+				s.staleOrderCBs = append(s.staleOrderCBs, s.orderCB)
+			}
 			s.orderCB = nil
 		}
 		s.watchMu.Unlock()
@@ -95,6 +101,9 @@ func (s *accountRuntimeStubExchange) WatchPositions(ctx context.Context, cb exch
 		<-ctx.Done()
 		s.watchMu.Lock()
 		if s.positionWatchID.Load() == watchID {
+			if s.keepCanceledCallbacks && s.positionCB != nil {
+				s.stalePositionCBs = append(s.stalePositionCBs, s.positionCB)
+			}
 			s.positionCB = nil
 		}
 		s.watchMu.Unlock()
@@ -178,22 +187,40 @@ func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, _ *exchan
 
 func (s *accountRuntimeStubExchange) EmitOrder(order *exchanges.Order) {
 	s.watchMu.Lock()
-	cb := s.orderCB
+	callbacks := make([]exchanges.OrderUpdateCallback, 0, 1+len(s.staleOrderCBs))
+	if s.orderCB != nil {
+		callbacks = append(callbacks, s.orderCB)
+	}
+	callbacks = append(callbacks, s.staleOrderCBs...)
 	s.watchMu.Unlock()
-	if cb == nil || order == nil {
+	if len(callbacks) == 0 || order == nil {
 		return
 	}
-	copy := *order
-	cb(&copy)
+	for _, cb := range callbacks {
+		if cb == nil {
+			continue
+		}
+		copy := *order
+		cb(&copy)
+	}
 }
 
 func (s *accountRuntimeStubExchange) EmitPosition(pos *exchanges.Position) {
 	s.watchMu.Lock()
-	cb := s.positionCB
+	callbacks := make([]exchanges.PositionUpdateCallback, 0, 1+len(s.stalePositionCBs))
+	if s.positionCB != nil {
+		callbacks = append(callbacks, s.positionCB)
+	}
+	callbacks = append(callbacks, s.stalePositionCBs...)
 	s.watchMu.Unlock()
-	if cb == nil || pos == nil {
+	if len(callbacks) == 0 || pos == nil {
 		return
 	}
-	copy := *pos
-	cb(&copy)
+	for _, cb := range callbacks {
+		if cb == nil {
+			continue
+		}
+		copy := *pos
+		cb(&copy)
+	}
 }
