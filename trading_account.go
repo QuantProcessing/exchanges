@@ -28,6 +28,7 @@ type TradingAccount struct {
 
 	started   bool
 	starting  bool
+	closing   bool
 	runCancel context.CancelFunc
 	runGen    uint64
 }
