@@ -2,6 +2,7 @@ package exchanges_test
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -10,26 +11,47 @@ import (
 
 type accountRuntimeStubExchange struct {
 	stubExchange
-	fetchAccountResp    *exchanges.Account
-	fetchAccountErr     error
-	placeResp           *exchanges.Order
-	updates             []*exchanges.Order
-	syncPlaceUpdates    []*exchanges.Order
-	syncPlaceWSUpdates  []*exchanges.Order
-	positionUpdates     []*exchanges.Position
-	watchOrdersErr      error
-	watchPositionsErr   error
-	placeReturnDelay    time.Duration
-	placeWSReturnDelay  time.Duration
-	orderCB             exchanges.OrderUpdateCallback
-	positionCB          exchanges.PositionUpdateCallback
-	fetchAccountCalls   atomic.Int32
-	watchOrdersCalls    atomic.Int32
-	watchPositionsCalls atomic.Int32
+	fetchAccountResp       *exchanges.Account
+	fetchAccountErr        error
+	fetchAccountBlock      chan struct{}
+	fetchAccountStarted    chan struct{}
+	placeResp              *exchanges.Order
+	updates                []*exchanges.Order
+	syncPlaceUpdates       []*exchanges.Order
+	syncPlaceWSUpdates     []*exchanges.Order
+	positionUpdates        []*exchanges.Position
+	watchOrdersErr         error
+	watchPositionsErr      error
+	placeReturnDelay       time.Duration
+	placeWSReturnDelay     time.Duration
+	orderCB                exchanges.OrderUpdateCallback
+	positionCB             exchanges.PositionUpdateCallback
+	fetchAccountCalls      atomic.Int32
+	watchOrdersCalls       atomic.Int32
+	watchPositionsCalls    atomic.Int32
+	watchOrdersCanceled    atomic.Int32
+	watchPositionsCanceled atomic.Int32
+	orderWatchID           atomic.Int64
+	positionWatchID        atomic.Int64
+	watchMu                sync.Mutex
 }
 
-func (s *accountRuntimeStubExchange) FetchAccount(context.Context) (*exchanges.Account, error) {
+func (s *accountRuntimeStubExchange) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
 	s.fetchAccountCalls.Add(1)
+	if s.fetchAccountStarted != nil {
+		select {
+		case <-s.fetchAccountStarted:
+		default:
+			close(s.fetchAccountStarted)
+		}
+	}
+	if s.fetchAccountBlock != nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-s.fetchAccountBlock:
+		}
+	}
 	if s.fetchAccountErr != nil {
 		return nil, s.fetchAccountErr
 	}
@@ -39,21 +61,45 @@ func (s *accountRuntimeStubExchange) FetchAccount(context.Context) (*exchanges.A
 	return &exchanges.Account{}, nil
 }
 
-func (s *accountRuntimeStubExchange) WatchOrders(_ context.Context, cb exchanges.OrderUpdateCallback) error {
+func (s *accountRuntimeStubExchange) WatchOrders(ctx context.Context, cb exchanges.OrderUpdateCallback) error {
 	s.watchOrdersCalls.Add(1)
 	if s.watchOrdersErr != nil {
 		return s.watchOrdersErr
 	}
+	watchID := s.orderWatchID.Add(1)
+	s.watchMu.Lock()
 	s.orderCB = cb
+	s.watchMu.Unlock()
+	go func() {
+		<-ctx.Done()
+		s.watchMu.Lock()
+		if s.orderWatchID.Load() == watchID {
+			s.orderCB = nil
+		}
+		s.watchMu.Unlock()
+		s.watchOrdersCanceled.Add(1)
+	}()
 	return nil
 }
 
-func (s *accountRuntimeStubExchange) WatchPositions(_ context.Context, cb exchanges.PositionUpdateCallback) error {
+func (s *accountRuntimeStubExchange) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	s.watchPositionsCalls.Add(1)
 	if s.watchPositionsErr != nil {
 		return s.watchPositionsErr
 	}
+	watchID := s.positionWatchID.Add(1)
+	s.watchMu.Lock()
 	s.positionCB = cb
+	s.watchMu.Unlock()
+	go func() {
+		<-ctx.Done()
+		s.watchMu.Lock()
+		if s.positionWatchID.Load() == watchID {
+			s.positionCB = nil
+		}
+		s.watchMu.Unlock()
+		s.watchPositionsCanceled.Add(1)
+	}()
 	return nil
 }
 
@@ -131,17 +177,23 @@ func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, _ *exchan
 }
 
 func (s *accountRuntimeStubExchange) EmitOrder(order *exchanges.Order) {
-	if s.orderCB == nil || order == nil {
+	s.watchMu.Lock()
+	cb := s.orderCB
+	s.watchMu.Unlock()
+	if cb == nil || order == nil {
 		return
 	}
 	copy := *order
-	s.orderCB(&copy)
+	cb(&copy)
 }
 
 func (s *accountRuntimeStubExchange) EmitPosition(pos *exchanges.Position) {
-	if s.positionCB == nil || pos == nil {
+	s.watchMu.Lock()
+	cb := s.positionCB
+	s.watchMu.Unlock()
+	if cb == nil || pos == nil {
 		return
 	}
 	copy := *pos
-	s.positionCB(&copy)
+	cb(&copy)
 }

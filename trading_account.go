@@ -11,7 +11,8 @@ import (
 )
 
 type TradingAccount struct {
-	mu sync.RWMutex
+	mu          sync.RWMutex
+	lifecycleMu sync.Mutex
 
 	adp    Exchange
 	logger Logger
@@ -24,8 +25,8 @@ type TradingAccount struct {
 	positionBus *EventBus[Position]
 	flows       *orderFlowRegistry
 
-	started bool
-	done    chan struct{}
+	started   bool
+	runCancel context.CancelFunc
 }
 
 type TradingAccountOption func(*TradingAccount)
@@ -42,7 +43,6 @@ func NewTradingAccount(adp Exchange, logger Logger, _ ...TradingAccountOption) *
 		orderBus:    NewEventBus[Order](),
 		positionBus: NewEventBus[Position](),
 		flows:       newOrderFlowRegistry(),
-		done:        make(chan struct{}),
 	}
 }
 

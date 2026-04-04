@@ -256,6 +256,32 @@ func TestTradingAccountStartFailsWhenWatchPositionsFails(t *testing.T) {
 	require.Equal(t, int32(2), adp.watchPositionsCalls.Load())
 }
 
+func TestTradingAccountStartCancelsWatchOrdersWhenWatchPositionsFails(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		watchPositionsErr: errors.New("watch-positions"),
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+
+	err := acct.Start(context.Background())
+	require.ErrorContains(t, err, "watch-positions")
+
+	require.Eventually(t, func() bool {
+		return adp.watchOrdersCanceled.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	adp.EmitOrder(&exchanges.Order{
+		OrderID: "should-be-ignored",
+		Status:  exchanges.OrderStatusNew,
+	})
+
+	require.Never(t, func() bool {
+		_, ok := acct.OpenOrder("should-be-ignored")
+		return ok
+	}, 100*time.Millisecond, 10*time.Millisecond)
+}
+
 func TestTradingAccountStartCleansFailedSnapshotState(t *testing.T) {
 	t.Parallel()
 
@@ -340,6 +366,62 @@ func TestTradingAccountPlaceWSCapturesSynchronousFirstUpdate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "ws-exch", got.OrderID)
+}
+
+func TestTradingAccountCloseDuringStartLeavesNoActiveWatchers(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		fetchAccountBlock:   make(chan struct{}),
+		fetchAccountStarted: make(chan struct{}),
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+
+	startErrCh := make(chan error, 1)
+	go func() {
+		startErrCh <- acct.Start(context.Background())
+	}()
+
+	select {
+	case <-adp.fetchAccountStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to reach FetchAccount")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		defer close(closeDone)
+		acct.Close()
+	}()
+
+	close(adp.fetchAccountBlock)
+
+	select {
+	case err := <-startErrCh:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to complete")
+	}
+
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("expected Close to complete")
+	}
+
+	require.Eventually(t, func() bool {
+		return adp.watchOrdersCanceled.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	adp.EmitOrder(&exchanges.Order{
+		OrderID: "close-during-start",
+		Status:  exchanges.OrderStatusNew,
+	})
+
+	require.Never(t, func() bool {
+		_, ok := acct.OpenOrder("close-during-start")
+		return ok
+	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestTradingAccountAppliesOrderAndPositionCaches(t *testing.T) {

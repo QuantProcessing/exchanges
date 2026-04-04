@@ -10,26 +10,25 @@ import (
 )
 
 func (a *TradingAccount) Start(ctx context.Context) (err error) {
-	a.mu.Lock()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
 	if a.started {
-		a.mu.Unlock()
 		return nil
 	}
-	a.started = true
-	a.mu.Unlock()
+
+	runCtx, runCancel := context.WithCancel(ctx)
 
 	defer func() {
 		if err == nil {
 			return
 		}
-		a.mu.Lock()
-		a.started = false
-		a.mu.Unlock()
+		runCancel()
 		a.resetSnapshotState()
 	}()
 
 	a.logger.Infow("trading_account: fetching initial account state")
-	acc, err := a.adp.FetchAccount(ctx)
+	acc, err := a.adp.FetchAccount(runCtx)
 	if err != nil {
 		return fmt.Errorf("trading_account: failed to get initial state: %w", err)
 	}
@@ -48,34 +47,39 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("trading_account: adapter %s does not implement Streamable", a.adp.GetExchange())
 	}
 
-	if err := streamable.WatchOrders(ctx, a.applyOrderUpdate); err != nil {
+	if err := streamable.WatchOrders(runCtx, a.applyOrderUpdate); err != nil {
 		return fmt.Errorf("trading_account: WatchOrders failed: %w", err)
 	}
 
-	if watchErr := streamable.WatchPositions(ctx, a.applyPositionUpdate); watchErr != nil {
+	if watchErr := streamable.WatchPositions(runCtx, a.applyPositionUpdate); watchErr != nil {
 		if !errors.Is(watchErr, ErrNotSupported) {
 			return fmt.Errorf("trading_account: WatchPositions failed: %w", watchErr)
 		}
 		a.logger.Warnw("trading_account: WatchPositions failed (may not be supported)", "error", watchErr)
 	}
 
-	go a.periodicRefresh(ctx, time.Minute)
+	a.runCancel = runCancel
+	a.started = true
+
+	go a.periodicRefresh(runCtx, time.Minute)
 
 	return nil
 }
 
 func (a *TradingAccount) Close() {
-	a.mu.Lock()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
 	if !a.started {
-		a.mu.Unlock()
 		return
 	}
 	a.started = false
-	done := a.done
-	a.done = make(chan struct{})
-	a.mu.Unlock()
+	runCancel := a.runCancel
+	a.runCancel = nil
 
-	close(done)
+	if runCancel != nil {
+		runCancel()
+	}
 	a.orderBus.Close()
 	a.positionBus.Close()
 	a.flows.CloseAll()
@@ -85,15 +89,9 @@ func (a *TradingAccount) periodicRefresh(ctx context.Context, interval time.Dura
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	a.mu.RLock()
-	done := a.done
-	a.mu.RUnlock()
-
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-done:
 			return
 		case <-ticker.C:
 			acc, err := a.adp.FetchAccount(ctx)
