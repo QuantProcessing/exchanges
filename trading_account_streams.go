@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"errors"
 	"github.com/shopspring/decimal"
 )
 
@@ -52,6 +53,9 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 	}
 
 	if watchErr := streamable.WatchPositions(ctx, a.applyPositionUpdate); watchErr != nil {
+		if !errors.Is(watchErr, ErrNotSupported) {
+			return fmt.Errorf("trading_account: WatchPositions failed: %w", watchErr)
+		}
 		a.logger.Warnw("trading_account: WatchPositions failed (may not be supported)", "error", watchErr)
 	}
 

@@ -233,6 +233,29 @@ func TestTradingAccountStartFailsWhenWatchOrdersFails(t *testing.T) {
 	require.Equal(t, int32(2), adp.watchOrdersCalls.Load())
 }
 
+func TestTradingAccountStartFailsWhenWatchPositionsFails(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		watchPositionsErr: errors.New("watch-positions"),
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+
+	err := acct.Start(context.Background())
+	require.ErrorContains(t, err, "watch-positions")
+	require.Equal(t, int32(1), adp.fetchAccountCalls.Load())
+	require.Equal(t, int32(1), adp.watchOrdersCalls.Load())
+	require.Equal(t, int32(1), adp.watchPositionsCalls.Load())
+
+	adp.watchPositionsErr = nil
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	require.Equal(t, int32(2), adp.fetchAccountCalls.Load())
+	require.Equal(t, int32(2), adp.watchOrdersCalls.Load())
+	require.Equal(t, int32(2), adp.watchPositionsCalls.Load())
+}
+
 func TestTradingAccountStartCleansFailedSnapshotState(t *testing.T) {
 	t.Parallel()
 

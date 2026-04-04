@@ -1,11 +1,6 @@
 package exchanges
 
 import (
-	"context"
-	"fmt"
-	"strings"
-	"time"
-
 	"github.com/shopspring/decimal"
 )
 
@@ -63,87 +58,6 @@ func (a *TradingAccount) SubscribeOrders() *Subscription[Order] {
 
 func (a *TradingAccount) SubscribePositions() *Subscription[Position] {
 	return a.positionBus.Subscribe()
-}
-
-func (a *TradingAccount) Place(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
-	allSub := a.SubscribeOrders()
-	order, err := a.adp.PlaceOrder(ctx, params)
-	if err != nil {
-		allSub.Unsubscribe()
-		return nil, err
-	}
-
-	return a.newFlowFromResult(a.trackOrderResult(allSub, order)), nil
-}
-
-func (a *TradingAccount) PlaceWS(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
-	if strings.TrimSpace(params.ClientID) == "" {
-		return nil, fmt.Errorf("client id required for PlaceWS")
-	}
-
-	allSub := a.SubscribeOrders()
-	if err := a.adp.PlaceOrderWS(ctx, params); err != nil {
-		allSub.Unsubscribe()
-		return nil, err
-	}
-
-	return a.newFlowFromResult(a.trackOrderResult(allSub, &Order{
-		ClientOrderID: params.ClientID,
-		Symbol:        params.Symbol,
-		Side:          params.Side,
-		Type:          params.Type,
-		Quantity:      params.Quantity,
-		Price:         params.Price,
-		Status:        OrderStatusPending,
-		Timestamp:     time.Now().UnixMilli(),
-	})), nil
-}
-
-func (a *TradingAccount) trackOrderResult(allSub *Subscription[Order], order *Order) *OrderResult {
-	orderID := order.OrderID
-	clientOrderID := order.ClientOrderID
-	filteredCh := make(chan *Order, 16)
-	result := &OrderResult{
-		Order:  order,
-		cancel: allSub.Unsubscribe,
-	}
-
-	go func() {
-		defer close(filteredCh)
-		for update := range allSub.C {
-			match := (orderID != "" && update.OrderID == orderID) ||
-				(clientOrderID != "" && update.ClientOrderID == clientOrderID)
-			if !match {
-				continue
-			}
-
-			updated := *update
-			if updated.OrderID == "" {
-				updated.OrderID = result.Order.OrderID
-			}
-			if updated.ClientOrderID == "" {
-				updated.ClientOrderID = result.Order.ClientOrderID
-			}
-			*result.Order = updated
-			orderID = result.Order.OrderID
-			clientOrderID = result.Order.ClientOrderID
-
-			select {
-			case filteredCh <- update:
-			default:
-			}
-
-			if update.Status == OrderStatusFilled ||
-				update.Status == OrderStatusCancelled ||
-				update.Status == OrderStatusRejected {
-				allSub.Unsubscribe()
-				return
-			}
-		}
-	}()
-
-	result.Sub = &Subscription[Order]{C: filteredCh}
-	return result
 }
 
 func (a *TradingAccount) applyAccountSnapshot(acc *Account) {
