@@ -106,6 +106,9 @@ func (s *LocalState) Start(ctx context.Context) (err error) {
 		if err != nil {
 			s.mu.Lock()
 			s.started = false
+			s.balance = decimal.Zero
+			s.positions = make(map[string]*Position)
+			s.orders = make(map[string]*Order)
 			s.mu.Unlock()
 		}
 	}()

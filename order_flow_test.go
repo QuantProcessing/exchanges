@@ -2,7 +2,7 @@ package exchanges
 
 import (
 	"context"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,22 +172,30 @@ func TestOrderFlowCloseWakesMultipleWaiters(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	var predicateCalls atomic.Int32
-	ready := make(chan struct{}, 2)
 	errs := make(chan error, 2)
-	for i := 0; i < 2; i++ {
+	startWaiter := func() <-chan struct{} {
+		ready := make(chan struct{})
 		go func() {
+			calls := 0
+			var readyOnce sync.Once
 			_, err := flow.Wait(waitCtx, func(o *Order) bool {
-				if predicateCalls.Add(1)%2 == 0 {
-					ready <- struct{}{}
+				calls++
+				if calls == 2 {
+					readyOnce.Do(func() {
+						close(ready)
+					})
 				}
 				return o.Status == OrderStatusFilled
 			})
 			errs <- err
 		}()
+		return ready
 	}
 
-	for i := 0; i < 2; i++ {
+	ready1 := startWaiter()
+	ready2 := startWaiter()
+
+	for _, ready := range []<-chan struct{}{ready1, ready2} {
 		select {
 		case <-ready:
 		case <-time.After(time.Second):

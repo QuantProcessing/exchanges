@@ -233,6 +233,43 @@ func TestTradingAccountStartFailsWhenWatchOrdersFails(t *testing.T) {
 	require.Equal(t, int32(2), adp.watchOrdersCalls.Load())
 }
 
+func TestTradingAccountStartCleansFailedSnapshotState(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		fetchAccountResp: &exchanges.Account{
+			TotalBalance: decimal.RequireFromString("7"),
+			Positions: []exchanges.Position{{
+				Symbol:   "ETH",
+				Quantity: decimal.RequireFromString("1"),
+				Side:     exchanges.PositionSideLong,
+			}},
+			Orders: []exchanges.Order{{
+				OrderID:  "stale-order",
+				Symbol:   "ETH",
+				Status:   exchanges.OrderStatusNew,
+				Quantity: decimal.RequireFromString("0.1"),
+			}},
+		},
+		watchOrdersErr: errors.New("watch-orders"),
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+
+	err := acct.Start(context.Background())
+	require.ErrorContains(t, err, "watch-orders")
+
+	adp.fetchAccountResp = &exchanges.Account{}
+	adp.watchOrdersErr = nil
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	require.True(t, acct.Balance().IsZero())
+	_, ok := acct.OpenOrder("stale-order")
+	require.False(t, ok)
+	_, ok = acct.Position("ETH")
+	require.False(t, ok)
+}
+
 func TestTradingAccountStartAllowsWatchPositionsUnsupported(t *testing.T) {
 	t.Parallel()
 
@@ -272,7 +309,10 @@ func TestTradingAccountPlaceWSCapturesSynchronousFirstUpdate(t *testing.T) {
 	require.NoError(t, err)
 	defer flow.Close()
 
-	got, err := flow.Wait(context.Background(), func(o *exchanges.Order) bool {
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+
+	got, err := flow.Wait(waitCtx, func(o *exchanges.Order) bool {
 		return o.OrderID == "ws-exch"
 	})
 	require.NoError(t, err)
