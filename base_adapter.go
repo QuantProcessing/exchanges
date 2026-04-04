@@ -16,8 +16,8 @@ import (
 // - Symbol detail caching
 // - Automatic order validation and slippage handling
 //
-// For account state management (orders, positions, balance), use
-// TradingAccount, which wraps the Exchange adapter externally.
+// For account runtime state (orders, positions, balance) and tracked order
+// execution flows, use TradingAccount and OrderFlow outside the adapter.
 type BaseAdapter struct {
 	Name       string
 	MarketType MarketType

@@ -353,7 +353,7 @@ fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
-> LocalState remains available for compatibility, but new code should prefer TradingAccount.
+> TradingAccount is the release-facing account runtime. New integrations should build on `TradingAccount + OrderFlow`.
 
 ## Migration Order
 
@@ -660,7 +660,8 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── models.go               Unified data types (Order, Position, Ticker, etc.)
 ├── errors.go               Sentinel errors + ExchangeError type
 ├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
-├── local_state.go          LocalOrderBook interface + unified LocalState manager
+├── trading_account.go      TradingAccount runtime entrypoint
+├── order_flow.go           OrderFlow lifecycle stream + latest snapshot helper
 ├── event_bus.go            Generic EventBus[T] for fan-out pub/sub
 ├── log.go                  Logger interface + NopLogger
 ├── testsuite/              Adapter compliance test suite

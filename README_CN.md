@@ -347,7 +347,7 @@ fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
-> LocalState remains available for compatibility, but new code should prefer TradingAccount.
+> TradingAccount 是当前发布面向外部的账户运行时入口。新的集成应基于 `TradingAccount + OrderFlow`。
 
 ## Migration Order
 
@@ -654,7 +654,8 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 ├── models.go               统一数据类型（Order, Position, Ticker 等）
 ├── errors.go               哨兵错误 + ExchangeError 类型
 ├── base_adapter.go         共享适配器逻辑（深度簿、校验、通用辅助）
-├── local_state.go          LocalOrderBook 接口 + 统一 LocalState 管理器
+├── trading_account.go      TradingAccount 运行时入口
+├── order_flow.go           OrderFlow 生命周期流 + 最新快照辅助
 ├── event_bus.go            通用 EventBus[T] fan-out 发布/订阅
 ├── log.go                  Logger 接口 + NopLogger
 ├── testsuite/              适配器一致性测试套件

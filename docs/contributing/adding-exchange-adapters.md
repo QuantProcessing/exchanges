@@ -6,7 +6,7 @@ Use it for:
 
 - new perp or spot adapters
 - support-level upgrades such as public-only to trading-capable
-- private stream and local-state readiness decisions
+- private stream and TradingAccount readiness decisions
 - live `testsuite` wiring and completion gates
 
 This guide replaces the older repo-local `adding-exchange-adapters` skill as the maintained source of truth.
@@ -20,7 +20,7 @@ This guide replaces the older repo-local `adding-exchange-adapters` skill as the
    - `public-data-only`
    - `trading-capable`
    - `lifecycle-capable`
-   - `local-state-capable`
+   - `trading-account-capable`
 
 If peer selection or capability classification is missing, stop and do that first.
 
@@ -31,7 +31,7 @@ If peer selection or capability classification is missing, stop and do that firs
 | `public-data-only` | `RunAdapterComplianceTests` | Private/account/trading surfaces return `exchanges.ErrNotSupported` |
 | `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` |
 | `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it |
-| `local-state-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLocalStateSuite`, and `RunLifecycleSuite` when lifecycle support is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate |
+| `trading-account-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunTradingAccountSuite`, and `RunLifecycleSuite` when lifecycle support is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate |
 
 `FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate contracts. Preserve that distinction in both implementation and tests.
 
@@ -95,14 +95,14 @@ Preferred lookup order for `FetchOrderByID`:
 2. authenticated order history or broader order-list endpoint that includes terminal states
 3. symbol-scoped history/list endpoint that can still resolve the order
 
-## Private Streams And Local State
+## Private Streams And TradingAccount
 
-`LocalState` depends on adapter behavior. It is not a separate adapter interface.
+`TradingAccount` depends on adapter behavior. It is not a separate adapter interface.
 
 Practical readiness rules:
 
 - `WatchOrders` is mandatory for lifecycle claims
-- `WatchOrders` is mandatory for local-state readiness
+- `WatchOrders` is mandatory for TradingAccount readiness
 - `WatchPositions` is additive coverage, not the universal gate
 - unsupported shared private surfaces must return `exchanges.ErrNotSupported`, not no-op success
 
@@ -111,9 +111,9 @@ Responsibility split:
 1. `FetchAccount` establishes the initial coherent snapshot
 2. `WatchOrders` supplies order lifecycle deltas
 3. `WatchPositions` supplies position deltas when supported
-4. `LocalState` owns caching, fan-out, and periodic reconciliation
+4. `TradingAccount` owns caching, fan-out, tracked `OrderFlow` updates, and periodic reconciliation
 
-If the exchange lacks a usable private order stream, do not claim `lifecycle-capable` or `local-state-capable`.
+If the exchange lacks a usable private order stream, do not claim `lifecycle-capable` or `trading-account-capable`.
 
 ## Live Test Wiring
 
@@ -147,7 +147,7 @@ Stop immediately if any of these are true:
 - peer selection was skipped or one package was copied wholesale without re-evaluating each concern
 - the adapter capability level is undefined or the wired `testsuite` coverage does not match it
 - the registry advertises a market type with no real adapter behind it
-- `WatchOrders` is missing but lifecycle or local-state support is claimed
+- `WatchOrders` is missing but lifecycle or TradingAccount support is claimed
 - unsupported shared surfaces return no-op success instead of `exchanges.ErrNotSupported`
 - `FetchOrderByID` is implemented by scanning only open orders
 - adapter files own signing, raw REST construction, wire structs, or WebSocket lifecycle internals that belong in `sdk/`
@@ -164,10 +164,13 @@ Start from the smallest authoritative set:
 - `errors.go`
 - `utils.go`
 - `registry.go`
-- `local_state.go`
+- `trading_account.go`
+- `trading_account_state.go`
+- `order_flow.go`
 - `testsuite/compliance.go`
 - `testsuite/order_suite.go`
 - `testsuite/lifecycle_suite.go`
+- `testsuite/trading_account_suite.go`
 - `testsuite/helpers.go`
 - `<exchange>/options.go`
 - `<exchange>/register.go`
