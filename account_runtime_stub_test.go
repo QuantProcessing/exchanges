@@ -23,6 +23,8 @@ type accountRuntimeStubExchange struct {
 	watchOrdersErr         error
 	watchPositionsErr      error
 	keepCanceledCallbacks  bool
+	emitOrderOnCancel      *exchanges.Order
+	emitPositionOnCancel   *exchanges.Position
 	placeReturnDelay       time.Duration
 	placeWSReturnDelay     time.Duration
 	orderCB                exchanges.OrderUpdateCallback
@@ -34,6 +36,8 @@ type accountRuntimeStubExchange struct {
 	watchPositionsCalls    atomic.Int32
 	watchOrdersCanceled    atomic.Int32
 	watchPositionsCanceled atomic.Int32
+	orderCancelEmits       atomic.Int32
+	positionCancelEmits    atomic.Int32
 	orderWatchID           atomic.Int64
 	positionWatchID        atomic.Int64
 	watchMu                sync.Mutex
@@ -77,6 +81,11 @@ func (s *accountRuntimeStubExchange) WatchOrders(ctx context.Context, cb exchang
 		<-ctx.Done()
 		s.watchMu.Lock()
 		if s.orderWatchID.Load() == watchID {
+			if s.emitOrderOnCancel != nil && s.orderCB != nil {
+				copy := *s.emitOrderOnCancel
+				s.orderCB(&copy)
+				s.orderCancelEmits.Add(1)
+			}
 			if s.keepCanceledCallbacks && s.orderCB != nil {
 				s.staleOrderCBs = append(s.staleOrderCBs, s.orderCB)
 			}
@@ -101,6 +110,11 @@ func (s *accountRuntimeStubExchange) WatchPositions(ctx context.Context, cb exch
 		<-ctx.Done()
 		s.watchMu.Lock()
 		if s.positionWatchID.Load() == watchID {
+			if s.emitPositionOnCancel != nil && s.positionCB != nil {
+				copy := *s.emitPositionOnCancel
+				s.positionCB(&copy)
+				s.positionCancelEmits.Add(1)
+			}
 			if s.keepCanceledCallbacks && s.positionCB != nil {
 				s.stalePositionCBs = append(s.stalePositionCBs, s.positionCB)
 			}

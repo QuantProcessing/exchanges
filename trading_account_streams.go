@@ -27,8 +27,11 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 		if err == nil {
 			return
 		}
-		runCancel()
-		a.failRunStart(runGen)
+		if cancel := a.failRunStart(runGen); cancel != nil {
+			cancel()
+		} else {
+			runCancel()
+		}
 		a.resetSnapshotState()
 	}()
 
@@ -80,7 +83,7 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 }
 
 func (a *TradingAccount) Close() {
-	runCancel, _ := a.currentRunCancel()
+	runCancel := a.closeRun()
 	if runCancel != nil {
 		runCancel()
 	}
@@ -88,7 +91,6 @@ func (a *TradingAccount) Close() {
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
 
-	a.closeRun()
 	a.resetSnapshotState()
 	a.orderBus.Close()
 	a.positionBus.Close()
@@ -136,16 +138,18 @@ func (a *TradingAccount) beginRun(runCancel context.CancelFunc) uint64 {
 	return a.runGen
 }
 
-func (a *TradingAccount) failRunStart(runGen uint64) {
+func (a *TradingAccount) failRunStart(runGen uint64) context.CancelFunc {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 
 	if a.runGen != runGen {
-		return
+		return nil
 	}
+	runCancel := a.runCancel
 	a.started = false
 	a.starting = false
 	a.runCancel = nil
+	return runCancel
 }
 
 func (a *TradingAccount) finishRunStart(runGen uint64) bool {
@@ -167,14 +171,16 @@ func (a *TradingAccount) currentRunCancel() (context.CancelFunc, bool) {
 	return a.runCancel, a.started || a.starting || a.runCancel != nil
 }
 
-func (a *TradingAccount) closeRun() {
+func (a *TradingAccount) closeRun() context.CancelFunc {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 
+	runCancel := a.runCancel
 	a.runGen++
 	a.started = false
 	a.starting = false
 	a.runCancel = nil
+	return runCancel
 }
 
 func (a *TradingAccount) isActiveRun(runGen uint64) bool {

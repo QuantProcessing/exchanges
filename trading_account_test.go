@@ -310,31 +310,30 @@ func TestTradingAccountStartCancelsWatchOrdersWhenWatchPositionsFails(t *testing
 	t.Parallel()
 
 	adp := &accountRuntimeStubExchange{
-		watchPositionsErr:     errors.New("watch-positions"),
-		keepCanceledCallbacks: true,
+		watchPositionsErr: errors.New("watch-positions"),
+		emitOrderOnCancel: &exchanges.Order{
+			OrderID: "cancel-window-order",
+			Status:  exchanges.OrderStatusNew,
+		},
 	}
 	acct := exchanges.NewTradingAccount(adp, nil)
+	orderSub := acct.SubscribeOrders()
+	defer orderSub.Unsubscribe()
 
 	err := acct.Start(context.Background())
 	require.ErrorContains(t, err, "watch-positions")
 
 	require.Eventually(t, func() bool {
-		return adp.watchOrdersCanceled.Load() == 1
+		return adp.orderCancelEmits.Load() == 1 && adp.watchOrdersCanceled.Load() == 1
 	}, time.Second, 10*time.Millisecond)
 
-	adp.EmitOrder(&exchanges.Order{
-		OrderID: "should-be-ignored",
-		Status:  exchanges.OrderStatusNew,
-	})
-	adp.EmitPosition(&exchanges.Position{
-		Symbol:   "ETH",
-		Quantity: decimal.RequireFromString("1"),
-	})
-
 	require.Never(t, func() bool {
-		_, ok := acct.OpenOrder("should-be-ignored")
-		_, posOK := acct.Position("ETH")
-		return ok || posOK
+		select {
+		case order, ok := <-orderSub.C:
+			return ok && order != nil && order.OrderID == "cancel-window-order"
+		default:
+			return false
+		}
 	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
@@ -466,6 +465,37 @@ func TestTradingAccountCloseCancelsBlockedStart(t *testing.T) {
 	require.Equal(t, int32(1), adp.fetchAccountCalls.Load())
 	require.Zero(t, adp.watchOrdersCalls.Load())
 	require.Zero(t, adp.watchPositionsCalls.Load())
+}
+
+func TestTradingAccountIgnoresCancelWindowUpdatesAfterClose(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		emitPositionOnCancel: &exchanges.Position{
+			Symbol:   "ETH",
+			Quantity: decimal.RequireFromString("1"),
+		},
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+
+	positionSub := acct.SubscribePositions()
+	defer positionSub.Unsubscribe()
+
+	acct.Close()
+
+	require.Eventually(t, func() bool {
+		return adp.positionCancelEmits.Load() == 1 && adp.watchPositionsCanceled.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	require.Never(t, func() bool {
+		select {
+		case position, ok := <-positionSub.C:
+			return ok && position != nil && position.Symbol == "ETH"
+		default:
+			return false
+		}
+	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestTradingAccountIgnoresLateUpdatesAfterClose(t *testing.T) {
