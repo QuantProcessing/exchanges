@@ -88,9 +88,9 @@ func TestPerpAdapter_Lifecycle(t *testing.T) {
 	})
 }
 
-func TestPerpAdapter_LocalState(t *testing.T) {
+func TestPerpAdapter_TradingAccount(t *testing.T) {
 	adp := setupPerpAdapter(t)
-	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{
+	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
 		Symbol: requireEnvSymbol(t, "BACKPACK_PERP_TEST_SYMBOL"),
 	})
 }
@@ -125,9 +125,9 @@ func TestSpotAdapter_Lifecycle(t *testing.T) {
 	})
 }
 
-func TestSpotAdapter_LocalState(t *testing.T) {
+func TestSpotAdapter_TradingAccount(t *testing.T) {
 	adp := setupSpotAdapter(t)
-	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{
+	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
 		Symbol: requireEnvSymbol(t, "BACKPACK_SPOT_TEST_SYMBOL"),
 	})
 }

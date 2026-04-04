@@ -138,7 +138,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	time.Sleep(2 * time.Second)
 	_, found := acct.OpenOrder(limitOrder.OrderID)
-	t.Logf("  Order in local state: %v", found)
+	t.Logf("  Order tracked by TradingAccount: %v", found)
 
 	cancelOrderID := limitOrder.OrderID
 	err = acct.Cancel(ctx, cancelOrderID, cfg.Symbol)
@@ -154,8 +154,8 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	time.Sleep(500 * time.Millisecond)
 	_, stillOpen := acct.OpenOrder(cancelOrderID)
-	assert.False(t, stillOpen, "Cancelled order should be removed from local orders")
-	t.Log("✓ Cancelled order removed from local state")
+	assert.False(t, stillOpen, "Cancelled order should be removed from TradingAccount open orders")
+	t.Log("✓ Cancelled order removed from TradingAccount open orders")
 
 	t.Log("═══ Phase 7: Close position ═══")
 

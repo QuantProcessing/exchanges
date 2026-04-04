@@ -92,7 +92,7 @@ func TestSpotAdapter_Lifecycle(t *testing.T) {
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "ASTER"})
 }
 
-func TestPerpAdapter_LocalState(t *testing.T) {
+func TestPerpAdapter_TradingAccount(t *testing.T) {
 	adp := setupPerpAdapter(t)
-	testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{Symbol: "DOGE"})
+	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{Symbol: "DOGE"})
 }
