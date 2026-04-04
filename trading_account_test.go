@@ -199,7 +199,7 @@ func TestTradingAccountStartIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestTradingAccountPlaceCapturesSynchronousFirstUpdate(t *testing.T) {
+func TestTradingAccountPlaceCapturesSynchronousFirstUpdateWithoutLocalState(t *testing.T) {
 	t.Parallel()
 
 	adp := &accountRuntimeStubExchange{
@@ -234,6 +234,11 @@ func TestTradingAccountPlaceCapturesSynchronousFirstUpdate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer flow.Close()
+
+	latest := flow.Latest()
+	require.NotNil(t, latest)
+	require.Empty(t, latest.OrderID)
+	require.Equal(t, "sync-cli-1", latest.ClientOrderID)
 
 	require.Eventually(t, func() bool {
 		latest := flow.Latest()

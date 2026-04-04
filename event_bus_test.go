@@ -170,28 +170,18 @@ done:
 }
 
 // ============================================================================
-// LocalState unit tests (with mock adapter)
+// TradingAccount unit tests (no adapter required)
 // ============================================================================
 
-func TestLocalState_ApplyOrderUpdate_Terminal(t *testing.T) {
-	// Test that terminal orders are removed from state
-	bus := exchanges.NewEventBus[exchanges.Order]()
-	defer bus.Close()
+func TestTradingAccount_EmptyQueries(t *testing.T) {
+	acct := exchanges.NewTradingAccount(nil, nil)
 
-	state := exchanges.NewLocalState(nil, nil)
-
-	// We can't call Start without an adapter, but we can test the exported query
-	// after manually setting state. This verifies the data structures work.
-
-	// GetOrder on empty state returns false
-	_, ok := state.GetOrder("nonexistent")
+	_, ok := acct.OpenOrder("nonexistent")
 	assert.False(t, ok)
 
-	// GetAllOpenOrders on empty state returns empty
-	orders := state.GetAllOpenOrders()
+	orders := acct.OpenOrders()
 	assert.Empty(t, orders)
 
-	// GetAllPositions on empty state returns empty
-	positions := state.GetAllPositions()
+	positions := acct.Positions()
 	assert.Empty(t, positions)
 }

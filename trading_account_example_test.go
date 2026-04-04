@@ -13,7 +13,7 @@ func ExampleNewTradingAccount() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	adp := &localStateStubExchange{
+	adp := &accountRuntimeStubExchange{
 		placeResp: &exchanges.Order{
 			ClientOrderID: "cli-1",
 			Symbol:        "ETH",

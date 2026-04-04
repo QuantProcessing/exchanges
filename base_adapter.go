@@ -16,8 +16,8 @@ import (
 // - Symbol detail caching
 // - Automatic order validation and slippage handling
 //
-// For local state management (Orders, Positions, Balance), use LocalState
-// which wraps the Exchange adapter externally.
+// For account state management (orders, positions, balance), use
+// TradingAccount, which wraps the Exchange adapter externally.
 type BaseAdapter struct {
 	Name       string
 	MarketType MarketType

@@ -138,19 +138,11 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 
 	updates := append([]*exchanges.Order(nil), s.updates...)
 	syncUpdates := append([]*exchanges.Order(nil), s.syncPlaceUpdates...)
-	if s.orderCB != nil {
-		for _, update := range syncUpdates {
-			if update == nil {
-				continue
-			}
-			copy := *update
-			s.orderCB(&copy)
-		}
-	}
+	s.emitOrderCallbacks(syncUpdates)
 	if s.placeReturnDelay > 0 {
 		time.Sleep(s.placeReturnDelay)
 	}
-	if s.orderCB != nil && len(updates) > 0 {
+	if len(updates) > 0 {
 		go func() {
 			for _, update := range updates {
 				select {
@@ -158,8 +150,7 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 					return
 				case <-time.After(10 * time.Millisecond):
 				}
-				copy := *update
-				s.orderCB(&copy)
+				s.emitOrderCallbacks([]*exchanges.Order{update})
 			}
 		}()
 	}
@@ -170,19 +161,11 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, _ *exchanges.OrderParams) error {
 	updates := append([]*exchanges.Order(nil), s.updates...)
 	syncUpdates := append([]*exchanges.Order(nil), s.syncPlaceWSUpdates...)
-	if s.orderCB != nil {
-		for _, update := range syncUpdates {
-			if update == nil {
-				continue
-			}
-			copy := *update
-			s.orderCB(&copy)
-		}
-	}
+	s.emitOrderCallbacks(syncUpdates)
 	if s.placeWSReturnDelay > 0 {
 		time.Sleep(s.placeWSReturnDelay)
 	}
-	if s.orderCB != nil && len(updates) > 0 {
+	if len(updates) > 0 {
 		go func() {
 			for _, update := range updates {
 				select {
@@ -190,8 +173,7 @@ func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, _ *exchan
 					return
 				case <-time.After(10 * time.Millisecond):
 				}
-				copy := *update
-				s.orderCB(&copy)
+				s.emitOrderCallbacks([]*exchanges.Order{update})
 			}
 		}()
 	}
@@ -252,5 +234,26 @@ func (s *accountRuntimeStubExchange) EmitPosition(pos *exchanges.Position) {
 		}
 		copy := *pos
 		cb(&copy)
+	}
+}
+
+func (s *accountRuntimeStubExchange) emitOrderCallbacks(updates []*exchanges.Order) {
+	if len(updates) == 0 {
+		return
+	}
+
+	s.watchMu.Lock()
+	callback := s.orderCB
+	s.watchMu.Unlock()
+	if callback == nil {
+		return
+	}
+
+	for _, update := range updates {
+		if update == nil {
+			continue
+		}
+		copy := *update
+		callback(&copy)
 	}
 }
