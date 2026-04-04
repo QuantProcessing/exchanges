@@ -299,7 +299,7 @@ func (a *SpotAdapter) ModifyOrder(ctx context.Context, orderID, symbol string, p
 	}
 
 	if resp.NewOrderResponse == nil {
-		return nil, fmt.Errorf("modify order failed: %s", resp.NewOrderResult)
+		return nil, fmt.Errorf("modify order failed: %s", resp.NewOrderStatus)
 	}
 
 	return a.normalizeOrderResponse(resp.NewOrderResponse)

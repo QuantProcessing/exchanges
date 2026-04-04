@@ -654,8 +654,12 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 ├── models.go               统一数据类型（Order, Position, Ticker 等）
 ├── errors.go               哨兵错误 + ExchangeError 类型
 ├── base_adapter.go         共享适配器逻辑（深度簿、校验、通用辅助）
-├── trading_account.go      TradingAccount 运行时入口
+├── local_orderbook.go      本地订单簿缓存与同步辅助
 ├── order_flow.go           OrderFlow 生命周期流 + 最新快照辅助
+├── trading_account.go      TradingAccount 运行时入口
+├── trading_account_state.go TradingAccount 状态机与快照
+├── trading_account_streams.go TradingAccount 流式连接与扇出
+├── trading_account_place.go TradingAccount 下单与对账
 ├── event_bus.go            通用 EventBus[T] fan-out 发布/订阅
 ├── log.go                  Logger 接口 + NopLogger
 ├── testsuite/              适配器一致性测试套件

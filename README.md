@@ -660,8 +660,12 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── models.go               Unified data types (Order, Position, Ticker, etc.)
 ├── errors.go               Sentinel errors + ExchangeError type
 ├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
-├── trading_account.go      TradingAccount runtime entrypoint
+├── local_orderbook.go      Local orderbook cache and sync helpers
 ├── order_flow.go           OrderFlow lifecycle stream + latest snapshot helper
+├── trading_account.go      TradingAccount runtime entrypoint
+├── trading_account_state.go TradingAccount state machine and snapshots
+├── trading_account_streams.go TradingAccount stream wiring and fan-out
+├── trading_account_place.go TradingAccount order placement and reconciliation
 ├── event_bus.go            Generic EventBus[T] for fan-out pub/sub
 ├── log.go                  Logger interface + NopLogger
 ├── testsuite/              Adapter compliance test suite

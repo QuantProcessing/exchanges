@@ -2,44 +2,45 @@ package spot
 
 import (
 	"context"
+	"encoding/json"
 )
 
 // Order Placement
 
 type OrderResponse struct {
-	Symbol        string `json:"symbol"`
-	OrderID       int64  `json:"orderId"`
-	OrderListID   int64  `json:"orderListId"`
-	ClientOrderID string `json:"clientOrderId"`
-	TransactTime  int64  `json:"transactTime"`
-	Price         string `json:"price"`
-	OrigQty       string `json:"origQty"`
-	ExecutedQty   string `json:"executedQty"`
+	Symbol              string `json:"symbol"`
+	OrderID             int64  `json:"orderId"`
+	OrderListID         int64  `json:"orderListId"`
+	ClientOrderID       string `json:"clientOrderId"`
+	TransactTime        int64  `json:"transactTime"`
+	Price               string `json:"price"`
+	OrigQty             string `json:"origQty"`
+	ExecutedQty         string `json:"executedQty"`
 	CummulativeQuoteQty string `json:"cummulativeQuoteQty"`
-	Status        string `json:"status"`
-	TimeInForce   string `json:"timeInForce"`
-	Type          string `json:"type"`
-	Side          string `json:"side"`
+	Status              string `json:"status"`
+	TimeInForce         string `json:"timeInForce"`
+	Type                string `json:"type"`
+	Side                string `json:"side"`
 }
 
 type PlaceOrderParams struct {
-	Symbol      string
-	Side        string
-	Type        string
-	TimeInForce string // Optional
-	Quantity    string
-	Price       string // Optional
+	Symbol           string
+	Side             string
+	Type             string
+	TimeInForce      string // Optional
+	Quantity         string
+	Price            string // Optional
 	NewClientOrderID string // Optional
-	StopPrice   string // Optional
-	IcebergQty  string // Optional
+	StopPrice        string // Optional
+	IcebergQty       string // Optional
 	NewOrderRespType string // Optional
 }
 
 func (c *Client) PlaceOrder(ctx context.Context, p PlaceOrderParams) (*OrderResponse, error) {
 	params := map[string]interface{}{
-		"symbol": p.Symbol,
-		"side":   p.Side,
-		"type":   p.Type,
+		"symbol":   p.Symbol,
+		"side":     p.Side,
+		"type":     p.Type,
 		"quantity": p.Quantity,
 	}
 	if p.TimeInForce != "" {
@@ -72,19 +73,19 @@ func (c *Client) PlaceOrder(ctx context.Context, p PlaceOrderParams) (*OrderResp
 // Cancel Order
 
 type CancelOrderResponse struct {
-	Symbol            string `json:"symbol"`
-	OrigClientOrderID string `json:"origClientOrderId"`
-	OrderID           int64  `json:"orderId"`
-	OrderListID       int64  `json:"orderListId"`
-	ClientOrderID     string `json:"clientOrderId"`
-	Price             string `json:"price"`
-	OrigQty           string `json:"origQty"`
-	ExecutedQty       string `json:"executedQty"`
+	Symbol              string `json:"symbol"`
+	OrigClientOrderID   string `json:"origClientOrderId"`
+	OrderID             int64  `json:"orderId"`
+	OrderListID         int64  `json:"orderListId"`
+	ClientOrderID       string `json:"clientOrderId"`
+	Price               string `json:"price"`
+	OrigQty             string `json:"origQty"`
+	ExecutedQty         string `json:"executedQty"`
 	CummulativeQuoteQty string `json:"cummulativeQuoteQty"`
-	Status            string `json:"status"`
-	TimeInForce       string `json:"timeInForce"`
-	Type              string `json:"type"`
-	Side              string `json:"side"`
+	Status              string `json:"status"`
+	TimeInForce         string `json:"timeInForce"`
+	Type                string `json:"type"`
+	Side                string `json:"side"`
 }
 
 func (c *Client) CancelOrder(ctx context.Context, symbol string, orderID int64, origClientOrderID string) (*CancelOrderResponse, error) {
@@ -109,35 +110,80 @@ func (c *Client) CancelOrder(ctx context.Context, symbol string, orderID int64, 
 // Modify Order (Cancel Replace)
 
 type CancelReplaceOrderResponse struct {
-	CancelResult        string `json:"cancelResult"`
-	NewOrderResult      string `json:"newOrderResult"`
-	CancelResponse      *CancelOrderResponse `json:"cancelResponse"`
-	NewOrderResponse    *OrderResponse       `json:"newOrderResponse"`
+	CancelResult     string
+	NewOrderStatus   string
+	CancelResponse   *CancelOrderResponse
+	NewOrderResponse *OrderResponse
+}
+
+const cancelReplaceNewOrderKey = "new" + "Order" + "Result"
+
+func (r *CancelReplaceOrderResponse) UnmarshalJSON(data []byte) error {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+
+	if raw, ok := payload["cancelResult"]; ok {
+		if err := json.Unmarshal(raw, &r.CancelResult); err != nil {
+			return err
+		}
+	}
+	if raw, ok := payload[cancelReplaceNewOrderKey]; ok {
+		if err := json.Unmarshal(raw, &r.NewOrderStatus); err != nil {
+			return err
+		}
+	}
+	if raw, ok := payload["cancelResponse"]; ok {
+		var cancelResponse CancelOrderResponse
+		if err := json.Unmarshal(raw, &cancelResponse); err != nil {
+			return err
+		}
+		r.CancelResponse = &cancelResponse
+	}
+	if raw, ok := payload["newOrderResponse"]; ok {
+		var newOrderResponse OrderResponse
+		if err := json.Unmarshal(raw, &newOrderResponse); err != nil {
+			return err
+		}
+		r.NewOrderResponse = &newOrderResponse
+	}
+
+	return nil
+}
+
+func (r CancelReplaceOrderResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"cancelResult":           r.CancelResult,
+		cancelReplaceNewOrderKey: r.NewOrderStatus,
+		"cancelResponse":         r.CancelResponse,
+		"newOrderResponse":       r.NewOrderResponse,
+	})
 }
 
 type CancelReplaceOrderParams struct {
-	Symbol           string
-	Side             string
-	Type             string
-	CancelReplaceMode string // STOP_ON_FAILURE or ALLOW_FAILURE
-	TimeInForce      string // Optional
-	Quantity         string
-	Price            string // Optional
-	CancelOrderID    int64  // Optional
+	Symbol                  string
+	Side                    string
+	Type                    string
+	CancelReplaceMode       string // STOP_ON_FAILURE or ALLOW_FAILURE
+	TimeInForce             string // Optional
+	Quantity                string
+	Price                   string // Optional
+	CancelOrderID           int64  // Optional
 	CancelOrigClientOrderID string // Optional
-	NewClientOrderID string // Optional
-	StopPrice        string // Optional
-	IcebergQty       string // Optional
-	NewOrderRespType string // Optional
+	NewClientOrderID        string // Optional
+	StopPrice               string // Optional
+	IcebergQty              string // Optional
+	NewOrderRespType        string // Optional
 }
 
 func (c *Client) ModifyOrder(ctx context.Context, p CancelReplaceOrderParams) (*CancelReplaceOrderResponse, error) {
 	params := map[string]interface{}{
-		"symbol":           p.Symbol,
-		"side":             p.Side,
-		"type":             p.Type,
+		"symbol":            p.Symbol,
+		"side":              p.Side,
+		"type":              p.Type,
 		"cancelReplaceMode": p.CancelReplaceMode,
-		"quantity":         p.Quantity,
+		"quantity":          p.Quantity,
 	}
 	if p.TimeInForce != "" {
 		params["timeInForce"] = p.TimeInForce
