@@ -162,3 +162,29 @@ func TestOrderFlowWaitDoesNotReplayHistoricalSnapshot(t *testing.T) {
 	require.Nil(t, got)
 	require.Equal(t, OrderStatusCancelled, flow.Latest().Status)
 }
+
+func TestOrderFlowCloseWakesMultipleWaiters(t *testing.T) {
+	t.Parallel()
+
+	flow := newOrderFlow(&Order{ClientOrderID: "multi"})
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := flow.Wait(waitCtx, func(o *Order) bool {
+				return o.Status == OrderStatusFilled
+			})
+			errs <- err
+		}()
+	}
+
+	flow.Close()
+
+	for i := 0; i < 2; i++ {
+		err := <-errs
+		require.EqualError(t, err, "order flow closed")
+	}
+}

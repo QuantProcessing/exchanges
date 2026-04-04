@@ -2,6 +2,7 @@ package exchanges_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
 	t.Parallel()
 
-	adp := &localStateStubExchange{
+	adp := &accountRuntimeStubExchange{
 		placeResp: &exchanges.Order{
 			ClientOrderID: "cli-1",
 			Symbol:        "ETH",
@@ -54,7 +55,7 @@ func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
 func TestTradingAccountTrackRoutesUpdatesByClientIDAndOrderID(t *testing.T) {
 	t.Parallel()
 
-	adp := &localStateStubExchange{}
+	adp := &accountRuntimeStubExchange{}
 	acct := exchanges.NewTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
@@ -86,7 +87,7 @@ func TestTradingAccountTrackRoutesUpdatesByClientIDAndOrderID(t *testing.T) {
 func TestTradingAccountCloseClosesTrackedFlows(t *testing.T) {
 	t.Parallel()
 
-	acct := exchanges.NewTradingAccount(&localStateStubExchange{}, nil)
+	acct := exchanges.NewTradingAccount(&accountRuntimeStubExchange{}, nil)
 	require.NoError(t, acct.Start(context.Background()))
 
 	flow, err := acct.Track("", "close-cli")
@@ -117,7 +118,7 @@ func TestTradingAccountCloseClosesTrackedFlows(t *testing.T) {
 func TestTradingAccountStartIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	adp := &localStateStubExchange{}
+	adp := &accountRuntimeStubExchange{}
 	acct := exchanges.NewTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	require.NoError(t, acct.Start(context.Background()))
@@ -151,7 +152,7 @@ func TestTradingAccountStartIsIdempotent(t *testing.T) {
 func TestTradingAccountPlaceCapturesSynchronousFirstUpdate(t *testing.T) {
 	t.Parallel()
 
-	adp := &localStateStubExchange{
+	adp := &accountRuntimeStubExchange{
 		placeResp: &exchanges.Order{
 			ClientOrderID: "sync-cli-1",
 			Symbol:        "ETH",
@@ -188,4 +189,90 @@ func TestTradingAccountPlaceCapturesSynchronousFirstUpdate(t *testing.T) {
 		latest := flow.Latest()
 		return latest != nil && latest.OrderID == "sync-exch-1" && latest.Status == exchanges.OrderStatusNew
 	}, 200*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestTradingAccountStartFailsWhenFetchAccountFails(t *testing.T) {
+	t.Parallel()
+
+	acct := exchanges.NewTradingAccount(&accountRuntimeStubExchange{
+		fetchAccountErr: errors.New("boom"),
+	}, nil)
+
+	err := acct.Start(context.Background())
+	require.ErrorContains(t, err, "boom")
+}
+
+func TestTradingAccountStartFailsWhenWatchOrdersFails(t *testing.T) {
+	t.Parallel()
+
+	acct := exchanges.NewTradingAccount(&accountRuntimeStubExchange{
+		watchOrdersErr: errors.New("watch-orders"),
+	}, nil)
+
+	err := acct.Start(context.Background())
+	require.ErrorContains(t, err, "watch-orders")
+}
+
+func TestTradingAccountStartAllowsWatchPositionsUnsupported(t *testing.T) {
+	t.Parallel()
+
+	acct := exchanges.NewTradingAccount(&accountRuntimeStubExchange{
+		watchPositionsErr: exchanges.ErrNotSupported,
+	}, nil)
+
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+}
+
+func TestTradingAccountPlaceWSCapturesSynchronousFirstUpdate(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		syncPlaceWSUpdates: []*exchanges.Order{{
+			ClientOrderID: "ws-cli",
+			OrderID:       "ws-exch",
+			Status:        exchanges.OrderStatusNew,
+		}},
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Price:    decimal.RequireFromString("100"),
+		Quantity: decimal.RequireFromString("0.1"),
+		ClientID: "ws-cli",
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	got, err := flow.Wait(context.Background(), func(o *exchanges.Order) bool {
+		return o.OrderID == "ws-exch"
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ws-exch", got.OrderID)
+}
+
+func TestTradingAccountAppliesOrderAndPositionCaches(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{}
+	acct := exchanges.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	adp.EmitOrder(&exchanges.Order{OrderID: "ord-1", Status: exchanges.OrderStatusNew})
+	adp.EmitPosition(&exchanges.Position{Symbol: "ETH", Quantity: decimal.RequireFromString("1")})
+
+	require.Eventually(t, func() bool {
+		order, ok := acct.OpenOrder("ord-1")
+		if !ok {
+			return false
+		}
+		pos, ok := acct.Position("ETH")
+		return ok && order.Status == exchanges.OrderStatusNew && pos.Quantity.Equal(decimal.RequireFromString("1"))
+	}, time.Second, 10*time.Millisecond)
 }
