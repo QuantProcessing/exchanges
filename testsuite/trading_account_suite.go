@@ -8,12 +8,16 @@ import (
 
 	exchanges "github.com/QuantProcessing/exchanges"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type TradingAccountConfig struct {
-	Symbol string
+	Symbol               string
+	MarketQuantity       decimal.Decimal
+	PassiveLimitQuantity decimal.Decimal
+	AllowNegativeBalance bool
 }
 
 func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAccountConfig) {
@@ -36,7 +40,11 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	balance := acct.Balance()
 	t.Logf("  Balance: %s", balance)
-	assert.True(t, balance.IsPositive() || balance.IsZero(), "Balance should be >= 0")
+	if cfg.AllowNegativeBalance {
+		t.Log("  Negative balances allowed for this adapter/account configuration")
+	} else {
+		assert.True(t, balance.IsPositive() || balance.IsZero(), "Balance should be >= 0")
+	}
 
 	positions := acct.Positions()
 	t.Logf("  Positions: %d", len(positions))
@@ -47,6 +55,36 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	openOrders := acct.OpenOrders()
 	t.Logf("  Open orders: %d", len(openOrders))
 	t.Log("✓ Initial state queries OK")
+
+	if isPerp {
+		if pos, ok := acct.Position(cfg.Symbol); ok && pos.Quantity.IsPositive() {
+			t.Log("═══ Phase 2b: Flatten pre-existing position ═══")
+
+			closeSide := exchanges.OrderSideSell
+			if pos.Side == exchanges.PositionSideShort {
+				closeSide = exchanges.OrderSideBuy
+			}
+
+			t.Logf("  Flattening existing %s position qty=%s", pos.Side, pos.Quantity)
+			flattenFlow, err := acct.Place(ctx, &exchanges.OrderParams{
+				Symbol:     cfg.Symbol,
+				Side:       closeSide,
+				Type:       exchanges.OrderTypeMarket,
+				Quantity:   pos.Quantity,
+				ReduceOnly: true,
+			})
+			require.NoError(t, err, "Pre-test position cleanup should succeed")
+			defer flattenFlow.Close()
+
+			_, err = flattenFlow.Wait(ctx, func(o *exchanges.Order) bool {
+				return o.Status == exchanges.OrderStatusFilled
+			})
+			require.NoError(t, err, "Pre-test cleanup order should fill")
+			t.Log("✓ Pre-existing position flattened")
+
+			time.Sleep(2 * time.Second)
+		}
+	}
 
 	t.Log("═══ Phase 3: Test SubscribeOrders fan-out ═══")
 
@@ -59,6 +97,10 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	t.Log("═══ Phase 4: Place market buy + wait for fill ═══")
 
 	qty, lastPrice := SmartQuantity(t, adp, cfg.Symbol)
+	if cfg.MarketQuantity.IsPositive() {
+		qty = cfg.MarketQuantity
+		t.Logf("  Using configured market quantity override: %s", qty)
+	}
 	t.Logf("  Symbol=%s  Qty=%s  RefPrice=%s", cfg.Symbol, qty, lastPrice)
 
 	flow, err := acct.Place(ctx, &exchanges.OrderParams{
@@ -121,6 +163,11 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	t.Log("═══ Phase 6: Limit order + Cancel ═══")
 
 	limitPrice := SmartLimitPrice(t, adp, cfg.Symbol, exchanges.OrderSideBuy)
+	limitQty := qty
+	if cfg.PassiveLimitQuantity.IsPositive() {
+		limitQty = cfg.PassiveLimitQuantity
+		t.Logf("  Using configured passive limit quantity override: %s", limitQty)
+	}
 	t.Logf("  Passive limit price: %s (well below market)", limitPrice)
 
 	limitFlow, err := acct.Place(ctx, &exchanges.OrderParams{
@@ -128,7 +175,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
 		Price:    limitPrice,
-		Quantity: qty,
+		Quantity: limitQty,
 	})
 	require.NoError(t, err, "Place(limit buy) should succeed")
 	defer limitFlow.Close()

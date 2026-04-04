@@ -21,7 +21,7 @@ type Adapter struct {
 	client        *grvt.Client
 	wsMarket      *grvt.WebsocketClient
 	wsAccount     *grvt.WebsocketClient
-	wsTradeRpc    *grvt.WebsocketClient
+	wsTradeRpc    grvtTradeRPCClient
 	apiKey        string
 	privateKey    string
 	subAccountID  uint64
@@ -39,6 +39,13 @@ type Adapter struct {
 	feeOnce       sync.Once
 	cachedFeeRate *exchanges.FeeRate
 	cachedFeeErr  error
+}
+
+type grvtTradeRPCClient interface {
+	Connect() error
+	Close()
+	PlaceOrder(ctx context.Context, req *grvt.OrderRequest) (*grvt.CreateOrderResponse, error)
+	CancelOrder(ctx context.Context, req *grvt.CancelOrderRequest) (*grvt.CancelOrderResponse, error)
 }
 
 // NewAdapter creates a new GRVT adapter
@@ -121,10 +128,11 @@ func (a *Adapter) WsOrderConnected(ctx context.Context) error {
 	if err := a.requirePrivateAccess(); err != nil {
 		return err
 	}
-	if a.wsTradeRpc.Conn == nil {
-		if err := a.wsTradeRpc.Connect(); err != nil {
-			return err
-		}
+	if a.wsTradeRpc == nil {
+		return fmt.Errorf("grvt: trade rpc client not configured")
+	}
+	if err := a.wsTradeRpc.Connect(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -136,7 +144,9 @@ func (a *Adapter) IsConnected(ctx context.Context) (bool, error) {
 func (a *Adapter) Close() error {
 	a.wsMarket.Close()
 	a.wsAccount.Close()
-	a.wsTradeRpc.Close()
+	if a.wsTradeRpc != nil {
+		a.wsTradeRpc.Close()
+	}
 	return nil
 }
 
@@ -232,53 +242,11 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return nil, err
 	}
-	// 1. Validation & Formatting
-	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
-	if err == nil {
-		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
-			return nil, err
-		}
+	req, err := a.buildOrderRequest(ctx, params)
+	if err != nil {
+		return nil, err
 	}
-
-	if params.ClientID == "" {
-		params.ClientID = fmt.Sprintf("%d", rand.Int63())
-	}
-
-	isMarket := params.Type == exchanges.OrderTypeMarket
-
-	tif := grvt.GTT
-	switch params.TimeInForce {
-	case exchanges.TimeInForceIOC:
-		tif = grvt.IOC
-	case exchanges.TimeInForceFOK:
-		tif = grvt.FOK
-	}
-
-	leg := grvt.OrderLeg{
-		Instrument:    a.FormatSymbol(params.Symbol),
-		Size:          params.Quantity.String(),
-		LimitPrice:    params.Price.String(),
-		IsBuyintAsset: params.Side == exchanges.OrderSideBuy,
-	}
-
-	req := &grvt.CreateOrderRequest{
-		Order: grvt.OrderRequest{
-			SubAccountID: a.subAccountID,
-			IsMarket:     isMarket,
-			TimeInForce:  tif,
-			PostOnly:     params.Type == exchanges.OrderTypePostOnly,
-			ReduceOnly:   params.ReduceOnly,
-			Legs:         []grvt.OrderLeg{leg},
-			Metadata: grvt.OrderMetadata{
-				ClientOrderID: params.ClientID,
-			},
-		},
-	}
-
-	a.mu.RLock()
-	instruments := a.instruments
-	a.mu.RUnlock()
-	res, err := a.client.CreateOrder(ctx, req, instruments)
+	res, err := a.wsTradeRpc.PlaceOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -292,14 +260,29 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 	if strings.TrimSpace(params.ClientID) == "" {
 		return fmt.Errorf("client id required for PlaceOrderWS")
 	}
+
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	req, err := a.buildOrderRequest(ctx, params)
+	if err != nil {
+		return err
+	}
+	_, err = a.wsTradeRpc.PlaceOrder(ctx, req)
+	return err
+}
+
+func (a *Adapter) buildOrderRequest(ctx context.Context, params *exchanges.OrderParams) (*grvt.OrderRequest, error) {
 	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
 	if err == nil {
 		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	isMarket := params.Type == exchanges.OrderTypeMarket
+	if params.ClientID == "" {
+		params.ClientID = fmt.Sprintf("%d", rand.Int63())
+	}
 
 	tif := grvt.GTT
 	switch params.TimeInForce {
@@ -309,9 +292,9 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 		tif = grvt.FOK
 	}
 
-	req := &grvt.OrderRequest{
+	return &grvt.OrderRequest{
 		SubAccountID: a.subAccountID,
-		IsMarket:     isMarket,
+		IsMarket:     params.Type == exchanges.OrderTypeMarket,
 		TimeInForce:  tif,
 		PostOnly:     params.Type == exchanges.OrderTypePostOnly,
 		ReduceOnly:   params.ReduceOnly,
@@ -324,20 +307,17 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 		Metadata: grvt.OrderMetadata{
 			ClientOrderID: params.ClientID,
 		},
-	}
-
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-	_, err = a.wsTradeRpc.PlaceOrder(ctx, req)
-	return err
+	}, nil
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	if err := a.requirePrivateAccess(); err != nil {
 		return err
 	}
-	return a.client.CancelOrder(ctx, orderID)
+	if err := a.WsOrderConnected(ctx); err != nil {
+		return err
+	}
+	return a.cancelOrderRPC(ctx, orderID)
 }
 
 func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
@@ -347,6 +327,10 @@ func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) err
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
+	return a.cancelOrderRPC(ctx, orderID)
+}
+
+func (a *Adapter) cancelOrderRPC(ctx context.Context, orderID string) error {
 	saID := strconv.FormatUint(a.subAccountID, 10)
 	req := &grvt.CancelOrderRequest{
 		SubAccountID: saID,
@@ -836,6 +820,10 @@ func (a *Adapter) ExtractSymbol(instrument string) string {
 func (a *Adapter) mapGrvtOrder(o *grvt.Order) *exchanges.Order {
 	side := exchanges.OrderSideSell
 	var instrument, qty string
+	orderID := o.OrderID
+	if orderID == "0x00" {
+		orderID = ""
+	}
 
 	// size is state.tradedSize[-1]
 	if len(o.Legs) > 0 {
@@ -875,7 +863,7 @@ func (a *Adapter) mapGrvtOrder(o *grvt.Order) *exchanges.Order {
 	}
 
 	order := &exchanges.Order{
-		OrderID:          o.OrderID,
+		OrderID:          orderID,
 		ClientOrderID:    o.Metadata.ClientOrderID,
 		Symbol:           a.ExtractSymbol(instrument),
 		Side:             side,

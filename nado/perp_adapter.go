@@ -32,6 +32,10 @@ type Adapter struct {
 
 	isConnected bool
 	mu          sync.RWMutex
+	orderCBMu   sync.RWMutex
+	orderCB     exchanges.OrderUpdateCallback
+	cancelledMu sync.Mutex
+	cancelled   map[string]time.Time
 
 	cancelMu sync.Mutex
 	cancels  map[string]context.CancelFunc
@@ -90,6 +94,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 	wsAccount := nado.NewWsAccountClient(ctx)
 	if privateKey != "" {
 		wsAccount.WithCredentials(privateKey)
+		wsAccount.SetSubaccount(subaccount)
 	}
 
 	base := exchanges.NewBaseAdapter("NADO", exchanges.MarketTypePerp, opts.logger())
@@ -107,6 +112,7 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 		idMap:       make(map[int64]string),
 		symbolInfo:  make(map[string]nado.Symbol),
 		cancels:     make(map[string]context.CancelFunc),
+		cancelled:   make(map[string]time.Time),
 		sender:      sender,
 	}
 
@@ -174,12 +180,11 @@ func (a *Adapter) fetchSymbols(ctx context.Context) error {
 			// Parse precision from increments
 			priceInc := parseX18(s.PriceIncrementX18)
 			sizeInc := parseX18(s.SizeIncrement)
-			// minSize := parseX18(s.MinSize)
 
 			symbols[genericSymbol] = &exchanges.SymbolDetails{
 				Symbol:            genericSymbol,
-				MinNotional:       decimal.Zero, // not provided in json
-				MinQuantity:       sizeInc,      // eth use size inc as min quantity
+				MinNotional:       decimal.Zero,
+				MinQuantity:       sizeInc,
 				PricePrecision:    exchanges.CountDecimalPlaces(priceInc.String()),
 				QuantityPrecision: exchanges.CountDecimalPlaces(sizeInc.String()),
 			}
@@ -520,17 +525,7 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 }
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	productID, err := a.getProductId(symbol)
-	if err != nil {
-		return err
-	}
-
-	input := nado.CancelOrdersInput{
-		ProductIds: []int64{productID},
-		Digests:    []string{orderID},
-	}
-	_, err = a.httpClient.CancelOrders(ctx, input)
-	return err
+	return a.CancelOrderWS(ctx, orderID, symbol)
 }
 
 func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
@@ -546,7 +541,15 @@ func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) err
 		ProductIds: []int64{productID},
 		Digests:    []string{orderID},
 	}
-	_, err = a.apiClient.CancelOrders(ctx, input)
+	resp, err := a.apiClient.CancelOrders(ctx, input)
+	if err != nil {
+		return err
+	}
+	for i := range resp.CancelledOrders {
+		a.markCancelledDigest(resp.CancelledOrders[i].Digest)
+		a.orderMap.Delete(resp.CancelledOrders[i].Digest)
+		a.emitOrderUpdate(a.mapCancelledOrder(&resp.CancelledOrders[i]))
+	}
 	return err
 }
 
@@ -812,6 +815,11 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 	if err := a.WsAccountConnected(ctx); err != nil {
 		return err
 	}
+	a.setOrderCallback(callback)
+	go func() {
+		<-ctx.Done()
+		a.clearOrderCallback(callback)
+	}()
 	return a.wsAccount.SubscribeOrders(nil, func(d *nado.OrderUpdate) {
 		symbol := a.getSymbol(d.ProductId)
 		status := exchanges.OrderStatusUnknown
@@ -822,6 +830,11 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 			status = exchanges.OrderStatusCancelled
 		case nado.OrderReasonPlaced:
 			status = exchanges.OrderStatusNew
+		}
+		if a.isRecentlyCancelled(d.Digest) &&
+			status != exchanges.OrderStatusCancelled &&
+			status != exchanges.OrderStatusFilled {
+			return
 		}
 
 		ts, _ := strconv.ParseInt(d.Timestamp, 10, 64)
@@ -860,8 +873,11 @@ func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdat
 				}
 			}
 		}
+		if status == exchanges.OrderStatusFilled || status == exchanges.OrderStatusCancelled {
+			a.clearCancelledDigest(d.Digest)
+		}
 
-		callback(&exchanges.Order{
+		a.emitOrderUpdate(&exchanges.Order{
 			OrderID:        d.Digest,
 			ClientOrderID:  clientOrderID,
 			Symbol:         symbol,
@@ -1262,6 +1278,96 @@ func (a *Adapter) mapOrder(o *nado.Order) *exchanges.Order {
 	}
 	exchanges.DerivePartialFillStatus(order)
 	return order
+}
+
+func (a *Adapter) mapCancelledOrder(o *nado.Order) *exchanges.Order {
+	if o == nil {
+		return nil
+	}
+
+	order := a.mapOrder(o)
+	if order == nil {
+		return nil
+	}
+
+	unfilled := parseX18(o.UnfilledAmount)
+	if unfilled.IsNegative() {
+		unfilled = unfilled.Abs()
+	}
+	filled := order.Quantity.Sub(unfilled)
+	if filled.IsNegative() {
+		filled = decimal.Zero
+	}
+
+	order.Status = exchanges.OrderStatusCancelled
+	order.FilledQuantity = filled
+	return order
+}
+
+func (a *Adapter) setOrderCallback(callback exchanges.OrderUpdateCallback) {
+	a.orderCBMu.Lock()
+	a.orderCB = callback
+	a.orderCBMu.Unlock()
+}
+
+func (a *Adapter) clearOrderCallback(callback exchanges.OrderUpdateCallback) {
+	a.orderCBMu.Lock()
+	if a.orderCB != nil && fmt.Sprintf("%p", a.orderCB) == fmt.Sprintf("%p", callback) {
+		a.orderCB = nil
+	}
+	a.orderCBMu.Unlock()
+}
+
+func (a *Adapter) emitOrderUpdate(order *exchanges.Order) {
+	if order == nil {
+		return
+	}
+
+	a.orderCBMu.RLock()
+	callback := a.orderCB
+	a.orderCBMu.RUnlock()
+	if callback == nil {
+		return
+	}
+
+	copy := *order
+	callback(&copy)
+}
+
+func (a *Adapter) markCancelledDigest(digest string) {
+	if digest == "" {
+		return
+	}
+	a.cancelledMu.Lock()
+	a.cancelled[digest] = time.Now().Add(10 * time.Second)
+	a.cancelledMu.Unlock()
+}
+
+func (a *Adapter) clearCancelledDigest(digest string) {
+	if digest == "" {
+		return
+	}
+	a.cancelledMu.Lock()
+	delete(a.cancelled, digest)
+	a.cancelledMu.Unlock()
+}
+
+func (a *Adapter) isRecentlyCancelled(digest string) bool {
+	if digest == "" {
+		return false
+	}
+	now := time.Now()
+	a.cancelledMu.Lock()
+	defer a.cancelledMu.Unlock()
+	until, ok := a.cancelled[digest]
+	if !ok {
+		return false
+	}
+	if now.After(until) {
+		delete(a.cancelled, digest)
+		return false
+	}
+	return true
 }
 
 // WaitOrderBookReady waits for orderbook to be ready

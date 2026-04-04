@@ -77,6 +77,7 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	wsAccount := nado.NewWsAccountClient(ctx)
 	if privateKey != "" {
 		wsAccount.WithCredentials(privateKey)
+		wsAccount.SetSubaccount(subaccount)
 	}
 
 	base := exchanges.NewBaseAdapter("NADO", exchanges.MarketTypeSpot, opts.logger())
@@ -162,12 +163,11 @@ func (a *SpotAdapter) fetchSymbols(ctx context.Context) error {
 			// Parse precision from increments
 			priceInc := parseX18(s.PriceIncrementX18)
 			sizeInc := parseX18(s.SizeIncrement)
-			// minSize := parseX18(s.MinSize)
 
 			symbols[baseSymbol] = &exchanges.SymbolDetails{
 				Symbol:            baseSymbol,
-				MinNotional:       decimal.Zero, // not provided in json
-				MinQuantity:       sizeInc,      // eth use size inc as min quantity
+				MinNotional:       decimal.Zero,
+				MinQuantity:       sizeInc,
 				PricePrecision:    exchanges.CountDecimalPlaces(priceInc.String()),
 				QuantityPrecision: exchanges.CountDecimalPlaces(sizeInc.String()),
 			}
@@ -544,17 +544,7 @@ func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderP
 }
 
 func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	productID, err := a.getProductId(symbol)
-	if err != nil {
-		return err
-	}
-
-	input := nado.CancelOrdersInput{
-		ProductIds: []int64{productID},
-		Digests:    []string{orderID},
-	}
-	_, err = a.httpClient.CancelOrders(ctx, input)
-	return err
+	return a.CancelOrderWS(ctx, orderID, symbol)
 }
 
 func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {

@@ -3,6 +3,7 @@ package grvt
 import (
 	"testing"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	sdkgrvt "github.com/QuantProcessing/exchanges/grvt/sdk"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -41,4 +42,31 @@ func TestMapGrvtOrderStream_UsesOverviewFieldsOnly(t *testing.T) {
 	require.True(t, got.AverageFillPrice.IsZero())
 	require.True(t, got.LastFillPrice.IsZero())
 	require.True(t, got.LastFillQuantity.IsZero())
+}
+
+func TestMapGrvtOrder_TreatsPlaceholderOrderIDAsUnstable(t *testing.T) {
+	t.Parallel()
+
+	adp := &Adapter{quoteCurrency: "USDT"}
+
+	got := adp.mapGrvtOrder(&sdkgrvt.Order{
+		OrderID: "0x00",
+		Legs: []sdkgrvt.OrderLeg{{
+			Instrument:    "ETH_USDT_Perp",
+			IsBuyintAsset: true,
+			Size:          "0.02",
+			LimitPrice:    "1639.04",
+		}},
+		Metadata: sdkgrvt.OrderMetadata{
+			ClientOrderID: "client-2",
+			CreatedTime:   "1710000000000000",
+		},
+		State: sdkgrvt.OrderState{
+			Status: sdkgrvt.OrderStatusOpen,
+		},
+	})
+
+	require.Empty(t, got.OrderID)
+	require.Equal(t, "client-2", got.ClientOrderID)
+	require.Equal(t, exchanges.OrderSideBuy, got.Side)
 }

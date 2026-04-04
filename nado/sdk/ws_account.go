@@ -23,6 +23,7 @@ const (
 type WsAccountClient struct {
 	url        string
 	privateKey string
+	subaccount string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -53,6 +54,7 @@ type accountSubscription struct {
 func NewWsAccountClient(ctx context.Context) *WsAccountClient {
 	c := &WsAccountClient{
 		url:           WsSubscriptionsURL,
+		subaccount:    "default",
 		subscriptions: make(map[string]*accountSubscription),
 		Logger:        zap.NewNop().Sugar().Named("nado-account"),
 	}
@@ -63,6 +65,13 @@ func NewWsAccountClient(ctx context.Context) *WsAccountClient {
 func (c *WsAccountClient) WithCredentials(privateKey string) *WsAccountClient {
 	c.privateKey = privateKey
 	return c
+}
+
+func (c *WsAccountClient) SetSubaccount(subaccount string) {
+	if subaccount == "" {
+		subaccount = "default"
+	}
+	c.subaccount = subaccount
 }
 
 func (c *WsAccountClient) Connect() error {
@@ -362,7 +371,7 @@ func (c *WsAccountClient) authenticate() error {
 	expiration := fmt.Sprintf("%d", time.Now().Add(10*time.Second).UnixMilli())
 
 	txAuth := TxStreamAuth{
-		Sender:     BuildSender(signer.GetAddress(), "default"),
+		Sender:     BuildSender(signer.GetAddress(), c.subaccount),
 		Expiration: expiration,
 	}
 
@@ -427,7 +436,7 @@ func (c *WsAccountClient) sendAuthMessage() error {
 	}
 	expiration := fmt.Sprintf("%d", time.Now().Add(24*time.Hour).UnixMilli())
 	txAuth := TxStreamAuth{
-		Sender:     BuildSender(signer.GetAddress(), "default"),
+		Sender:     BuildSender(signer.GetAddress(), c.subaccount),
 		Expiration: expiration,
 	}
 	verifyingContract := EndpointAddress
@@ -594,7 +603,7 @@ func (c *WsAccountClient) getSender() string {
 		return ""
 	}
 	signer, _ := NewSigner(c.privateKey)
-	return BuildSender(signer.GetAddress(), "default")
+	return BuildSender(signer.GetAddress(), c.subaccount)
 }
 
 func (c *WsAccountClient) SubscribeOrders(productId *int64, callback func(*OrderUpdate)) error {
