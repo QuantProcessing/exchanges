@@ -108,6 +108,7 @@ func (a *TradingAccount) bridgePlacedFlow(flow *OrderFlow, allSub *Subscription[
 			flow.publish(current)
 
 			if isTerminalOrderStatus(current.Status) {
+				a.flows.Unregister(flow)
 				return
 			}
 		}

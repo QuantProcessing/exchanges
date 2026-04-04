@@ -32,6 +32,8 @@ func (r *orderFlowRegistry) Register(initial *Order) *OrderFlow {
 	}
 	r.mu.Unlock()
 
+	r.unregisterOnClose(flow)
+
 	return flow
 }
 
@@ -43,6 +45,8 @@ func (r *orderFlowRegistry) Add(flow *OrderFlow) {
 	r.mu.Lock()
 	r.all[flow] = struct{}{}
 	r.mu.Unlock()
+
+	r.unregisterOnClose(flow)
 }
 
 func (r *orderFlowRegistry) CloseAll() {
@@ -86,5 +90,35 @@ func (r *orderFlowRegistry) Route(update *Order) {
 
 	if flow != nil {
 		flow.publish(update)
+		if isTerminalOrderStatus(update.Status) {
+			r.Unregister(flow)
+		}
 	}
+}
+
+func (r *orderFlowRegistry) Unregister(flow *OrderFlow) {
+	if flow == nil {
+		return
+	}
+
+	r.mu.Lock()
+	delete(r.all, flow)
+	for orderID, candidate := range r.byOrderID {
+		if candidate == flow {
+			delete(r.byOrderID, orderID)
+		}
+	}
+	for clientOrderID, candidate := range r.byClientID {
+		if candidate == flow {
+			delete(r.byClientID, clientOrderID)
+		}
+	}
+	r.mu.Unlock()
+}
+
+func (r *orderFlowRegistry) unregisterOnClose(flow *OrderFlow) {
+	go func() {
+		<-flow.done
+		r.Unregister(flow)
+	}()
 }

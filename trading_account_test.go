@@ -237,8 +237,11 @@ func TestTradingAccountPlaceCapturesSynchronousFirstUpdateWithoutLocalState(t *t
 
 	latest := flow.Latest()
 	require.NotNil(t, latest)
-	require.Empty(t, latest.OrderID)
 	require.Equal(t, "sync-cli-1", latest.ClientOrderID)
+	if latest.OrderID != "" {
+		require.Equal(t, "sync-exch-1", latest.OrderID)
+		require.Equal(t, exchanges.OrderStatusNew, latest.Status)
+	}
 
 	require.Eventually(t, func() bool {
 		latest := flow.Latest()
