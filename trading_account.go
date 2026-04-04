@@ -10,88 +10,39 @@ import (
 )
 
 type TradingAccount struct {
-	mu       sync.Mutex
-	state    *LocalState
-	adp      Exchange
-	logger   Logger
-	flows    *orderFlowRegistry
-	orderSub *Subscription[Order]
-	started  bool
+	mu sync.RWMutex
+
+	adp    Exchange
+	logger Logger
+
+	orders    map[string]*Order
+	positions map[string]*Position
+	balance   decimal.Decimal
+
+	orderBus    *EventBus[Order]
+	positionBus *EventBus[Position]
+	flows       *orderFlowRegistry
+
+	started bool
+	done    chan struct{}
 }
 
 type TradingAccountOption func(*TradingAccount)
 
 func NewTradingAccount(adp Exchange, logger Logger, _ ...TradingAccountOption) *TradingAccount {
-	state := NewLocalState(adp, logger)
+	if logger == nil {
+		logger = NopLogger
+	}
 	return &TradingAccount{
-		state:  state,
-		adp:    adp,
-		logger: state.logger,
-		flows:  newOrderFlowRegistry(),
+		adp:         adp,
+		logger:      logger,
+		orders:      make(map[string]*Order),
+		positions:   make(map[string]*Position),
+		orderBus:    NewEventBus[Order](),
+		positionBus: NewEventBus[Position](),
+		flows:       newOrderFlowRegistry(),
+		done:        make(chan struct{}),
 	}
-}
-
-func (a *TradingAccount) Start(ctx context.Context) error {
-	a.mu.Lock()
-	if a.started {
-		a.mu.Unlock()
-		return nil
-	}
-	if err := a.state.Start(ctx); err != nil {
-		a.mu.Unlock()
-		return err
-	}
-	a.orderSub = a.state.SubscribeOrders()
-	a.started = true
-	sub := a.orderSub
-	a.mu.Unlock()
-	go a.consumeOrderUpdates(ctx, sub)
-	return nil
-}
-
-func (a *TradingAccount) Close() {
-	a.mu.Lock()
-	sub := a.orderSub
-	a.orderSub = nil
-	a.started = false
-	a.mu.Unlock()
-
-	if sub != nil {
-		sub.Unsubscribe()
-	}
-	a.flows.CloseAll()
-	a.state.Close()
-}
-
-func (a *TradingAccount) Balance() decimal.Decimal { return a.state.GetBalance() }
-func (a *TradingAccount) Position(symbol string) (*Position, bool) {
-	return a.state.GetPosition(symbol)
-}
-func (a *TradingAccount) Positions() []Position                   { return a.state.GetAllPositions() }
-func (a *TradingAccount) OpenOrder(orderID string) (*Order, bool) { return a.state.GetOrder(orderID) }
-func (a *TradingAccount) OpenOrders() []Order                     { return a.state.GetAllOpenOrders() }
-func (a *TradingAccount) SubscribeOrders() *Subscription[Order]   { return a.state.SubscribeOrders() }
-func (a *TradingAccount) SubscribePositions() *Subscription[Position] {
-	return a.state.SubscribePositions()
-}
-
-func (a *TradingAccount) Place(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
-	result, err := a.state.PlaceOrder(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return a.newFlowFromResult(result), nil
-}
-
-func (a *TradingAccount) PlaceWS(ctx context.Context, params *OrderParams) (*OrderFlow, error) {
-	if strings.TrimSpace(params.ClientID) == "" {
-		return nil, fmt.Errorf("client id required for PlaceWS")
-	}
-	result, err := a.state.PlaceOrderWS(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return a.newFlowFromResult(result), nil
 }
 
 func (a *TradingAccount) Cancel(ctx context.Context, orderID, symbol string) error {
@@ -110,20 +61,6 @@ func (a *TradingAccount) Track(orderID, clientOrderID string) (*OrderFlow, error
 		OrderID:       orderID,
 		ClientOrderID: clientOrderID,
 	}), nil
-}
-
-func (a *TradingAccount) consumeOrderUpdates(ctx context.Context, sub *Subscription[Order]) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case order, ok := <-sub.C:
-			if !ok {
-				return
-			}
-			a.flows.Route(order)
-		}
-	}
 }
 
 func (a *TradingAccount) newFlowFromResult(result *OrderResult) *OrderFlow {
