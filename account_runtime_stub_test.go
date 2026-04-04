@@ -23,11 +23,13 @@ type accountRuntimeStubExchange struct {
 	placeWSReturnDelay  time.Duration
 	orderCB             exchanges.OrderUpdateCallback
 	positionCB          exchanges.PositionUpdateCallback
+	fetchAccountCalls   atomic.Int32
 	watchOrdersCalls    atomic.Int32
 	watchPositionsCalls atomic.Int32
 }
 
 func (s *accountRuntimeStubExchange) FetchAccount(context.Context) (*exchanges.Account, error) {
+	s.fetchAccountCalls.Add(1)
 	if s.fetchAccountErr != nil {
 		return nil, s.fetchAccountErr
 	}

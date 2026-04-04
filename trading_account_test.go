@@ -194,23 +194,43 @@ func TestTradingAccountPlaceCapturesSynchronousFirstUpdate(t *testing.T) {
 func TestTradingAccountStartFailsWhenFetchAccountFails(t *testing.T) {
 	t.Parallel()
 
-	acct := exchanges.NewTradingAccount(&accountRuntimeStubExchange{
+	adp := &accountRuntimeStubExchange{
 		fetchAccountErr: errors.New("boom"),
-	}, nil)
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
 
 	err := acct.Start(context.Background())
 	require.ErrorContains(t, err, "boom")
+	require.Equal(t, int32(1), adp.fetchAccountCalls.Load())
+	require.Zero(t, adp.watchOrdersCalls.Load())
+
+	adp.fetchAccountErr = nil
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	require.Equal(t, int32(2), adp.fetchAccountCalls.Load())
+	require.Equal(t, int32(1), adp.watchOrdersCalls.Load())
 }
 
 func TestTradingAccountStartFailsWhenWatchOrdersFails(t *testing.T) {
 	t.Parallel()
 
-	acct := exchanges.NewTradingAccount(&accountRuntimeStubExchange{
+	adp := &accountRuntimeStubExchange{
 		watchOrdersErr: errors.New("watch-orders"),
-	}, nil)
+	}
+	acct := exchanges.NewTradingAccount(adp, nil)
 
 	err := acct.Start(context.Background())
 	require.ErrorContains(t, err, "watch-orders")
+	require.Equal(t, int32(1), adp.fetchAccountCalls.Load())
+	require.Equal(t, int32(1), adp.watchOrdersCalls.Load())
+
+	adp.watchOrdersErr = nil
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	require.Equal(t, int32(2), adp.fetchAccountCalls.Load())
+	require.Equal(t, int32(2), adp.watchOrdersCalls.Load())
 }
 
 func TestTradingAccountStartAllowsWatchPositionsUnsupported(t *testing.T) {
@@ -238,7 +258,10 @@ func TestTradingAccountPlaceWSCapturesSynchronousFirstUpdate(t *testing.T) {
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+	placeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	flow, err := acct.PlaceWS(placeCtx, &exchanges.OrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,

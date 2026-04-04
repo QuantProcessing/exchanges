@@ -94,7 +94,7 @@ func NewLocalState(adp Exchange, logger Logger) *LocalState {
 
 // Start initializes local state and subscribes to WebSocket streams.
 // It performs: REST snapshot → WatchOrders → WatchPositions → periodic refresh.
-func (s *LocalState) Start(ctx context.Context) error {
+func (s *LocalState) Start(ctx context.Context) (err error) {
 	s.mu.Lock()
 	if s.started {
 		s.mu.Unlock()
@@ -102,6 +102,13 @@ func (s *LocalState) Start(ctx context.Context) error {
 	}
 	s.started = true
 	s.mu.Unlock()
+	defer func() {
+		if err != nil {
+			s.mu.Lock()
+			s.started = false
+			s.mu.Unlock()
+		}
+	}()
 
 	// 1. REST snapshot
 	s.logger.Infow("local_state: fetching initial account state")
@@ -137,10 +144,10 @@ func (s *LocalState) Start(ctx context.Context) error {
 	}
 
 	// 3. Subscribe to position updates
-	if err := streamable.WatchPositions(ctx, func(p *Position) {
+	if watchErr := streamable.WatchPositions(ctx, func(p *Position) {
 		s.applyPositionUpdate(p)
-	}); err != nil {
-		s.logger.Warnw("local_state: WatchPositions failed (may not be supported)", "error", err)
+	}); watchErr != nil {
+		s.logger.Warnw("local_state: WatchPositions failed (may not be supported)", "error", watchErr)
 		// Not fatal — some adapters may not support position streaming
 	}
 
