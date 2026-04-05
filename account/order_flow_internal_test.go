@@ -51,18 +51,21 @@ func TestOrderFlowWaitReturnsMatchingLatestSnapshot(t *testing.T) {
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		flow.publish(&exchanges.Order{
+		flow.publishOrder(&exchanges.Order{
 			OrderID:       "exch-1",
 			ClientOrderID: "cli-1",
+			Quantity:      decimal.RequireFromString("0.25"),
 			Status:        exchanges.OrderStatusNew,
 		})
-		flow.publish(&exchanges.Order{
-			OrderID:        "exch-1",
-			ClientOrderID:  "cli-1",
-			Status:         exchanges.OrderStatusFilled,
-			FilledQuantity: decimal.RequireFromString("0.25"),
+		flow.publishFill(&exchanges.Fill{
+			TradeID:       "trade-1",
+			OrderID:       "exch-1",
+			ClientOrderID: "cli-1",
+			Price:         decimal.RequireFromString("100"),
+			Quantity:      decimal.RequireFromString("0.25"),
+			Timestamp:     123,
 		})
-		flow.publish(&exchanges.Order{
+		flow.publishOrder(&exchanges.Order{
 			OrderID:       "exch-1",
 			ClientOrderID: "cli-1",
 			Status:        exchanges.OrderStatusCancelled,

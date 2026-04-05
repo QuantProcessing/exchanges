@@ -3,23 +3,45 @@ package account
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/shopspring/decimal"
 )
 
+type flowEventKind int
+
+const (
+	flowEventOrder flowEventKind = iota
+	flowEventFill
+)
+
+type flowEvent struct {
+	kind  flowEventKind
+	order *exchanges.Order
+	fill  *exchanges.Fill
+}
+
 type OrderFlow struct {
-	mu         sync.Mutex
-	latest     *exchanges.Order
-	ch         chan *exchanges.Order
-	publicQ    []*exchanges.Order
-	publicWake chan struct{}
-	waiters    map[*orderFlowWaiter]struct{}
-	done       chan struct{}
-	pubWG      sync.WaitGroup
-	closed     bool
-	closeOnce  sync.Once
+	mu              sync.Mutex
+	base            *exchanges.Order
+	latest          *exchanges.Order
+	lastFill        *exchanges.Fill
+	orderCh         chan *exchanges.Order
+	fillCh          chan *exchanges.Fill
+	publicQ         []flowEvent
+	publicWake      chan struct{}
+	waiters         map[*orderFlowWaiter]struct{}
+	done            chan struct{}
+	pubWG           sync.WaitGroup
+	closed          bool
+	closeOnce       sync.Once
+	fillTotalQty    decimal.Decimal
+	fillTotalQuote  decimal.Decimal
+	orderFilledSeen bool
+	seenFills       map[string]struct{}
 }
 
 type orderFlowWaiter struct {
@@ -29,12 +51,15 @@ type orderFlowWaiter struct {
 
 func newOrderFlow(initial *exchanges.Order) *OrderFlow {
 	f := &OrderFlow{
-		ch:         make(chan *exchanges.Order),
+		orderCh:    make(chan *exchanges.Order),
+		fillCh:     make(chan *exchanges.Fill, 64),
 		publicWake: make(chan struct{}, 1),
 		waiters:    make(map[*orderFlowWaiter]struct{}),
 		done:       make(chan struct{}),
+		seenFills:  make(map[string]struct{}),
 	}
 	if initial != nil {
+		f.base = cloneOrder(initial)
 		f.latest = cloneOrder(initial)
 	}
 	f.pubWG.Add(1)
@@ -43,7 +68,11 @@ func newOrderFlow(initial *exchanges.Order) *OrderFlow {
 }
 
 func (f *OrderFlow) C() <-chan *exchanges.Order {
-	return f.ch
+	return f.orderCh
+}
+
+func (f *OrderFlow) Fills() <-chan *exchanges.Fill {
+	return f.fillCh
 }
 
 func (f *OrderFlow) Latest() *exchanges.Order {
@@ -120,60 +149,66 @@ func (f *OrderFlow) Close() {
 		f.mu.Unlock()
 
 		f.pubWG.Wait()
-		close(f.ch)
+		close(f.orderCh)
+		close(f.fillCh)
 	})
 }
 
 func (f *OrderFlow) publish(order *exchanges.Order) {
+	f.publishOrder(order)
+}
+
+func (f *OrderFlow) publishOrder(order *exchanges.Order) {
 	if order == nil {
 		return
 	}
 
-	copy := cloneOrder(order)
-
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.closed {
-		f.mu.Unlock()
 		return
 	}
 
-	f.latest = copy
-
-	waiters := make([]*orderFlowWaiter, 0, len(f.waiters))
-	for waiter := range f.waiters {
-		waiters = append(waiters, waiter)
-	}
-	f.publicQ = append(f.publicQ, cloneOrder(copy))
-	select {
-	case f.publicWake <- struct{}{}:
-	default:
+	f.base = cloneOrder(order)
+	if order.Status == exchanges.OrderStatusFilled {
+		f.orderFilledSeen = true
 	}
 
-	f.mu.Unlock()
+	merged := f.recomputeMergedLocked()
+	f.latest = cloneOrder(merged)
+	f.publicQ = append(f.publicQ, flowEvent{kind: flowEventOrder, order: cloneOrder(merged)})
+	f.notifyMatchedWaitersLocked(merged)
+	f.wakePublicLocked()
+}
 
-	matched := make([]*orderFlowWaiter, 0, len(waiters))
-	for _, waiter := range waiters {
-		if waiter != nil && waiter.predicate != nil && waiter.predicate(copy) {
-			matched = append(matched, waiter)
-		}
+func (f *OrderFlow) publishFill(fill *exchanges.Fill) {
+	if fill == nil {
+		return
 	}
 
-	if len(matched) > 0 {
-		f.mu.Lock()
-		if !f.closed && f.waiters != nil {
-			for _, waiter := range matched {
-				delete(f.waiters, waiter)
-			}
-		}
-		f.mu.Unlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
 	}
 
-	for _, waiter := range matched {
-		select {
-		case waiter.ch <- cloneOrder(copy):
-		default:
-		}
+	key := fillDedupKey(fill)
+	if _, seen := f.seenFills[key]; seen {
+		return
 	}
+	f.seenFills[key] = struct{}{}
+
+	copyFill := cloneFill(fill)
+	f.lastFill = copyFill
+	f.fillTotalQty = f.fillTotalQty.Add(fill.Quantity)
+	f.fillTotalQuote = f.fillTotalQuote.Add(fill.Price.Mul(fill.Quantity))
+	f.publicQ = append(f.publicQ, flowEvent{kind: flowEventFill, fill: cloneFill(copyFill)})
+
+	merged := f.recomputeMergedLocked()
+	f.latest = cloneOrder(merged)
+	f.publicQ = append(f.publicQ, flowEvent{kind: flowEventOrder, order: cloneOrder(merged)})
+	f.notifyMatchedWaitersLocked(merged)
+	f.wakePublicLocked()
 }
 
 func (f *OrderFlow) dispatchPublic() {
@@ -200,24 +235,128 @@ func (f *OrderFlow) dispatchPublic() {
 		next := f.publicQ[0]
 		f.mu.Unlock()
 
-		select {
-		case <-f.done:
-			return
-		case f.ch <- cloneOrder(next):
-			f.mu.Lock()
-			if len(f.publicQ) > 0 {
-				f.publicQ[0] = nil
-				f.publicQ = f.publicQ[1:]
+		switch next.kind {
+		case flowEventFill:
+			select {
+			case <-f.done:
+				return
+			case f.fillCh <- cloneFill(next.fill):
+				f.shiftPublic()
+			default:
+				f.waitForPublicWake()
 			}
-			f.mu.Unlock()
 		default:
 			select {
 			case <-f.done:
 				return
-			case <-f.publicWake:
-			case <-time.After(1 * time.Millisecond):
+			case f.orderCh <- cloneOrder(next.order):
+				f.shiftPublic()
+			default:
+				f.waitForPublicWake()
 			}
 		}
+	}
+}
+
+func (f *OrderFlow) recomputeMergedLocked() *exchanges.Order {
+	merged := cloneOrder(f.base)
+	if merged == nil {
+		merged = &exchanges.Order{}
+	}
+
+	if f.lastFill != nil {
+		merged.OrderID = firstNonEmpty(merged.OrderID, f.lastFill.OrderID)
+		merged.ClientOrderID = firstNonEmpty(merged.ClientOrderID, f.lastFill.ClientOrderID)
+		merged.Symbol = firstNonEmpty(merged.Symbol, f.lastFill.Symbol)
+		if merged.Side == "" {
+			merged.Side = f.lastFill.Side
+		}
+		merged.LastFillQuantity = f.lastFill.Quantity
+		merged.LastFillPrice = f.lastFill.Price
+		if merged.Timestamp == 0 {
+			merged.Timestamp = f.lastFill.Timestamp
+		}
+	}
+
+	if f.fillTotalQty.GreaterThan(merged.FilledQuantity) {
+		merged.FilledQuantity = f.fillTotalQty
+	}
+	if f.fillTotalQty.IsPositive() {
+		avg := f.fillTotalQuote.Div(f.fillTotalQty)
+		merged.AverageFillPrice = normalizeDecimal(avg)
+	}
+
+	if isRawNonFillTerminal(merged.Status) {
+		return merged
+	}
+
+	if !f.fillTotalQty.IsPositive() && merged.Status == exchanges.OrderStatusFilled {
+		if f.latest != nil && f.latest.Status != exchanges.OrderStatusFilled {
+			merged.Status = f.latest.Status
+		} else {
+			merged.Status = exchanges.OrderStatusPending
+		}
+		return merged
+	}
+
+	if f.fillTotalQty.IsPositive() {
+		if merged.Quantity.IsPositive() && !f.fillTotalQty.LessThan(merged.Quantity) {
+			merged.Status = exchanges.OrderStatusFilled
+		} else if f.orderFilledSeen {
+			merged.Status = exchanges.OrderStatusFilled
+		} else {
+			merged.Status = exchanges.OrderStatusPartiallyFilled
+		}
+	}
+
+	return merged
+}
+
+func (f *OrderFlow) notifyMatchedWaitersLocked(order *exchanges.Order) {
+	waiters := make([]*orderFlowWaiter, 0, len(f.waiters))
+	for waiter := range f.waiters {
+		waiters = append(waiters, waiter)
+	}
+
+	matched := make([]*orderFlowWaiter, 0, len(waiters))
+	for _, waiter := range waiters {
+		if waiter != nil && waiter.predicate != nil && waiter.predicate(order) {
+			matched = append(matched, waiter)
+		}
+	}
+
+	for _, waiter := range matched {
+		delete(f.waiters, waiter)
+		select {
+		case waiter.ch <- cloneOrder(order):
+		default:
+		}
+	}
+}
+
+func (f *OrderFlow) wakePublicLocked() {
+	select {
+	case f.publicWake <- struct{}{}:
+	default:
+	}
+}
+
+func (f *OrderFlow) shiftPublic() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.publicQ) == 0 {
+		return
+	}
+	f.publicQ[0] = flowEvent{}
+	f.publicQ = f.publicQ[1:]
+}
+
+func (f *OrderFlow) waitForPublicWake() {
+	select {
+	case <-f.done:
+		return
+	case <-f.publicWake:
+	case <-time.After(1 * time.Millisecond):
 	}
 }
 
@@ -236,4 +375,48 @@ func cloneOrder(order *exchanges.Order) *exchanges.Order {
 	}
 	copy := *order
 	return &copy
+}
+
+func cloneFill(fill *exchanges.Fill) *exchanges.Fill {
+	if fill == nil {
+		return nil
+	}
+	copy := *fill
+	return &copy
+}
+
+func fillDedupKey(fill *exchanges.Fill) string {
+	if strings.TrimSpace(fill.TradeID) != "" {
+		return "trade:" + fill.TradeID
+	}
+	return fmt.Sprintf("%s|%s|%d|%s|%s|%s",
+		fill.OrderID,
+		fill.ClientOrderID,
+		fill.Timestamp,
+		fill.Price.String(),
+		fill.Quantity.String(),
+		fill.Fee.String(),
+	)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func isRawNonFillTerminal(status exchanges.OrderStatus) bool {
+	return status == exchanges.OrderStatusCancelled ||
+		status == exchanges.OrderStatusRejected
+}
+
+func normalizeDecimal(value decimal.Decimal) decimal.Decimal {
+	normalized, err := decimal.NewFromString(value.String())
+	if err != nil {
+		return value
+	}
+	return normalized
 }
