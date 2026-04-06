@@ -51,7 +51,7 @@ type orderFlowWaiter struct {
 
 func newOrderFlow(initial *exchanges.Order) *OrderFlow {
 	f := &OrderFlow{
-		orderCh:    make(chan *exchanges.Order),
+		orderCh:    make(chan *exchanges.Order, 64),
 		fillCh:     make(chan *exchanges.Fill, 64),
 		publicWake: make(chan struct{}, 1),
 		waiters:    make(map[*orderFlowWaiter]struct{}),

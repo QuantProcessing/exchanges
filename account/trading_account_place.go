@@ -28,28 +28,21 @@ func (a *TradingAccount) Track(orderID, clientOrderID string) (*OrderFlow, error
 }
 
 func (a *TradingAccount) Place(ctx context.Context, params *exchanges.OrderParams) (*OrderFlow, error) {
-	allSub := a.SubscribeOrders()
 	order, err := a.adp.PlaceOrder(ctx, params)
 	if err != nil {
-		allSub.Unsubscribe()
 		return nil, err
 	}
-
-	return a.newPlacedFlow(allSub, order), nil
+	return a.flows.Register(order), nil
 }
 
 func (a *TradingAccount) PlaceWS(ctx context.Context, params *exchanges.OrderParams) (*OrderFlow, error) {
 	if strings.TrimSpace(params.ClientID) == "" {
 		return nil, fmt.Errorf("client id required for PlaceWS")
 	}
-
-	allSub := a.SubscribeOrders()
 	if err := a.adp.PlaceOrderWS(ctx, params); err != nil {
-		allSub.Unsubscribe()
 		return nil, err
 	}
-
-	return a.newPlacedFlow(allSub, &exchanges.Order{
+	return a.flows.Register(&exchanges.Order{
 		ClientOrderID: params.ClientID,
 		Symbol:        params.Symbol,
 		Side:          params.Side,
@@ -59,62 +52,6 @@ func (a *TradingAccount) PlaceWS(ctx context.Context, params *exchanges.OrderPar
 		Status:        exchanges.OrderStatusPending,
 		Timestamp:     time.Now().UnixMilli(),
 	}), nil
-}
-
-func (a *TradingAccount) newPlacedFlow(allSub *Subscription[exchanges.Order], initial *exchanges.Order) *OrderFlow {
-	flow := newOrderFlow(initial)
-	a.flows.Add(flow)
-
-	go a.bridgePlacedFlow(flow, allSub, initial)
-
-	return flow
-}
-
-func (a *TradingAccount) bridgePlacedFlow(flow *OrderFlow, allSub *Subscription[exchanges.Order], initial *exchanges.Order) {
-	defer allSub.Unsubscribe()
-
-	current := cloneOrder(initial)
-	orderID := ""
-	clientOrderID := ""
-	if current != nil {
-		orderID = current.OrderID
-		clientOrderID = current.ClientOrderID
-	}
-
-	for {
-		select {
-		case <-flow.done:
-			return
-		case update, ok := <-allSub.C:
-			if !ok {
-				return
-			}
-			if !matchesTrackedOrder(update, orderID, clientOrderID) {
-				continue
-			}
-
-			next := cloneOrder(update)
-			if next == nil {
-				continue
-			}
-			if next.OrderID == "" && current != nil {
-				next.OrderID = current.OrderID
-			}
-			if next.ClientOrderID == "" && current != nil {
-				next.ClientOrderID = current.ClientOrderID
-			}
-
-			current = next
-			orderID = current.OrderID
-			clientOrderID = current.ClientOrderID
-			flow.publish(current)
-
-			if isTerminalOrderStatus(current.Status) {
-				a.flows.Unregister(flow)
-				return
-			}
-		}
-	}
 }
 
 func matchesTrackedOrder(order *exchanges.Order, orderID, clientOrderID string) bool {
