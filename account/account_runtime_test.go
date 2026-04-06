@@ -137,10 +137,13 @@ type accountRuntimeStubExchange struct {
 	fetchAccountStarted    chan struct{}
 	placeResp              *exchanges.Order
 	updates                []*exchanges.Order
+	fillUpdates            []*exchanges.Fill
 	syncPlaceUpdates       []*exchanges.Order
+	syncPlaceFills         []*exchanges.Fill
 	syncPlaceWSUpdates     []*exchanges.Order
 	positionUpdates        []*exchanges.Position
 	watchOrdersErr         error
+	watchFillsErr          error
 	watchPositionsErr      error
 	keepCanceledCallbacks  bool
 	emitOrderOnCancel      *exchanges.Order
@@ -148,17 +151,22 @@ type accountRuntimeStubExchange struct {
 	placeReturnDelay       time.Duration
 	placeWSReturnDelay     time.Duration
 	orderCB                exchanges.OrderUpdateCallback
+	fillCB                 exchanges.FillCallback
 	positionCB             exchanges.PositionUpdateCallback
 	staleOrderCBs          []exchanges.OrderUpdateCallback
+	staleFillCBs           []exchanges.FillCallback
 	stalePositionCBs       []exchanges.PositionUpdateCallback
 	fetchAccountCalls      atomic.Int32
 	watchOrdersCalls       atomic.Int32
+	watchFillsCalls        atomic.Int32
 	watchPositionsCalls    atomic.Int32
 	watchOrdersCanceled    atomic.Int32
+	watchFillsCanceled     atomic.Int32
 	watchPositionsCanceled atomic.Int32
 	orderCancelEmits       atomic.Int32
 	positionCancelEmits    atomic.Int32
 	orderWatchID           atomic.Int64
+	fillWatchID            atomic.Int64
 	positionWatchID        atomic.Int64
 	watchMu                sync.Mutex
 }
@@ -217,6 +225,30 @@ func (s *accountRuntimeStubExchange) WatchOrders(ctx context.Context, cb exchang
 	return nil
 }
 
+func (s *accountRuntimeStubExchange) WatchFills(ctx context.Context, cb exchanges.FillCallback) error {
+	s.watchFillsCalls.Add(1)
+	if s.watchFillsErr != nil {
+		return s.watchFillsErr
+	}
+	watchID := s.fillWatchID.Add(1)
+	s.watchMu.Lock()
+	s.fillCB = cb
+	s.watchMu.Unlock()
+	go func() {
+		<-ctx.Done()
+		s.watchMu.Lock()
+		if s.fillWatchID.Load() == watchID {
+			if s.keepCanceledCallbacks && s.fillCB != nil {
+				s.staleFillCBs = append(s.staleFillCBs, s.fillCB)
+			}
+			s.fillCB = nil
+		}
+		s.watchMu.Unlock()
+		s.watchFillsCanceled.Add(1)
+	}()
+	return nil
+}
+
 func (s *accountRuntimeStubExchange) WatchPositions(ctx context.Context, cb exchanges.PositionUpdateCallback) error {
 	s.watchPositionsCalls.Add(1)
 	if s.watchPositionsErr != nil {
@@ -257,8 +289,11 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 	}
 
 	updates := append([]*exchanges.Order(nil), s.updates...)
+	fillUpdates := append([]*exchanges.Fill(nil), s.fillUpdates...)
 	syncUpdates := append([]*exchanges.Order(nil), s.syncPlaceUpdates...)
+	syncFills := append([]*exchanges.Fill(nil), s.syncPlaceFills...)
 	s.emitOrderCallbacks(syncUpdates)
+	s.emitFillCallbacks(syncFills)
 	if s.placeReturnDelay > 0 {
 		time.Sleep(s.placeReturnDelay)
 	}
@@ -271,6 +306,18 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 				case <-time.After(10 * time.Millisecond):
 				}
 				s.emitOrderCallbacks([]*exchanges.Order{update})
+			}
+		}()
+	}
+	if len(fillUpdates) > 0 {
+		go func() {
+			for _, fill := range fillUpdates {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(10 * time.Millisecond):
+				}
+				s.emitFillCallbacks([]*exchanges.Fill{fill})
 			}
 		}()
 	}
@@ -357,6 +404,26 @@ func (s *accountRuntimeStubExchange) EmitPosition(pos *exchanges.Position) {
 	}
 }
 
+func (s *accountRuntimeStubExchange) EmitFill(fill *exchanges.Fill) {
+	s.watchMu.Lock()
+	callbacks := make([]exchanges.FillCallback, 0, 1+len(s.staleFillCBs))
+	if s.fillCB != nil {
+		callbacks = append(callbacks, s.fillCB)
+	}
+	callbacks = append(callbacks, s.staleFillCBs...)
+	s.watchMu.Unlock()
+	if len(callbacks) == 0 || fill == nil {
+		return
+	}
+	for _, cb := range callbacks {
+		if cb == nil {
+			continue
+		}
+		copy := *fill
+		cb(&copy)
+	}
+}
+
 func (s *accountRuntimeStubExchange) emitOrderCallbacks(updates []*exchanges.Order) {
 	if len(updates) == 0 {
 		return
@@ -374,6 +441,27 @@ func (s *accountRuntimeStubExchange) emitOrderCallbacks(updates []*exchanges.Ord
 			continue
 		}
 		copy := *update
+		callback(&copy)
+	}
+}
+
+func (s *accountRuntimeStubExchange) emitFillCallbacks(fills []*exchanges.Fill) {
+	if len(fills) == 0 {
+		return
+	}
+
+	s.watchMu.Lock()
+	callback := s.fillCB
+	s.watchMu.Unlock()
+	if callback == nil {
+		return
+	}
+
+	for _, fill := range fills {
+		if fill == nil {
+			continue
+		}
+		copy := *fill
 		callback(&copy)
 	}
 }
@@ -417,6 +505,154 @@ func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
 		latest := flow.Latest()
 		return latest != nil && latest.OrderID == "exch-1"
 	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTradingAccountRoutesFillsIntoOrderFlow(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		placeResp: &exchanges.Order{
+			ClientOrderID: "cli-1",
+			Symbol:        "ETH",
+			Side:          exchanges.OrderSideBuy,
+			Type:          exchanges.OrderTypeLimit,
+			Quantity:      decimal.RequireFromString("1"),
+			Status:        exchanges.OrderStatusPending,
+		},
+	}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("1"),
+		Price:    decimal.RequireFromString("100"),
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	adp.EmitOrder(&exchanges.Order{
+		OrderID:       "exch-1",
+		ClientOrderID: "cli-1",
+		Symbol:        "ETH",
+		Quantity:      decimal.RequireFromString("1"),
+		Status:        exchanges.OrderStatusNew,
+	})
+	adp.EmitFill(&exchanges.Fill{
+		TradeID:       "trade-1",
+		OrderID:       "exch-1",
+		ClientOrderID: "cli-1",
+		Symbol:        "ETH",
+		Side:          exchanges.OrderSideBuy,
+		Price:         decimal.RequireFromString("101"),
+		Quantity:      decimal.RequireFromString("0.4"),
+		Timestamp:     1,
+	})
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got, err := flow.Wait(waitCtx, func(o *exchanges.Order) bool {
+		return o.LastFillQuantity.Equal(decimal.RequireFromString("0.4"))
+	})
+	require.NoError(t, err)
+	require.Equal(t, exchanges.OrderStatusPartiallyFilled, got.Status)
+	require.Equal(t, decimal.RequireFromString("101"), got.LastFillPrice)
+
+	select {
+	case fill := <-flow.Fills():
+		require.Equal(t, "trade-1", fill.TradeID)
+	case <-time.After(time.Second):
+		t.Fatal("expected raw fill event")
+	}
+}
+
+func TestTradingAccountFilledWaitsForFillAfterRawFilledConfirm(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		placeResp: &exchanges.Order{
+			ClientOrderID: "cli-1",
+			Symbol:        "ETH",
+			Side:          exchanges.OrderSideBuy,
+			Type:          exchanges.OrderTypeLimit,
+			Quantity:      decimal.RequireFromString("1"),
+			Status:        exchanges.OrderStatusPending,
+		},
+	}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("1"),
+		Price:    decimal.RequireFromString("100"),
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	done := make(chan *exchanges.Order, 1)
+	go func() {
+		got, err := flow.Wait(waitCtx, func(o *exchanges.Order) bool {
+			return o.Status == exchanges.OrderStatusFilled
+		})
+		require.NoError(t, err)
+		done <- got
+	}()
+
+	adp.EmitOrder(&exchanges.Order{
+		OrderID:       "exch-1",
+		ClientOrderID: "cli-1",
+		Quantity:      decimal.RequireFromString("1"),
+		Status:        exchanges.OrderStatusFilled,
+	})
+
+	select {
+	case <-done:
+		t.Fatal("filled wait should not complete until a fill arrives")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	adp.EmitFill(&exchanges.Fill{
+		TradeID:       "trade-1",
+		OrderID:       "exch-1",
+		ClientOrderID: "cli-1",
+		Price:         decimal.RequireFromString("101"),
+		Quantity:      decimal.RequireFromString("1"),
+		Timestamp:     2,
+	})
+
+	select {
+	case got := <-done:
+		require.Equal(t, exchanges.OrderStatusFilled, got.Status)
+	case <-time.After(time.Second):
+		t.Fatal("expected filled snapshot")
+	}
+}
+
+func TestTradingAccountStartIgnoresUnsupportedWatchFills(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		watchFillsErr: exchanges.ErrNotSupported,
+	}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	require.EqualValues(t, 1, adp.watchOrdersCalls.Load())
+	require.EqualValues(t, 1, adp.watchFillsCalls.Load())
 }
 
 func TestTradingAccountEmptyQueries(t *testing.T) {

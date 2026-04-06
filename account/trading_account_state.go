@@ -126,7 +126,14 @@ func (a *TradingAccount) applyOrderUpdate(runGen uint64, order *exchanges.Order)
 		return
 	}
 	a.orderBus.Publish(order)
-	a.flows.Route(order)
+	a.flows.RouteOrder(order)
+}
+
+func (a *TradingAccount) applyFillUpdate(runGen uint64, fill *exchanges.Fill) {
+	if fill == nil || !a.isActiveRun(runGen) {
+		return
+	}
+	a.flows.RouteFill(fill)
 }
 
 func (a *TradingAccount) applyPositionUpdate(runGen uint64, position *exchanges.Position) {

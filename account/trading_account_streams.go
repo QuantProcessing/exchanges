@@ -70,6 +70,15 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("trading_account: WatchOrders failed: %w", err)
 	}
 
+	if watchErr := streamable.WatchFills(runCtx, func(fill *exchanges.Fill) {
+		a.applyFillUpdate(runGen, fill)
+	}); watchErr != nil {
+		if !errors.Is(watchErr, exchanges.ErrNotSupported) {
+			return fmt.Errorf("trading_account: WatchFills failed: %w", watchErr)
+		}
+		a.logger.Warnw("trading_account: WatchFills failed (may not be supported)", "error", watchErr)
+	}
+
 	if watchErr := streamable.WatchPositions(runCtx, func(position *exchanges.Position) {
 		a.applyPositionUpdate(runGen, position)
 	}); watchErr != nil {
