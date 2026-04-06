@@ -357,6 +357,8 @@ fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 
 `OrderFlow.Fills()` 仍然提供同一笔订单的原始成交明细流。要逐笔执行细节时读 `Fills()`；要在策略控制流里消费统一快照时读 `C()`。
 
+如果某个 adapter 不支持 `WatchFills`，`OrderFlow.C()` 会退化为原来的仅订单流行为，而 `OrderFlow.Fills()` 会保持为空。
+
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
 > TradingAccount 是当前发布面向外部的账户运行时入口，位于 `github.com/QuantProcessing/exchanges/account`。新的集成应基于 `TradingAccount + OrderFlow`。
