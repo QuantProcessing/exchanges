@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/shopspring/decimal"
@@ -71,8 +72,9 @@ func (a *Adapter) watchTickerWithWS(ctx context.Context, ws lighterPerpTickerWS,
 
 	if err := ws.SubscribeTicker(mid, func(data []byte) {
 		var evt struct {
-			Timestamp int64 `json:"timestamp"`
-			Ticker    struct {
+			Timestamp     int64 `json:"timestamp"`
+			LastUpdatedAt int64 `json:"last_updated_at"`
+			Ticker        struct {
 				A struct {
 					Price string `json:"price"`
 				} `json:"a"`
@@ -88,7 +90,7 @@ func (a *Adapter) watchTickerWithWS(ctx context.Context, ws lighterPerpTickerWS,
 		state.bid = parseLighterFloat(evt.Ticker.B.Price)
 		state.ask = parseLighterFloat(evt.Ticker.A.Price)
 		state.mu.Unlock()
-		emit(evt.Timestamp)
+		emit(normalizeLighterTickerTimestamp(evt.LastUpdatedAt, evt.Timestamp))
 	}); err != nil {
 		return err
 	}
@@ -134,6 +136,7 @@ func (a *SpotAdapter) watchTickerWithWS(ctx context.Context, ws lighterSpotTicke
 	return ws.SubscribeSpotMarketStats(mid, func(data []byte) {
 		var evt struct {
 			Timestamp       int64           `json:"timestamp"`
+			LastUpdatedAt   int64           `json:"last_updated_at"`
 			SpotMarketStats json.RawMessage `json:"spot_market_stats"`
 		}
 		if err := json.Unmarshal(data, &evt); err != nil {
@@ -154,10 +157,21 @@ func (a *SpotAdapter) watchTickerWithWS(ctx context.Context, ws lighterSpotTicke
 				QuoteVol:  decimal.NewFromFloat(stats.DailyQuoteTokenVolume),
 				High24h:   decimal.NewFromFloat(stats.DailyPriceHigh),
 				Low24h:    decimal.NewFromFloat(stats.DailyPriceLow),
-				Timestamp: evt.Timestamp,
+				Timestamp: normalizeLighterTickerTimestamp(evt.LastUpdatedAt, evt.Timestamp),
 			})
 		}
 	})
+}
+
+func normalizeLighterTickerTimestamp(lastUpdatedAt, timestamp int64) int64 {
+	switch {
+	case lastUpdatedAt > 0:
+		return lastUpdatedAt / 1000
+	case timestamp > 0:
+		return timestamp
+	default:
+		return time.Now().UnixMilli()
+	}
 }
 
 type lighterSpotMarketStats struct {

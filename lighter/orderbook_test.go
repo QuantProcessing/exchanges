@@ -165,3 +165,24 @@ func TestOrderBookAcceptsFreshSnapshotAfterResync(t *testing.T) {
 	require.Equal(t, "7", book.Bids[0].Quantity.String())
 	require.Equal(t, "100", book.Asks[0].Price.String())
 }
+
+func TestOrderBookUsesLastUpdatedAtAsBookTimestamp(t *testing.T) {
+	ob := NewOrderBook("BTC")
+
+	require.NoError(t, ob.ProcessUpdate([]byte(`{
+		"type":"subscribed/order_book",
+		"timestamp":1700000000123,
+		"last_updated_at":1700000000456000,
+		"order_book":{
+			"nonce":10,
+			"timestamp":1700000000000,
+			"last_updated_at":1700000000455000,
+			"bids":[{"price":"100","size":"2"}],
+			"asks":[{"price":"101","size":"3"}]
+		}
+	}`)))
+
+	book := ob.ToAdapterOrderBook(5)
+	require.Equal(t, int64(1700000000456), ob.Timestamp())
+	require.Equal(t, int64(1700000000456), book.Timestamp)
+}

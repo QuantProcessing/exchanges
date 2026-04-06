@@ -145,6 +145,37 @@ func TestPerpWatchTickerCombinesTickerAndMarketStats(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestPerpWatchTickerUsesLastUpdatedAtAsTickerTimestamp(t *testing.T) {
+	ws := newStubLighterMarketWS()
+	adp := newTestPerpAdapterForStreams()
+
+	var mu sync.Mutex
+	var got *exchanges.Ticker
+
+	require.NoError(t, adp.watchTickerWithWS(context.Background(), ws, "BTC", func(tk *exchanges.Ticker) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = tk
+	}))
+
+	ws.emitTicker(0, `{
+		"channel":"ticker:0",
+		"type":"update/ticker",
+		"timestamp":1700000000000,
+		"last_updated_at":1700000000456000,
+		"ticker":{
+			"b":{"price":"2000","size":"1"},
+			"a":{"price":"2001","size":"2"}
+		}
+	}`)
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return got != nil && got.Timestamp == 1700000000456
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestSpotWatchTickerUsesSpotMarketStats(t *testing.T) {
 	ws := newStubLighterMarketWS()
 	adp := newTestSpotAdapterForStreams()
@@ -183,6 +214,45 @@ func TestSpotWatchTickerUsesSpotMarketStats(t *testing.T) {
 			got.LastPrice.String() == "2500" &&
 			got.MidPrice.String() == "2500.5" &&
 			got.Volume24h.String() == "12.5"
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestSpotWatchTickerUsesLastUpdatedAtAsTickerTimestamp(t *testing.T) {
+	ws := newStubLighterMarketWS()
+	adp := newTestSpotAdapterForStreams()
+
+	var mu sync.Mutex
+	var got *exchanges.Ticker
+
+	require.NoError(t, adp.watchTickerWithWS(context.Background(), ws, "ETH", func(tk *exchanges.Ticker) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = tk
+	}))
+
+	ws.emitSpotMarketStats(1, `{
+		"channel":"spot_market_stats:1",
+		"type":"update/spot_market_stats",
+		"timestamp":1700000000002,
+		"last_updated_at":1700000000789000,
+		"spot_market_stats":{
+			"1":{
+				"market_id":1,
+				"mid_price":"2500.5",
+				"last_trade_price":"2500",
+				"daily_base_token_volume":12.5,
+				"daily_quote_token_volume":31250,
+				"daily_price_high":2600,
+				"daily_price_low":2400,
+				"daily_price_change":1.2
+			}
+		}
+	}`)
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return got != nil && got.Timestamp == 1700000000789
 	}, time.Second, 10*time.Millisecond)
 }
 

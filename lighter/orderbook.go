@@ -45,14 +45,15 @@ func (ob *OrderBook) Timestamp() int64 {
 }
 
 type WsOrderBookUpdate struct {
-	Type      string `json:"type"`
-	Channel   string `json:"channel"`
-	Timestamp int64  `json:"timestamp"`
-	OrderBook struct {
+	Type          string `json:"type"`
+	Channel       string `json:"channel"`
+	Timestamp     int64  `json:"timestamp"`       // server broadcast time (ms)
+	LastUpdatedAt int64  `json:"last_updated_at"` // book update time (us)
+	OrderBook     struct {
 		BeginNonce    *int64 `json:"begin_nonce,omitempty"`
 		Nonce         int64  `json:"nonce"`
-		Timestamp     int64  `json:"timestamp"` // legacy/compat exchange time (ms)
-		LastUpdatedAt int64  `json:"last_updated_at"`
+		Timestamp     int64  `json:"timestamp"`       // server broadcast time (ms)
+		LastUpdatedAt int64  `json:"last_updated_at"` // book update time (us)
 		Bids          []struct {
 			Price string `json:"price"`
 			Size  string `json:"size"`
@@ -83,16 +84,7 @@ func (ob *OrderBook) ProcessUpdate(data []byte) error {
 	ob.Lock()
 	defer ob.Unlock()
 
-	switch {
-	case update.Timestamp > 0:
-		ob.timestamp = update.Timestamp
-	case update.OrderBook.LastUpdatedAt > 0:
-		ob.timestamp = update.OrderBook.LastUpdatedAt / 1000
-	case update.OrderBook.Timestamp > 0:
-		ob.timestamp = update.OrderBook.Timestamp
-	default:
-		ob.timestamp = time.Now().UnixMilli()
-	}
+	ob.timestamp = normalizeLighterOrderBookTimestamp(&update)
 
 	if ob.shouldTreatAsSnapshot(&update) {
 		ob.replaceWithSnapshotLocked(&update)
@@ -175,6 +167,21 @@ func (ob *OrderBook) applyDeltaLocked(update *WsOrderBookUpdate) {
 	}
 	ob.lastNonce = update.OrderBook.Nonce
 	ob.state = orderBookStateReady
+}
+
+func normalizeLighterOrderBookTimestamp(update *WsOrderBookUpdate) int64 {
+	switch {
+	case update.LastUpdatedAt > 0:
+		return update.LastUpdatedAt / 1000
+	case update.OrderBook.LastUpdatedAt > 0:
+		return update.OrderBook.LastUpdatedAt / 1000
+	case update.OrderBook.Timestamp > 0:
+		return update.OrderBook.Timestamp
+	case update.Timestamp > 0:
+		return update.Timestamp
+	default:
+		return time.Now().UnixMilli()
+	}
 }
 
 func normalizeLighterBookPrice(raw string) string {
