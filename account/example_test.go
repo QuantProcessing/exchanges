@@ -10,7 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-func ExampleNewTradingAccount() {
+func ExampleOrderFlow_Fills() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -24,16 +24,6 @@ func ExampleNewTradingAccount() {
 			Price:         decimal.RequireFromString("100"),
 			Status:        exchanges.OrderStatusPending,
 		},
-		updates: []*exchanges.Order{{
-			OrderID:       "exch-1",
-			ClientOrderID: "cli-1",
-			Symbol:        "ETH",
-			Side:          exchanges.OrderSideBuy,
-			Type:          exchanges.OrderTypeLimit,
-			Quantity:      decimal.RequireFromString("0.1"),
-			Price:         decimal.RequireFromString("100"),
-			Status:        exchanges.OrderStatusNew,
-		}},
 	}
 
 	acct := account.NewTradingAccount(adp, nil)
@@ -54,13 +44,36 @@ func ExampleNewTradingAccount() {
 	}
 	defer flow.Close()
 
-	got, err := flow.Wait(ctx, func(o *exchanges.Order) bool {
-		return o.Status == exchanges.OrderStatusNew
+	adp.EmitOrder(&exchanges.Order{
+		OrderID:       "exch-1",
+		ClientOrderID: "cli-1",
+		Symbol:        "ETH",
+		Side:          exchanges.OrderSideBuy,
+		Type:          exchanges.OrderTypeLimit,
+		Quantity:      decimal.RequireFromString("0.1"),
+		Price:         decimal.RequireFromString("100"),
+		Status:        exchanges.OrderStatusNew,
+	})
+	adp.EmitFill(&exchanges.Fill{
+		TradeID:       "trade-1",
+		OrderID:       "exch-1",
+		ClientOrderID: "cli-1",
+		Symbol:        "ETH",
+		Side:          exchanges.OrderSideBuy,
+		Price:         decimal.RequireFromString("101"),
+		Quantity:      decimal.RequireFromString("0.04"),
+		Timestamp:     1,
+	})
+
+	fill := <-flow.Fills()
+
+	order, err := flow.Wait(ctx, func(o *exchanges.Order) bool {
+		return o.LastFillQuantity.Equal(decimal.RequireFromString("0.04"))
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(got.OrderID, got.Status)
-	// Output: exch-1 NEW
+	fmt.Println(fill.TradeID, order.Status, order.LastFillPrice)
+	// Output: trade-1 PARTIALLY_FILLED 101
 }

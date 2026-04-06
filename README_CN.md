@@ -314,7 +314,7 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 import "github.com/QuantProcessing/exchanges/account"
 
 // TradingAccount 现在位于公开的 account 子包。
-// Place 会返回一个 OrderFlow，方便你查看最新快照或流式读取更新。
+// Place 会返回一个 OrderFlow，方便你查看融合快照和单笔订单成交流。
 acct := account.NewTradingAccount(adp, nil)
 if err := acct.Start(ctx); err != nil {
     panic(err)
@@ -332,12 +332,20 @@ if err != nil {
 }
 defer flow.Close()
 
-for order := range flow.C() {
-    fmt.Printf("订单更新: %s %s\n", order.OrderID, order.Status)
-    if order.Status == exchanges.OrderStatusFilled ||
-        order.Status == exchanges.OrderStatusCancelled ||
-        order.Status == exchanges.OrderStatusRejected {
-        break
+for {
+    select {
+    case order, ok := <-flow.C():
+        if !ok {
+            return
+        }
+        fmt.Printf("订单=%s 状态=%s 已成交=%s 最近成交=%s@%s\n",
+            order.OrderID, order.Status, order.FilledQuantity,
+            order.LastFillQuantity, order.LastFillPrice)
+    case fill, ok := <-flow.Fills():
+        if !ok {
+            return
+        }
+        fmt.Printf("成交=%s 数量=%s 价格=%s\n", fill.TradeID, fill.Quantity, fill.Price)
     }
 }
 
@@ -345,7 +353,9 @@ latest := flow.Latest()
 fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 ```
 
-`flow.C()` 会流式输出标准化后的订单更新。`flow.Latest()` 返回最新快照，`flow.Wait(...)` 则适合需要阻塞等待某个条件成立的场景。
+`OrderFlow.C()` 现在返回单笔订单的融合快照。订单生命周期字段来自 `WatchOrders`，当交易所支持私有成交流时，还会把 `WatchFills` 推导出的 `FilledQuantity`、`LastFillQuantity`、`LastFillPrice`、`AverageFillPrice` 一并带上。
+
+`OrderFlow.Fills()` 仍然提供同一笔订单的原始成交明细流。要逐笔执行细节时读 `Fills()`；要在策略控制流里消费统一快照时读 `C()`。
 
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 

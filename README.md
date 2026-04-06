@@ -320,7 +320,7 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 import "github.com/QuantProcessing/exchanges/account"
 
 // TradingAccount lives in the public account package.
-// Place returns an OrderFlow so you can inspect the latest snapshot or stream updates.
+// Place returns an OrderFlow so you can inspect merged order snapshots and per-order fills.
 acct := account.NewTradingAccount(adp, nil)
 if err := acct.Start(ctx); err != nil {
     panic(err)
@@ -338,12 +338,20 @@ if err != nil {
 }
 defer flow.Close()
 
-for order := range flow.C() {
-    fmt.Printf("Order update: %s %s\n", order.OrderID, order.Status)
-    if order.Status == exchanges.OrderStatusFilled ||
-        order.Status == exchanges.OrderStatusCancelled ||
-        order.Status == exchanges.OrderStatusRejected {
-        break
+for {
+    select {
+    case order, ok := <-flow.C():
+        if !ok {
+            return
+        }
+        fmt.Printf("order=%s status=%s filled=%s last_fill=%s@%s\n",
+            order.OrderID, order.Status, order.FilledQuantity,
+            order.LastFillQuantity, order.LastFillPrice)
+    case fill, ok := <-flow.Fills():
+        if !ok {
+            return
+        }
+        fmt.Printf("fill=%s qty=%s price=%s\n", fill.TradeID, fill.Quantity, fill.Price)
     }
 }
 
@@ -351,7 +359,11 @@ latest := flow.Latest()
 fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 ```
 
-`flow.C()` streams normalized order updates. `flow.Latest()` returns the latest snapshot, and `flow.Wait(...)` is available when you want a blocking predicate check.
+`OrderFlow.C()` now exposes a per-order merged snapshot. It keeps order lifecycle fields from `WatchOrders`, but when native private fills are available it also surfaces `FilledQuantity`, `LastFillQuantity`, `LastFillPrice`, and `AverageFillPrice` derived from `WatchFills`.
+
+`OrderFlow.Fills()` remains the raw execution-detail stream for the same order. Use it when you need every normalized fill event; use `OrderFlow.C()` when you want one control-flow snapshot per order.
+
+If `WatchFills` is not supported by an adapter, `OrderFlow.C()` degrades to the existing order-only behavior and `OrderFlow.Fills()` remains empty.
 
 Downstream consumer migrations, including cross-exchanges-arb, are intentionally deferred until this repository has passed full shared testing and a new release tag is published.
 
