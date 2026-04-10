@@ -129,6 +129,7 @@ Do not invent constructor names. In the current codebase, perp constructors are 
 | Nado | `nado` | `NADO` | `NewAdapter`, `NewSpotAdapter` | perp, spot | `private_key`, `sub_account_name`, `quote_currency` | `USDT` | |
 | Lighter | `lighter` | `LIGHTER` | `NewAdapter`, `NewSpotAdapter` | perp, spot | `private_key`, `account_index`, `key_index`, `ro_token`, `quote_currency` | `USDC` | |
 | Hyperliquid | `hyperliquid` | `HYPERLIQUID` | `NewAdapter`, `NewSpotAdapter` | perp, spot | `private_key`, `account_addr`, `quote_currency` | `USDC` | |
+| Bybit | `bybit` | `BYBIT` | `NewAdapter`, `NewSpotAdapter` | perp, spot | `api_key`, `secret_key`, `quote_currency` | `USDT` | Supports explicit trade WS order tests behind `BYBIT_ENABLE_WS_ORDER_TESTS` |
 | StandX | `standx` | `STANDX` | `NewAdapter` | perp only | `private_key`, `quote_currency` | `DUSD` | No spot adapter |
 | GRVT | `grvt` | `GRVT` | `NewAdapter` | perp only | `api_key`, `sub_account_id`, `private_key`, `quote_currency` | `USDT` | No spot adapter |
 | EdgeX | `edgex` | `EDGEX` | `NewAdapter` | perp only | `private_key`, `account_id`, `quote_currency` | `USDC` | No spot adapter |
@@ -146,6 +147,7 @@ Always verify in `<exchange>/options.go` before answering or changing quote beha
 | Nado | `USDT` |
 | Lighter | `USDC` |
 | Hyperliquid | `USDC` |
+| Bybit | `USDT`, `USDC` |
 | StandX | `DUSD` |
 | GRVT | `USDT` |
 | EdgeX | `USDC` |
