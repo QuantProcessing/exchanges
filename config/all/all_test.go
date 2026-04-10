@@ -19,4 +19,7 @@ func TestAllPackageRegistersKnownExchangeConstructors(t *testing.T) {
 
 	_, err = exchanges.LookupConstructor("ASTER")
 	require.NoError(t, err)
+
+	_, err = exchanges.LookupConstructor("BYBIT")
+	require.NoError(t, err)
 }

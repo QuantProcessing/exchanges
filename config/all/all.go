@@ -5,6 +5,7 @@ import (
 	_ "github.com/QuantProcessing/exchanges/backpack"
 	_ "github.com/QuantProcessing/exchanges/binance"
 	_ "github.com/QuantProcessing/exchanges/bitget"
+	_ "github.com/QuantProcessing/exchanges/bybit"
 	_ "github.com/QuantProcessing/exchanges/decibel"
 	_ "github.com/QuantProcessing/exchanges/edgex"
 	_ "github.com/QuantProcessing/exchanges/grvt"
