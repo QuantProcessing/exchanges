@@ -30,7 +30,7 @@ When answering a question or making a change, start from the smallest set of aut
 | Shared models/enums | `models.go` | Real fields and enum names; do not invent types |
 | Error handling | `errors.go` | Sentinel errors and `ExchangeError` contract |
 | Shared validation/helpers | `utils.go` | Precision formatting, `GenerateID`, slippage helpers, partial-fill helper |
-| Local state / account sync | `local_state.go`, `event_bus.go` | `LocalOrderBook`, `LocalState`, `EventBus` |
+| Local orderbook / account runtime | `local_orderbook.go`, `account/trading_account.go`, `account/order_flow.go` | `LocalOrderBook`, `TradingAccount`, `OrderFlow` |
 | Registry behavior | `registry.go` | Supported registry keys, constructor signature |
 | Real expectations for adapters | `testsuite/compliance.go`, `testsuite/order_suite.go`, `testsuite/lifecycle_suite.go`, `testsuite/helpers.go` | These are the behavioral contracts |
 | Exchange-specific constructor/auth/support | `<exchange>/register.go`, `<exchange>/options.go` | Real ctor names, registry keys, auth fields, quote currency rules |
@@ -68,8 +68,8 @@ Use this table to decide what to load first instead of reading the entire repo.
 | Build adapters dynamically from config | `registry.go` | target `<exchange>/register.go`, `<exchange>/options.go` |
 | Add or fix order placement | `exchange.go`, `utils.go` | target `PlaceOrder`, `FetchOrder`, `WatchOrders`, `testsuite/order_suite.go` |
 | Fix order status / partial-fill behavior | `models.go`, `utils.go` | target `WatchOrders`, response mapping helpers, `testsuite/helpers.go` |
-| Fix local orderbook behavior | `local_state.go` | target `WatchOrderBook`, local orderbook file, `testsuite/compliance.go` |
-| Fix account sync / local state | `local_state.go`, `event_bus.go` | target WS account handlers, `FetchAccount`, `WatchOrders`, `WatchPositions` |
+| Fix local orderbook behavior | `local_orderbook.go` | target `WatchOrderBook`, local orderbook file, `testsuite/compliance.go` |
+| Fix account sync / account runtime | `account/trading_account.go`, `account/trading_account_state.go`, `account/order_flow.go` | target `FetchAccount`, `WatchOrders`, `WatchFills`, `WatchPositions`, `testsuite/trading_account_suite.go` |
 | Add a new exchange adapter | `docs/contributing/adding-exchange-adapters.md` | then `registry.go`, `exchange.go`, `testsuite/*`, and the nearest peer package |
 | Answer "what auth/options does exchange X need?" | `<exchange>/options.go` | `<exchange>/register.go` |
 | Answer "what markets does exchange X support?" | `<exchange>/register.go` | presence of `spot_adapter.go` / `perp_adapter.go` |
@@ -86,8 +86,10 @@ Use this table to decide what to load first instead of reading the entire repo.
 | `errors.go` | Sentinel errors and `ExchangeError` | Structured error handling |
 | `utils.go` | Precision, ID generation, validation helpers | Avoid re-implementing rounding or order validation |
 | `base_adapter.go` | Shared adapter behavior | See how order validation, slippage, local books, and order mode are meant to work |
-| `local_state.go` | `LocalOrderBook` interface + unified `LocalState` manager | Implement or debug state sync |
-| `event_bus.go` | Generic `EventBus[T]` fan-out pub/sub | Understand event distribution for orders/positions |
+| `local_orderbook.go` | `LocalOrderBook` interface | Implement or debug orderbook sync |
+| `account/trading_account.go` | `TradingAccount` runtime entrypoint | Understand release-facing account runtime |
+| `account/order_flow.go` | `OrderFlow` merged order/fill lifecycle | Understand per-order tracking and wait semantics |
+| `account/event_bus.go` | Generic account-runtime fan-out pub/sub | Understand order/position subscriptions |
 | `registry.go` | Global adapter registry | Config-driven construction |
 | `manager.go` | Runtime holder for multiple adapters | Store and retrieve already-built adapters |
 | `testsuite/` | Shared behavioral tests | Understand required adapter behavior |
@@ -398,16 +400,26 @@ The shared adapter path expects:
 - `GetLocalOrderBook` reads the maintained in-memory book
 - `StopWatchOrderBook` cleans up the subscription
 
-### Local account state contract
+### TradingAccount + OrderFlow contract
 
-`LocalState` is the unified local state manager that wraps any `Exchange` adapter:
+`TradingAccount` is the release-facing account runtime in `github.com/QuantProcessing/exchanges/account`.
 
-- Call `NewLocalState(adp, logger)` to create
-- `Start(ctx)` performs REST snapshot + auto `WatchOrders` + `WatchPositions` + periodic refresh
-- `GetOrder`, `GetPosition`, `GetBalance` for zero-latency reads
-- `SubscribeOrders()` / `SubscribePositions()` for fan-out event subscriptions (multiple consumers)
-- `PlaceOrder` + `OrderResult.WaitTerminal` for integrated order tracking
-- `Close()` to release resources
+- Call `account.NewTradingAccount(adp, logger)` to create
+- `Start(ctx)` performs REST snapshot + `WatchOrders` + optional `WatchFills` / `WatchPositions` + periodic refresh
+- `Balance()`, `Position(symbol)`, `Positions()`, `OpenOrder(orderID)`, `OpenOrders()` expose zero-latency state
+- `SubscribeOrders()` / `SubscribePositions()` provide fan-out subscriptions for downstream consumers
+- `Place(ctx, params)` and `PlaceWS(ctx, params)` return an `*OrderFlow`
+- `Cancel(ctx, orderID, symbol)` and `CancelWS(ctx, orderID, symbol)` forward unified cancel semantics
+- `Track(orderID, clientOrderID)` attaches an `OrderFlow` to an already-known order
+- `Close()` releases the runtime and subscriptions
+
+`OrderFlow` is the per-order lifecycle helper:
+
+- `C()` yields merged order snapshots
+- `Fills()` yields raw normalized fills when supported
+- `Latest()` returns the latest merged snapshot
+- `Wait(ctx, predicate)` blocks until a matching snapshot is seen
+- `Close()` releases the flow
 
 ## AI Workflow For This Repository
 
@@ -444,8 +456,10 @@ Start with:
 - `exchange.go`
 - `models.go`
 - `errors.go`
-- `local_state.go`
-- `event_bus.go`
+- `local_orderbook.go`
+- `account/trading_account.go`
+- `account/order_flow.go`
+- `account/event_bus.go`
 
 Not the README.
 
@@ -507,19 +521,19 @@ Why this is the default:
 - the code handles terminal states
 - it avoids polling loops until necessary
 
-> **Note:** For simpler use, prefer `LocalState.PlaceOrder()` which handles WatchOrders subscription, fan-out, and filtering automatically. The manual recipe above is for cases where you don't want `LocalState` overhead.
+> **Note:** For simpler order tracking, prefer `TradingAccount.Place()` / `TradingAccount.PlaceWS()` so the runtime manages `WatchOrders`, fan-out, and `OrderFlow` lifecycle for you. The manual recipe above is for direct-adapter use when you intentionally do not want the account runtime.
 
-## LocalState Recipe
+## TradingAccount Recipe
 
-Use `LocalState` when the caller wants a local synchronized view of orders, positions, and balance, with fan-out event subscriptions and integrated order tracking.
+Use `TradingAccount` when the caller wants a synchronized account runtime with fan-out subscriptions and integrated per-order tracking.
 
 ```go
-func startLocalState(ctx context.Context, adp exchanges.Exchange) (*exchanges.LocalState, error) {
-    state := exchanges.NewLocalState(adp, nil)
-    if err := state.Start(ctx); err != nil {
+func startTradingAccount(ctx context.Context, adp exchanges.Exchange) (*account.TradingAccount, error) {
+    acct := account.NewTradingAccount(adp, nil)
+    if err := acct.Start(ctx); err != nil {
         return nil, err
     }
-    return state, nil
+    return acct, nil
 }
 ```
 
@@ -527,12 +541,12 @@ Remember:
 
 - it wraps any `Exchange` (not just `PerpExchange`)
 - it performs an initial `FetchAccount`
-- it subscribes to order and position streams automatically
-- `SubscribeOrders()` returns a `*Subscription[Order]` with a `C` channel for fan-out
-- `PlaceOrder` returns `*OrderResult` with `WaitTerminal(timeout)` for blocking until terminal state
-- `GetAllOpenOrders()` returns `[]Order`
-- `GetBalance()` returns the last synced balance
-- Always call `state.Close()` when done
+- it subscribes to `WatchOrders` automatically and uses `WatchFills` / `WatchPositions` when available
+- `SubscribeOrders()` and `SubscribePositions()` return `*Subscription[...]` fan-out handles
+- `Place()` / `PlaceWS()` return `*OrderFlow`
+- `OrderFlow.Wait(...)` is the blocking primitive for terminal / predicate-based order progress
+- `Balance()`, `OpenOrders()`, `Positions()`, and `Position(symbol)` expose the latest runtime snapshot
+- Always call `acct.Close()` when done
 
 ## Adding Or Extending An Exchange Adapter
 
@@ -599,8 +613,9 @@ The test suite names in this repository are:
 
 - `testsuite.RunAdapterComplianceTests`
 - `testsuite.RunOrderSuite`
+- `testsuite.RunOrderQuerySemanticsSuite`
 - `testsuite.RunLifecycleSuite`
-- `testsuite.RunLocalStateSuite`
+- `testsuite.RunTradingAccountSuite`
 
 Do not invent names like `RunComplianceSuite`.
 
@@ -626,9 +641,19 @@ func TestMyExchangeLifecycle(t *testing.T) {
     })
 }
 
-func TestMyExchange_LocalState(t *testing.T) {
+func TestMyExchangeOrderQuerySemantics(t *testing.T) {
     adp := createTestAdapter(t)
-    testsuite.RunLocalStateSuite(t, adp, testsuite.LocalStateConfig{
+    testsuite.RunOrderQuerySemanticsSuite(t, adp, testsuite.OrderQueryConfig{
+        Symbol:                 "DOGE",
+        SupportsOpenOrders:     true,
+        SupportsTerminalLookup: true,
+        SupportsOrderHistory:   true,
+    })
+}
+
+func TestMyExchangeTradingAccount(t *testing.T) {
+    adp := createTestAdapter(t)
+    testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
         Symbol: "DOGE",
     })
 }
@@ -664,6 +689,7 @@ These are the recurring mistakes to prevent explicitly.
 |---------|------------------|
 | Inventing `NewPerpAdapter` | Use actual constructors from source, usually `NewAdapter` |
 | Inventing `RunComplianceSuite` | Use `RunAdapterComplianceTests` |
+| Reaching for `LocalState` docs or APIs | Use `account.TradingAccount` + `OrderFlow` as the release-facing runtime |
 | Passing pair-form symbols into adapters | Pass base symbols like `"BTC"` |
 | Using `float64` in adapter logic | Use `decimal.Decimal` |
 | Matching order updates only by `OrderID` | Prefer `ClientOrderID` when you control it |
@@ -698,7 +724,7 @@ For this project, reliable behavior comes from following this rule set:
 
 1. Start from code, not memory.
 2. Verify constructor names in `register.go` and `options.go`.
-3. Verify shared contracts in `exchange.go`, `models.go`, `errors.go`, and `local_state.go`.
+3. Verify shared contracts in `exchange.go`, `models.go`, `errors.go`, `local_orderbook.go`, `account/trading_account.go`, and `account/order_flow.go`.
 4. Let `testsuite/` define expected behavior.
 5. Reuse shared helpers instead of writing fresh exchange glue unless necessary.
 
