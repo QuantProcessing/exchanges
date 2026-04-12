@@ -158,6 +158,21 @@ func (f *OrderFlow) publish(order *exchanges.Order) {
 	f.publishOrder(order)
 }
 
+func (f *OrderFlow) seedPlacement(order *exchanges.Order) {
+	if order == nil {
+		return
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
+	}
+
+	f.base = mergePlacementOrder(f.base, order)
+	f.latest = mergePlacementOrder(f.latest, order)
+}
+
 func (f *OrderFlow) publishOrder(order *exchanges.Order) {
 	if order == nil {
 		return
@@ -375,6 +390,67 @@ func cloneOrder(order *exchanges.Order) *exchanges.Order {
 	}
 	copy := *order
 	return &copy
+}
+
+func mergePlacementOrder(current, placement *exchanges.Order) *exchanges.Order {
+	if placement == nil {
+		return cloneOrder(current)
+	}
+	if current == nil {
+		return cloneOrder(placement)
+	}
+
+	merged := cloneOrder(current)
+	merged.OrderID = firstNonEmpty(merged.OrderID, placement.OrderID)
+	merged.ClientOrderID = firstNonEmpty(merged.ClientOrderID, placement.ClientOrderID)
+	merged.Symbol = firstNonEmpty(merged.Symbol, placement.Symbol)
+	if merged.Side == "" {
+		merged.Side = placement.Side
+	}
+	if merged.Type == "" || merged.Type == exchanges.OrderTypeUnknown {
+		merged.Type = placement.Type
+	}
+	if !merged.Quantity.IsPositive() && placement.Quantity.IsPositive() {
+		merged.Quantity = placement.Quantity
+	}
+	if !merged.Price.IsPositive() && placement.Price.IsPositive() {
+		merged.Price = placement.Price
+	}
+	if !merged.OrderPrice.IsPositive() {
+		if placement.OrderPrice.IsPositive() {
+			merged.OrderPrice = placement.OrderPrice
+		} else if placement.Price.IsPositive() {
+			merged.OrderPrice = placement.Price
+		}
+	}
+	if merged.TimeInForce == "" {
+		merged.TimeInForce = placement.TimeInForce
+	}
+	if !merged.ReduceOnly {
+		merged.ReduceOnly = placement.ReduceOnly
+	}
+	if merged.Status == "" || merged.Status == exchanges.OrderStatusPending || merged.Status == exchanges.OrderStatusUnknown {
+		merged.Status = placement.Status
+	}
+	if !merged.FilledQuantity.IsPositive() && placement.FilledQuantity.IsPositive() {
+		merged.FilledQuantity = placement.FilledQuantity
+	}
+	if !merged.LastFillQuantity.IsPositive() && placement.LastFillQuantity.IsPositive() {
+		merged.LastFillQuantity = placement.LastFillQuantity
+	}
+	if !merged.LastFillPrice.IsPositive() && placement.LastFillPrice.IsPositive() {
+		merged.LastFillPrice = placement.LastFillPrice
+	}
+	if !merged.AverageFillPrice.IsPositive() && placement.AverageFillPrice.IsPositive() {
+		merged.AverageFillPrice = placement.AverageFillPrice
+	}
+	if !merged.Fee.IsPositive() && placement.Fee.IsPositive() {
+		merged.Fee = placement.Fee
+	}
+	if merged.Timestamp == 0 {
+		merged.Timestamp = placement.Timestamp
+	}
+	return merged
 }
 
 func cloneFill(fill *exchanges.Fill) *exchanges.Fill {

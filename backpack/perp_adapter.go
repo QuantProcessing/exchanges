@@ -78,6 +78,10 @@ func (a *Adapter) Close() error {
 	return nil
 }
 
+func (a *Adapter) EnsureClientID(params *exchanges.OrderParams) error {
+	return ensureOrderParamsClientID(params)
+}
+
 func (a *Adapter) FormatSymbol(symbol string) string {
 	if a.markets == nil {
 		return strings.ToUpper(symbol)

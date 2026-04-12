@@ -78,6 +78,10 @@ func (a *SpotAdapter) Close() error {
 	return nil
 }
 
+func (a *SpotAdapter) EnsureClientID(params *exchanges.OrderParams) error {
+	return ensureOrderParamsClientID(params)
+}
+
 func (a *SpotAdapter) FormatSymbol(symbol string) string {
 	if a.markets == nil {
 		return strings.ToUpper(symbol)

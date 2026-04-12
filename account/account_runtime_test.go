@@ -507,6 +507,50 @@ func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestTradingAccountPlaceTracksSyncOrderUpdateBeforeAckReturns(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		placeResp: &exchanges.Order{
+			ClientOrderID: "cli-1",
+			Symbol:        "ETH",
+			Side:          exchanges.OrderSideBuy,
+			Type:          exchanges.OrderTypeLimit,
+			Quantity:      decimal.RequireFromString("0.1"),
+			Price:         decimal.RequireFromString("100"),
+			Status:        exchanges.OrderStatusPending,
+		},
+		syncPlaceUpdates: []*exchanges.Order{{
+			OrderID:       "exch-1",
+			ClientOrderID: "cli-1",
+			Symbol:        "ETH",
+			Quantity:      decimal.RequireFromString("0.1"),
+			Status:        exchanges.OrderStatusNew,
+		}},
+		placeReturnDelay: 50 * time.Millisecond,
+	}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("0.1"),
+		Price:    decimal.RequireFromString("100"),
+		ClientID: "cli-1",
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	latest := flow.Latest()
+	require.NotNil(t, latest)
+	require.Equal(t, "exch-1", latest.OrderID)
+	require.Equal(t, exchanges.OrderStatusNew, latest.Status)
+}
+
 func TestTradingAccountRoutesFillsIntoOrderFlow(t *testing.T) {
 	t.Parallel()
 

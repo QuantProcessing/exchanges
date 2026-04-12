@@ -67,6 +67,27 @@ func (r *orderFlowRegistry) Add(flow *OrderFlow) {
 	r.unregisterOnClose(flow)
 }
 
+func (r *orderFlowRegistry) Bind(flow *OrderFlow, order *exchanges.Order) {
+	if flow == nil || order == nil {
+		return
+	}
+
+	r.mu.Lock()
+	r.all[flow] = struct{}{}
+	if order.OrderID != "" {
+		r.byOrderID[order.OrderID] = flow
+	}
+	if order.ClientOrderID != "" {
+		r.byClientID[order.ClientOrderID] = flow
+	}
+	pending := r.takePendingLocked(order.OrderID, order.ClientOrderID)
+	r.mu.Unlock()
+
+	for _, fill := range pending {
+		flow.publishFill(fill)
+	}
+}
+
 func (r *orderFlowRegistry) CloseAll() {
 	r.mu.Lock()
 	flows := make([]*OrderFlow, 0, len(r.all))

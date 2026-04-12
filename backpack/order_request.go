@@ -23,6 +23,18 @@ func GenerateClientID() string {
 	return nextBackpackClientID()
 }
 
+func ensureOrderParamsClientID(params *exchanges.OrderParams) error {
+	if params == nil {
+		return fmt.Errorf("order params required")
+	}
+	raw, _, err := ensureBackpackClientID(params.ClientID)
+	if err != nil {
+		return err
+	}
+	params.ClientID = raw
+	return nil
+}
+
 func toCreateOrderRequest(market sdk.Market, params *exchanges.OrderParams) (sdk.CreateOrderRequest, error) {
 	clientIDRaw, clientID, err := ensureBackpackClientID(params.ClientID)
 	if err != nil {
