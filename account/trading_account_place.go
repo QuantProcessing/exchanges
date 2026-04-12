@@ -53,22 +53,16 @@ func (a *TradingAccount) Place(ctx context.Context, params *exchanges.OrderParam
 }
 
 func (a *TradingAccount) PlaceWS(ctx context.Context, params *exchanges.OrderParams) (*OrderFlow, error) {
-	if strings.TrimSpace(params.ClientID) == "" {
-		return nil, fmt.Errorf("client id required for PlaceWS")
-	}
-	if err := a.adp.PlaceOrderWS(ctx, params); err != nil {
+	if err := a.ensurePlacementClientID(params); err != nil {
 		return nil, err
 	}
-	return a.flows.Register(&exchanges.Order{
-		ClientOrderID: params.ClientID,
-		Symbol:        params.Symbol,
-		Side:          params.Side,
-		Type:          params.Type,
-		Quantity:      params.Quantity,
-		Price:         params.Price,
-		Status:        exchanges.OrderStatusPending,
-		Timestamp:     time.Now().UnixMilli(),
-	}), nil
+
+	flow := a.flows.Register(pendingPlacementOrder(params))
+	if err := a.adp.PlaceOrderWS(ctx, params); err != nil {
+		flow.Close()
+		return nil, err
+	}
+	return flow, nil
 }
 
 func matchesTrackedOrder(order *exchanges.Order, orderID, clientOrderID string) bool {

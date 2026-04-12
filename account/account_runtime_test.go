@@ -169,6 +169,7 @@ type accountRuntimeStubExchange struct {
 	fillWatchID            atomic.Int64
 	positionWatchID        atomic.Int64
 	watchMu                sync.Mutex
+	placedWS               *exchanges.OrderParams
 }
 
 func (s *accountRuntimeStubExchange) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
@@ -325,7 +326,11 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 	return order, nil
 }
 
-func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, _ *exchanges.OrderParams) error {
+func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
+	if params != nil {
+		copy := *params
+		s.placedWS = &copy
+	}
 	updates := append([]*exchanges.Order(nil), s.updates...)
 	syncUpdates := append([]*exchanges.Order(nil), s.syncPlaceWSUpdates...)
 	s.emitOrderCallbacks(syncUpdates)
@@ -548,6 +553,96 @@ func TestTradingAccountPlaceTracksSyncOrderUpdateBeforeAckReturns(t *testing.T) 
 	latest := flow.Latest()
 	require.NotNil(t, latest)
 	require.Equal(t, "exch-1", latest.OrderID)
+	require.Equal(t, exchanges.OrderStatusNew, latest.Status)
+}
+
+func TestTradingAccountPlaceWSGeneratesClientIDWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("0.1"),
+		Price:    decimal.RequireFromString("100"),
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	require.NotNil(t, adp.placedWS)
+	require.NotEmpty(t, adp.placedWS.ClientID)
+
+	latest := flow.Latest()
+	require.NotNil(t, latest)
+	require.Equal(t, adp.placedWS.ClientID, latest.ClientOrderID)
+}
+
+func TestTradingAccountPlaceWSPreservesProvidedClientID(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("0.1"),
+		Price:    decimal.RequireFromString("100"),
+		ClientID: "ws-cli-1",
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	require.NotNil(t, adp.placedWS)
+	require.Equal(t, "ws-cli-1", adp.placedWS.ClientID)
+
+	latest := flow.Latest()
+	require.NotNil(t, latest)
+	require.Equal(t, "ws-cli-1", latest.ClientOrderID)
+}
+
+func TestTradingAccountPlaceWSTracksSyncOrderUpdateBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		syncPlaceWSUpdates: []*exchanges.Order{{
+			OrderID:       "ws-order-1",
+			ClientOrderID: "ws-cli-1",
+			Symbol:        "ETH",
+			Quantity:      decimal.RequireFromString("0.1"),
+			Status:        exchanges.OrderStatusNew,
+		}},
+		placeWSReturnDelay: 50 * time.Millisecond,
+	}
+
+	acct := account.NewTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+		Symbol:   "ETH",
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("0.1"),
+		Price:    decimal.RequireFromString("100"),
+		ClientID: "ws-cli-1",
+	})
+	require.NoError(t, err)
+	defer flow.Close()
+
+	latest := flow.Latest()
+	require.NotNil(t, latest)
+	require.Equal(t, "ws-order-1", latest.OrderID)
 	require.Equal(t, exchanges.OrderStatusNew, latest.Status)
 }
 
