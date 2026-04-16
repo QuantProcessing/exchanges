@@ -250,24 +250,29 @@ type OrderBook struct {
 }
 
 type Instrument struct {
-	InstId   string `json:"instId"`
-	Uly      string `json:"uly"`
-	BaseCcy  string `json:"baseCcy"`
-	QuoteCcy string `json:"quoteCcy"`
-	SettCcy  string `json:"settCcy"`
-	CtVal    string `json:"ctVal"`
-	CtMult   string `json:"ctMult"`
-	CtValCcy string `json:"ctValCcy"`
-	OptType  string `json:"optType"`
-	Stk      string `json:"stk"`
-	ListTime string `json:"listTime"`
-	ExpTime  string `json:"expTime"`
-	Leverage string `json:"leverage"`
-	TickSz   string `json:"tickSz"`
-	LotSz    string `json:"lotSz"`
-	MinSz    string `json:"minSz"`
-	InstType string `json:"instType"`
-	State    string `json:"state"`
+	InstId            string   `json:"instId"`
+	GroupId           string   `json:"groupId"`
+	Uly               string   `json:"uly"`
+	BaseCcy           string   `json:"baseCcy"`
+	QuoteCcy          string   `json:"quoteCcy"`
+	TradeQuoteCcyList []string `json:"tradeQuoteCcyList"`
+	SettCcy           string   `json:"settCcy"`
+	CtVal             string   `json:"ctVal"`
+	CtMult            string   `json:"ctMult"`
+	CtValCcy          string   `json:"ctValCcy"`
+	OptType           string   `json:"optType"`
+	Stk               string   `json:"stk"`
+	ListTime          string   `json:"listTime"`
+	ExpTime           string   `json:"expTime"`
+	Leverage          string   `json:"leverage"`
+	TickSz            string   `json:"tickSz"`
+	LotSz             string   `json:"lotSz"`
+	MinSz             string   `json:"minSz"`
+	InstType          string   `json:"instType"`
+	RuleType          string   `json:"ruleType"`
+	State             string   `json:"state"`
+	InstIdCode        *int64   `json:"instIdCode"`
+	InstCategory      string   `json:"instCategory"`
 }
 
 // [0] ts
@@ -307,6 +312,7 @@ type FundingRateData struct {
 
 type OrderRequest struct {
 	InstId     string  `json:"instId"`
+	InstIdCode *int64  `json:"instIdCode,omitempty"`
 	TdMode     string  `json:"tdMode"` // cross, isolated, cash (spot)
 	ClOrdId    *string `json:"clOrdId,omitempty"`
 	Side       string  `json:"side"`              // buy, sell
@@ -321,19 +327,21 @@ type OrderRequest struct {
 }
 
 type ModifyOrderRequest struct {
-	InstId    string  `json:"instId"`
-	OrdId     *string `json:"ordId,omitempty"`
-	ClOrdId   *string `json:"clOrdId,omitempty"`
-	NewSz     *string `json:"newSz,omitempty"`
-	NewPx     *string `json:"newPx,omitempty"`
-	CxlOnFail *bool   `json:"cxlOnFail,omitempty"`
-	ReqId     *string `json:"reqId,omitempty"`
+	InstId     string  `json:"instId"`
+	InstIdCode *int64  `json:"instIdCode,omitempty"`
+	OrdId      *string `json:"ordId,omitempty"`
+	ClOrdId    *string `json:"clOrdId,omitempty"`
+	NewSz      *string `json:"newSz,omitempty"`
+	NewPx      *string `json:"newPx,omitempty"`
+	CxlOnFail  *bool   `json:"cxlOnFail,omitempty"`
+	ReqId      *string `json:"reqId,omitempty"`
 }
 
 type CancelOrderRequest struct {
-	InstId  string  `json:"instId"`
-	OrdId   *string `json:"ordId,omitempty"`
-	ClOrdId *string `json:"clOrdId,omitempty"`
+	InstId     string  `json:"instId"`
+	InstIdCode *int64  `json:"instIdCode,omitempty"`
+	OrdId      *string `json:"ordId,omitempty"`
+	ClOrdId    *string `json:"clOrdId,omitempty"`
 }
 
 type OrderId struct {
@@ -342,6 +350,7 @@ type OrderId struct {
 	Tag     *string `json:"tag,omitempty"`
 	SCode   string  `json:"sCode"`
 	SMsg    string  `json:"sMsg"`
+	SubCode string  `json:"subCode,omitempty"`
 	Ts      string  `json:"ts"`
 }
 

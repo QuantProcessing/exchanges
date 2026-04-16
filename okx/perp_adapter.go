@@ -422,6 +422,9 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
+	if err := okxOrderActionError("place order", ids[0]); err != nil {
+		return nil, err
+	}
 	return &exchanges.Order{
 		OrderID:       ids[0].OrdId,
 		ClientOrderID: ids[0].ClOrdId,
@@ -489,15 +492,27 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 		}
 	}
 
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("missing instrument metadata for %s", instId)
+	}
+	instIdCode, err := okxInstrumentIDCode(inst, instId)
+	if err != nil {
+		return err
+	}
+
 	req := &okx.OrderRequest{
-		InstId:  instId,
-		TdMode:  "isolated",
-		Side:    side,
-		PosSide: posSide,
-		OrdType: ordType,
-		Sz:      sz,
-		Px:      px,
-		ClOrdId: clOrdId,
+		InstId:     instId,
+		InstIdCode: &instIdCode,
+		TdMode:     "isolated",
+		Side:       side,
+		PosSide:    posSide,
+		OrdType:    ordType,
+		Sz:         sz,
+		Px:         px,
+		ClOrdId:    clOrdId,
 	}
 
 	if params.ReduceOnly {
@@ -508,7 +523,7 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
-	_, err := a.wsPrivate.PlaceOrderWS(req)
+	_, err = a.wsPrivate.PlaceOrderWS(req)
 	return err
 }
 
@@ -532,16 +547,32 @@ func (a *Adapter) mapOrderType(params *exchanges.OrderParams) string {
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	instId := a.FormatSymbol(symbol)
-	_, err := a.client.CancelOrder(ctx, instId, orderID, "")
-	return err
+	resp, err := a.client.CancelOrder(ctx, instId, orderID, "")
+	if err != nil {
+		return err
+	}
+	if len(resp) == 0 {
+		return nil
+	}
+	return okxOrderActionError("cancel order", resp[0])
 }
 
 func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	instId := a.FormatSymbol(symbol)
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("missing instrument metadata for %s", instId)
+	}
+	instIdCode, err := okxInstrumentIDCode(inst, instId)
+	if err != nil {
+		return err
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
-	_, err := a.wsPrivate.CancelOrderWS(instId, &orderID, nil)
+	_, err = a.wsPrivate.CancelOrderWS(instIdCode, &orderID, nil)
 	return err
 }
 
@@ -568,6 +599,9 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	if len(resp) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
+	if err := okxOrderActionError("modify order", resp[0]); err != nil {
+		return nil, err
+	}
 
 	return &exchanges.Order{
 		OrderID:       resp[0].OrdId,
@@ -580,9 +614,21 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
 	instId := a.FormatSymbol(symbol)
 
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("missing instrument metadata for %s", instId)
+	}
+	instIdCode, err := okxInstrumentIDCode(inst, instId)
+	if err != nil {
+		return err
+	}
+
 	req := &okx.ModifyOrderRequest{
-		InstId: instId,
-		OrdId:  &orderID,
+		InstId:     instId,
+		InstIdCode: &instIdCode,
+		OrdId:      &orderID,
 	}
 	if params.Quantity.IsPositive() {
 		sz := fmt.Sprintf("%v", params.Quantity)
@@ -600,10 +646,7 @@ func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, par
 	if err != nil {
 		return err
 	}
-	if resp.SCode != "0" {
-		return fmt.Errorf("modify error: %s", resp.SMsg)
-	}
-	return nil
+	return okxOrderActionError("modify order", *resp)
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -678,9 +721,14 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 		if end > len(reqs) {
 			end = len(reqs)
 		}
-		_, err := a.client.CancelOrders(ctx, reqs[i:end])
+		resp, err := a.client.CancelOrders(ctx, reqs[i:end])
 		if err != nil {
 			return err
+		}
+		for _, result := range resp {
+			if err := okxOrderActionError("cancel order", result); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

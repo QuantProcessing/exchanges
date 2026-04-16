@@ -16,12 +16,15 @@ func TestNewAdapterWithClientAllowsPublicOnlyConstruction(t *testing.T) {
 	client := newOKXTestClient(func(r *http.Request) (*http.Response, error) {
 		require.Equal(t, "/api/v5/public/instruments", r.URL.Path)
 		require.Equal(t, "SWAP", r.URL.Query().Get("instType"))
-		return okxJSONHTTPResponse(`{"code":"0","msg":"","data":[{"instId":"BTC-USDT-SWAP","baseCcy":"BTC","quoteCcy":"USDT","ctVal":"0.01","ctValCcy":"BTC","tickSz":"0.1","lotSz":"1","minSz":"1","instType":"SWAP","state":"live"}]}`), nil
+		return okxJSONHTTPResponse(`{"code":"0","msg":"","data":[{"instId":"BTC-USDT-SWAP","instIdCode":123456,"baseCcy":"BTC","quoteCcy":"USDT","ctVal":"0.01","ctValCcy":"BTC","tickSz":"0.1","lotSz":"1","minSz":"1","instType":"SWAP","state":"live"}]}`), nil
 	})
 
 	adp, err := newPerpAdapterWithClient(context.Background(), Options{}, exchanges.QuoteCurrencyUSDT, client)
 	require.NoError(t, err)
 	require.NotNil(t, adp)
+	require.Contains(t, adp.instruments, "BTC-USDT-SWAP")
+	require.NotNil(t, adp.instruments["BTC-USDT-SWAP"].InstIdCode)
+	require.Equal(t, int64(123456), *adp.instruments["BTC-USDT-SWAP"].InstIdCode)
 }
 
 func TestNewAdapterWithClientRejectsPartialCredentials(t *testing.T) {
@@ -36,12 +39,15 @@ func TestNewSpotAdapterWithClientAllowsPublicOnlyConstruction(t *testing.T) {
 	client := newOKXTestClient(func(r *http.Request) (*http.Response, error) {
 		require.Equal(t, "/api/v5/public/instruments", r.URL.Path)
 		require.Equal(t, "SPOT", r.URL.Query().Get("instType"))
-		return okxJSONHTTPResponse(`{"code":"0","msg":"","data":[{"instId":"BTC-USDT","baseCcy":"BTC","quoteCcy":"USDT","tickSz":"0.01","lotSz":"0.0001","minSz":"0.0001","instType":"SPOT","state":"live"}]}`), nil
+		return okxJSONHTTPResponse(`{"code":"0","msg":"","data":[{"instId":"BTC-USDT","instIdCode":654321,"baseCcy":"BTC","quoteCcy":"USDT","tickSz":"0.01","lotSz":"0.0001","minSz":"0.0001","instType":"SPOT","state":"live"}]}`), nil
 	})
 
 	adp, err := newSpotAdapterWithClient(context.Background(), Options{}, exchanges.QuoteCurrencyUSDT, client)
 	require.NoError(t, err)
 	require.NotNil(t, adp)
+	require.Contains(t, adp.instruments, "BTC-USDT")
+	require.NotNil(t, adp.instruments["BTC-USDT"].InstIdCode)
+	require.Equal(t, int64(654321), *adp.instruments["BTC-USDT"].InstIdCode)
 }
 
 func TestNewSpotAdapterWithClientRejectsPartialCredentials(t *testing.T) {
