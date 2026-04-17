@@ -216,6 +216,25 @@ func (a *Adapter) getCtVal(ctx context.Context, symbol string) decimal.Decimal {
 	return decimal.NewFromFloat(0.01) // fallback
 }
 
+func (a *Adapter) formatPerpOrderSize(ctx context.Context, instId string, quantity decimal.Decimal) (string, error) {
+	ctVal := a.getCtVal(ctx, instId)
+	if ctVal.IsZero() {
+		return "", fmt.Errorf("invalid contract value for %s", instId)
+	}
+
+	contracts := quantity.Div(ctVal)
+
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if ok {
+		prec := exchanges.CountDecimalPlaces(inst.LotSz)
+		return contracts.StringFixed(prec), nil
+	}
+
+	return contracts.Floor().String(), nil
+}
+
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
@@ -327,30 +346,14 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	// Map Order Type & TIF
 	ordType := a.mapOrderType(params)
 
-	ctVal := a.getCtVal(ctx, instId)
-	if ctVal.IsZero() {
-		return nil, fmt.Errorf("invalid contract value for %s", instId)
+	sz, err := a.formatPerpOrderSize(ctx, instId, params.Quantity)
+	if err != nil {
+		return nil, err
 	}
 
-	// Calculate sz (Contracts)
-	// params.Quantity (Coins) / CtVal (Coins/Contract) = Contracts
-	szVal := params.Quantity.Div(ctVal)
-
-	// Format to LotSz precision
-	// We need LotSz.
 	a.mu.RLock()
 	inst, ok := a.instruments[instId]
 	a.mu.RUnlock()
-
-	sz := ""
-	if ok {
-		prec := exchanges.CountDecimalPlaces(inst.LotSz)
-		sz = szVal.StringFixed(prec)
-	} else {
-		// Fallback to integer
-		szVal = szVal.Floor()
-		sz = szVal.String()
-	}
 
 	var clOrdId *string
 	if params.ClientID != "" {
@@ -448,7 +451,10 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 		side = "sell"
 	}
 	ordType := a.mapOrderType(params)
-	sz := fmt.Sprintf("%v", params.Quantity)
+	sz, err := a.formatPerpOrderSize(ctx, instId, params.Quantity)
+	if err != nil {
+		return err
+	}
 
 	a.mu.RLock()
 	pm := a.posMode
@@ -478,10 +484,6 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 
 	var px *string
 	if params.Type != exchanges.OrderTypeMarket && params.Price.IsPositive() {
-		if ctVal := a.getCtVal(ctx, instId); !ctVal.IsZero() {
-			contracts := params.Quantity.Div(ctVal)
-			sz = fmt.Sprintf("%v", contracts)
-		}
 		if inst, ok := a.instruments[instId]; ok {
 			prec := exchanges.CountDecimalPlaces(inst.TickSz)
 			s := params.Price.StringFixed(prec)
