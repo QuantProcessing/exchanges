@@ -186,10 +186,10 @@ type Ticker struct {
 	IndexPrice         decimal.Decimal `json:"index_price"`
 	MarkPrice          decimal.Decimal `json:"mark_price"`
 	MidPrice           decimal.Decimal `json:"mid_price"`
-	Bid                decimal.Decimal `json:"bid"`
-	Ask                decimal.Decimal `json:"ask"`
+	Bid                decimal.Decimal `json:"bid"` // Best Bid
+	Ask                decimal.Decimal `json:"ask"` // Best Ask
 	Volume24h          decimal.Decimal `json:"volume_24h"`
-	QuoteVol           decimal.Decimal `json:"quote_vol"`
+	QuoteVol           decimal.Decimal `json:"quote_vol"` // Quote Volume
 	High24h            decimal.Decimal `json:"high_24h"`
 	Low24h             decimal.Decimal `json:"low_24h"`
 	OpenPrice          decimal.Decimal `json:"open_price,omitempty"`
