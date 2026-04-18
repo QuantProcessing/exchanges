@@ -564,6 +564,53 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) (_ 
 	return trades, nil
 }
 
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	formattedSymbol := a.FormatSymbol(symbol)
+
+	q := perp.AggTradesQuery{Symbol: formattedSymbol, Limit: 500}
+	if opts != nil {
+		if opts.Limit > 0 {
+			q.Limit = opts.Limit
+		}
+		if opts.FromID != "" {
+			id, err := strconv.ParseInt(opts.FromID, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid FromID: %w", err)
+			}
+			q.FromID = &id
+		} else {
+			if opts.Start != nil {
+				q.StartTime = opts.Start.UnixMilli()
+			}
+			if opts.End != nil {
+				q.EndTime = opts.End.UnixMilli()
+			}
+		}
+	}
+
+	raw, err := a.client.GetAggTradesPaged(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+
+	trades := make([]exchanges.Trade, 0, len(raw))
+	for _, r := range raw {
+		side := exchanges.TradeSideBuy
+		if r.IsBuyerMaker {
+			side = exchanges.TradeSideSell
+		}
+		trades = append(trades, exchanges.Trade{
+			ID:        strconv.FormatInt(r.ID, 10),
+			Symbol:    symbol,
+			Price:     parseDecimal(r.Price),
+			Quantity:  parseDecimal(r.Quantity),
+			Side:      side,
+			Timestamp: r.Timestamp,
+		})
+	}
+	return trades, nil
+}
+
 func (a *Adapter) FetchSymbolDetails(ctx context.Context, symbol string) (*exchanges.SymbolDetails, error) {
 	// Normalize symbol to match cache key (Base Symbol)
 	normalized := a.ExtractSymbol(symbol)
@@ -1140,17 +1187,3 @@ func (a *Adapter) requirePrivateAccess() error {
 	return nil
 }
 
-// FetchOpenInterest is not implemented by this adapter.
-func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
-	_ = ctx
-	_ = symbol
-	return nil, exchanges.ErrNotSupported
-}
-
-// FetchFundingRateHistory is not implemented by this adapter.
-func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
-	_ = ctx
-	_ = symbol
-	_ = opts
-	return nil, exchanges.ErrNotSupported
-}
