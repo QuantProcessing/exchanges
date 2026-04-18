@@ -138,6 +138,20 @@ func (a *SpotAdapter) fetchInstruments(ctx context.Context) error {
 			a.instruments[inst.InstId] = inst
 		}
 	}
+
+	// Populate BaseAdapter symbol details so ListSymbols() works
+	details := make(map[string]*exchanges.SymbolDetails)
+	for token, instId := range a.symbolMap {
+		inst := a.instruments[instId]
+		details[token] = &exchanges.SymbolDetails{
+			Symbol:            token,
+			MinQuantity:       parseString(inst.MinSz),
+			PricePrecision:    exchanges.CountDecimalPlaces(inst.TickSz),
+			QuantityPrecision: exchanges.CountDecimalPlaces(inst.LotSz),
+		}
+	}
+	a.SetSymbolDetails(details)
+
 	return nil
 }
 
