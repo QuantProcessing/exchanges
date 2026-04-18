@@ -1,6 +1,10 @@
 package exchanges
 
-import "github.com/shopspring/decimal"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // ============================================================================
 // Enums & Constants
@@ -181,18 +185,23 @@ type Account struct {
 
 // Ticker represents real-time market data for a symbol.
 type Ticker struct {
-	Symbol     string          `json:"symbol"`
-	LastPrice  decimal.Decimal `json:"last_price"`
-	IndexPrice decimal.Decimal `json:"index_price"`
-	MarkPrice  decimal.Decimal `json:"mark_price"`
-	MidPrice   decimal.Decimal `json:"mid_price"`
-	Bid        decimal.Decimal `json:"bid"` // Best Bid
-	Ask        decimal.Decimal `json:"ask"` // Best Ask
-	Volume24h  decimal.Decimal `json:"volume_24h"`
-	QuoteVol   decimal.Decimal `json:"quote_vol"` // Quote Volume
-	High24h    decimal.Decimal `json:"high_24h"`
-	Low24h     decimal.Decimal `json:"low_24h"`
-	Timestamp  int64           `json:"timestamp"`
+	Symbol             string          `json:"symbol"`
+	LastPrice          decimal.Decimal `json:"last_price"`
+	IndexPrice         decimal.Decimal `json:"index_price"`
+	MarkPrice          decimal.Decimal `json:"mark_price"`
+	MidPrice           decimal.Decimal `json:"mid_price"`
+	Bid                decimal.Decimal `json:"bid"` // Best Bid
+	Ask                decimal.Decimal `json:"ask"` // Best Ask
+	Volume24h          decimal.Decimal `json:"volume_24h"`
+	QuoteVol           decimal.Decimal `json:"quote_vol"` // Quote Volume
+	High24h            decimal.Decimal `json:"high_24h"`
+	Low24h             decimal.Decimal `json:"low_24h"`
+	OpenPrice          decimal.Decimal `json:"open_price,omitempty"`
+	PriceChange        decimal.Decimal `json:"price_change,omitempty"`
+	PriceChangePercent decimal.Decimal `json:"price_change_percent,omitempty"`
+	WeightedAvgPrice   decimal.Decimal `json:"weighted_avg_price,omitempty"`
+	TradeCount         int64           `json:"trade_count,omitempty"`
+	Timestamp          int64           `json:"timestamp"`
 }
 
 // Level represents a single price level in the order book.
@@ -255,6 +264,35 @@ type FundingRate struct {
 	FundingTime          int64           `json:"funding_time"`
 	NextFundingTime      int64           `json:"next_funding_time"`
 	UpdateTime           int64           `json:"update_time"`
+}
+
+// OpenInterest represents the current open interest for a perpetual futures symbol.
+// OIContracts is denominated in base asset (e.g. BTC). OINotional is in quote asset.
+// Some exchanges only report one of the two; the unset value is zero.
+type OpenInterest struct {
+	Symbol      string          `json:"symbol"`
+	OIContracts decimal.Decimal `json:"oi_contracts"`
+	OINotional  decimal.Decimal `json:"oi_notional"`
+	Timestamp   int64           `json:"timestamp"`
+}
+
+// FundingRateHistoryOpts controls FetchFundingRateHistory paging.
+// Start/End are inclusive range endpoints; nil means "unbounded".
+// Limit is exchange-dependent; zero means "adapter default".
+type FundingRateHistoryOpts struct {
+	Start *time.Time
+	End   *time.Time
+	Limit int
+}
+
+// HistoricalTradeOpts controls FetchHistoricalTrades paging.
+// FromID is exchange-specific trade ID cursor (e.g. Binance aggTrade ID, OKX tradeId).
+// If FromID is set, Start/End are ignored by exchanges that pick one or the other.
+type HistoricalTradeOpts struct {
+	Start  *time.Time
+	End    *time.Time
+	FromID string
+	Limit  int
 }
 
 // SpotBalance represents the balance of a single asset in a spot account.

@@ -186,6 +186,37 @@ func (c *Client) GetAggTrades(ctx context.Context, symbol string, limit int) ([]
 	return res, nil
 }
 
+// AggTradesQuery is the full parameter set for /fapi/v1/aggTrades.
+type AggTradesQuery struct {
+	Symbol    string
+	FromID    *int64
+	StartTime int64
+	EndTime   int64
+	Limit     int
+}
+
+// GetAggTradesPaged is the paging-capable version of GetAggTrades.
+func (c *Client) GetAggTradesPaged(ctx context.Context, q AggTradesQuery) ([]AggTrade, error) {
+	params := map[string]interface{}{"symbol": q.Symbol}
+	if q.FromID != nil {
+		params["fromId"] = *q.FromID
+	}
+	if q.StartTime > 0 {
+		params["startTime"] = q.StartTime
+	}
+	if q.EndTime > 0 {
+		params["endTime"] = q.EndTime
+	}
+	if q.Limit > 0 {
+		params["limit"] = q.Limit
+	}
+	var res []AggTrade
+	if err := c.Get(ctx, "/fapi/v1/aggTrades", params, false, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // GetFundingInfo retrieves funding rate configuration information
 func (c *Client) GetFundingInfo(ctx context.Context) ([]FundingInfo, error) {
 	var res []FundingInfo
@@ -194,6 +225,21 @@ func (c *Client) GetFundingInfo(ctx context.Context) ([]FundingInfo, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// GetFundingIntervalHours returns the hourly funding interval for a symbol,
+// derived from /fapi/v1/fundingInfo. Defaults to 8 when the symbol is absent.
+func (c *Client) GetFundingIntervalHours(ctx context.Context, symbol string) (int64, error) {
+	infos, err := c.GetFundingInfo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, fi := range infos {
+		if fi.Symbol == symbol {
+			return fi.FundingIntervalHours, nil
+		}
+	}
+	return 8, nil
 }
 
 // GetFundingRate retrieves the funding rate for a specific symbol
@@ -281,6 +327,53 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 		res[i].FundingTime = fundingTime
 	}
 
+	return res, nil
+}
+
+// OpenInterestResponse matches /fapi/v1/openInterest.
+type OpenInterestResponse struct {
+	Symbol       string `json:"symbol"`
+	OpenInterest string `json:"openInterest"` // in base asset (contracts)
+	Time         int64  `json:"time"`
+}
+
+// GetOpenInterest retrieves current open interest for a perp symbol.
+// Docs: https://binance-docs.github.io/apidocs/futures/en/#open-interest
+func (c *Client) GetOpenInterest(ctx context.Context, symbol string) (*OpenInterestResponse, error) {
+	params := map[string]interface{}{"symbol": symbol}
+	var res OpenInterestResponse
+	if err := c.Get(ctx, "/fapi/v1/openInterest", params, false, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// FundingRateHistoryEntry matches one element of /fapi/v1/fundingRate.
+type FundingRateHistoryEntry struct {
+	Symbol      string `json:"symbol"`
+	FundingRate string `json:"fundingRate"`
+	FundingTime int64  `json:"fundingTime"`
+	MarkPrice   string `json:"markPrice"`
+}
+
+// GetFundingRateHistory retrieves historical funding rate entries for a symbol.
+// startMillis/endMillis are optional; pass 0 to omit. limit <= 0 uses exchange default (100).
+// Docs: https://binance-docs.github.io/apidocs/futures/en/#get-funding-rate-history
+func (c *Client) GetFundingRateHistory(ctx context.Context, symbol string, startMillis, endMillis int64, limit int) ([]FundingRateHistoryEntry, error) {
+	params := map[string]interface{}{"symbol": symbol}
+	if startMillis > 0 {
+		params["startTime"] = startMillis
+	}
+	if endMillis > 0 {
+		params["endTime"] = endMillis
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	}
+	var res []FundingRateHistoryEntry
+	if err := c.Get(ctx, "/fapi/v1/fundingRate", params, false, &res); err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 

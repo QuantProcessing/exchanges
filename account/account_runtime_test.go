@@ -43,6 +43,10 @@ func (s *stubExchange) FetchTrades(context.Context, string, int) ([]exchanges.Tr
 	return nil, nil
 }
 
+func (s *stubExchange) FetchHistoricalTrades(context.Context, string, *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	return nil, nil
+}
+
 func (s *stubExchange) FetchKlines(context.Context, string, exchanges.Interval, *exchanges.KlineOpts) ([]exchanges.Kline, error) {
 	return nil, nil
 }

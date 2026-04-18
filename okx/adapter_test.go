@@ -40,6 +40,7 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 func TestPerpAdapter_Compliance(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, "BTC")
+	testsuite.RunAnalyticsComplianceTests(t, adp, "BTC")
 }
 
 func TestPerpAdapter_Orders(t *testing.T) {

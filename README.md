@@ -446,6 +446,7 @@ Every adapter implements these methods:
 | **Market Data** | `FetchTicker(ctx, symbol)` | Latest price, bid/ask, 24h volume |
 | | `FetchOrderBook(ctx, symbol, limit)` | Order book snapshot (REST) |
 | | `FetchTrades(ctx, symbol, limit)` | Recent trades |
+| | `FetchHistoricalTrades(ctx, symbol, opts)` | Paginated historical trades |
 | | `FetchKlines(ctx, symbol, interval, opts)` | Candlestick/OHLCV data |
 | **Trading** | `PlaceOrder(ctx, params)` | Place order (market/limit/post-only) |
 | | `CancelOrder(ctx, orderID, symbol)` | Cancel a single order |
@@ -478,6 +479,8 @@ Every adapter implements these methods:
 | `FetchFundingRate(ctx, symbol)` | Current funding rate |
 | `FetchAllFundingRates(ctx)` | All funding rates |
 | `ModifyOrder(ctx, orderID, symbol, params)` | Modify an open order (price/qty) |
+| `FetchFundingRateHistory(ctx, symbol, opts)` | Historical funding rates (per-hour normalized) |
+| `FetchOpenInterest(ctx, symbol)` | Current open interest |
 
 ### SpotExchange Interface (extends Exchange)
 
