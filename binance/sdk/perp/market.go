@@ -284,6 +284,53 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 	return res, nil
 }
 
+// OpenInterestResponse matches /fapi/v1/openInterest.
+type OpenInterestResponse struct {
+	Symbol       string `json:"symbol"`
+	OpenInterest string `json:"openInterest"` // in base asset (contracts)
+	Time         int64  `json:"time"`
+}
+
+// GetOpenInterest retrieves current open interest for a perp symbol.
+// Docs: https://binance-docs.github.io/apidocs/futures/en/#open-interest
+func (c *Client) GetOpenInterest(ctx context.Context, symbol string) (*OpenInterestResponse, error) {
+	params := map[string]interface{}{"symbol": symbol}
+	var res OpenInterestResponse
+	if err := c.Get(ctx, "/fapi/v1/openInterest", params, false, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// FundingRateHistoryEntry matches one element of /fapi/v1/fundingRate.
+type FundingRateHistoryEntry struct {
+	Symbol      string `json:"symbol"`
+	FundingRate string `json:"fundingRate"`
+	FundingTime int64  `json:"fundingTime"`
+	MarkPrice   string `json:"markPrice"`
+}
+
+// GetFundingRateHistory retrieves historical funding rate entries for a symbol.
+// startMillis/endMillis are optional; pass 0 to omit. limit <= 0 uses exchange default (100).
+// Docs: https://binance-docs.github.io/apidocs/futures/en/#get-funding-rate-history
+func (c *Client) GetFundingRateHistory(ctx context.Context, symbol string, startMillis, endMillis int64, limit int) ([]FundingRateHistoryEntry, error) {
+	params := map[string]interface{}{"symbol": symbol}
+	if startMillis > 0 {
+		params["startTime"] = startMillis
+	}
+	if endMillis > 0 {
+		params["endTime"] = endMillis
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	}
+	var res []FundingRateHistoryEntry
+	if err := c.Get(ctx, "/fapi/v1/fundingRate", params, false, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // convertToHourlyRate converts a period funding rate to per-hour rate
 func convertToHourlyRate(periodRate string, intervalHours int64) (string, error) {
 	if intervalHours == 0 {
