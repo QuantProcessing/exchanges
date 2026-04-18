@@ -118,6 +118,96 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 	return result, nil
 }
 
+// OpenInterest matches one element of /api/v5/public/open-interest's data array.
+type OpenInterest struct {
+	InstType string `json:"instType"`
+	InstId   string `json:"instId"`
+	OI       string `json:"oi"`              // open interest in contracts
+	OICcy    string `json:"oiCcy"`           // OI in coin (base asset)
+	OIUsd    string `json:"oiUsd,omitempty"` // OI in USD
+	Ts       string `json:"ts"`
+}
+
+// GetOpenInterest returns the current open interest for a single instrument.
+// Docs: https://www.okx.com/docs-v5/en/#public-data-rest-api-get-open-interest
+func (c *Client) GetOpenInterest(ctx context.Context, instId string) (*OpenInterest, error) {
+	// OKX requires instType; default SWAP covers the perp adapters in this repo.
+	instType := "SWAP"
+	path := fmt.Sprintf("/api/v5/public/open-interest?instType=%s&instId=%s", instType, instId)
+	resp, err := Request[OpenInterest](c, ctx, MethodGet, path, nil, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(resp) == 0 {
+		return nil, fmt.Errorf("okx: empty open-interest response for %s", instId)
+	}
+	return &resp[0], nil
+}
+
+// FundingRateHistoryEntry matches one element of /api/v5/public/funding-rate-history.
+type FundingRateHistoryEntry struct {
+	InstType     string `json:"instType"`
+	InstId       string `json:"instId"`
+	FundingRate  string `json:"fundingRate"`
+	RealizedRate string `json:"realizedRate"`
+	FundingTime  string `json:"fundingTime"`
+	Method       string `json:"method"`
+}
+
+// GetFundingRateHistory retrieves historical funding rates.
+// beforeMillis / afterMillis are optional OKX timestamp cursors (pass 0 to omit).
+// OKX `before` = newer than timestamp; `after` = older than timestamp.
+// limit is capped at 100 by OKX; zero means exchange default.
+// Docs: https://www.okx.com/docs-v5/en/#public-data-rest-api-get-funding-rate-history
+func (c *Client) GetFundingRateHistory(ctx context.Context, instId string, beforeMillis, afterMillis int64, limit int) ([]FundingRateHistoryEntry, error) {
+	u := url.Values{}
+	u.Set("instId", instId)
+	if beforeMillis > 0 {
+		u.Set("before", strconv.FormatInt(beforeMillis, 10))
+	}
+	if afterMillis > 0 {
+		u.Set("after", strconv.FormatInt(afterMillis, 10))
+	}
+	if limit > 0 {
+		u.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/api/v5/public/funding-rate-history?" + u.Encode()
+	return Request[FundingRateHistoryEntry](c, ctx, MethodGet, path, nil, false)
+}
+
+// HistoryTrade matches one element of /api/v5/market/history-trades.
+type HistoryTrade struct {
+	InstId  string `json:"instId"`
+	TradeId string `json:"tradeId"`
+	Px      string `json:"px"`
+	Sz      string `json:"sz"`
+	Side    string `json:"side"`
+	Ts      string `json:"ts"`
+}
+
+// GetHistoryTrades returns paginated historical public trades.
+// typ is OKX's pagination mode: 1=by tradeId, 2=by timestamp.
+// before/after are cursors; either may be empty.
+// Docs: https://www.okx.com/docs-v5/en/#public-data-rest-api-get-trades-history
+func (c *Client) GetHistoryTrades(ctx context.Context, instId string, typ int, before, after string, limit int) ([]HistoryTrade, error) {
+	u := url.Values{}
+	u.Set("instId", instId)
+	if typ > 0 {
+		u.Set("type", strconv.Itoa(typ))
+	}
+	if before != "" {
+		u.Set("before", before)
+	}
+	if after != "" {
+		u.Set("after", after)
+	}
+	if limit > 0 {
+		u.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/api/v5/market/history-trades?" + u.Encode()
+	return Request[HistoryTrade](c, ctx, MethodGet, path, nil, false)
+}
+
 // convertOKXFundingToStandardized converts OKX funding rate to standardized hourly format
 func convertOKXFundingToStandardized(funding *FundingRate) (*FundingRateData, error) {
 	// Calculate interval from time difference (in milliseconds)
