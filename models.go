@@ -1,6 +1,10 @@
 package exchanges
 
-import "github.com/shopspring/decimal"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // ============================================================================
 // Enums & Constants
@@ -260,6 +264,35 @@ type FundingRate struct {
 	FundingTime          int64           `json:"funding_time"`
 	NextFundingTime      int64           `json:"next_funding_time"`
 	UpdateTime           int64           `json:"update_time"`
+}
+
+// OpenInterest represents the current open interest for a perpetual futures symbol.
+// OIContracts is denominated in base asset (e.g. BTC). OINotional is in quote asset.
+// Some exchanges only report one of the two; the unset value is zero.
+type OpenInterest struct {
+	Symbol      string          `json:"symbol"`
+	OIContracts decimal.Decimal `json:"oi_contracts"`
+	OINotional  decimal.Decimal `json:"oi_notional"`
+	Timestamp   int64           `json:"timestamp"`
+}
+
+// FundingRateHistoryOpts controls FetchFundingRateHistory paging.
+// Start/End are inclusive range endpoints; nil means "unbounded".
+// Limit is exchange-dependent; zero means "adapter default".
+type FundingRateHistoryOpts struct {
+	Start *time.Time
+	End   *time.Time
+	Limit int
+}
+
+// HistoricalTradeOpts controls FetchHistoricalTrades paging.
+// FromID is exchange-specific trade ID cursor (e.g. Binance aggTrade ID, OKX tradeId).
+// If FromID is set, Start/End are ignored by exchanges that pick one or the other.
+type HistoricalTradeOpts struct {
+	Start  *time.Time
+	End    *time.Time
+	FromID string
+	Limit  int
 }
 
 // SpotBalance represents the balance of a single asset in a spot account.
