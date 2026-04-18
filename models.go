@@ -181,18 +181,23 @@ type Account struct {
 
 // Ticker represents real-time market data for a symbol.
 type Ticker struct {
-	Symbol     string          `json:"symbol"`
-	LastPrice  decimal.Decimal `json:"last_price"`
-	IndexPrice decimal.Decimal `json:"index_price"`
-	MarkPrice  decimal.Decimal `json:"mark_price"`
-	MidPrice   decimal.Decimal `json:"mid_price"`
-	Bid        decimal.Decimal `json:"bid"` // Best Bid
-	Ask        decimal.Decimal `json:"ask"` // Best Ask
-	Volume24h  decimal.Decimal `json:"volume_24h"`
-	QuoteVol   decimal.Decimal `json:"quote_vol"` // Quote Volume
-	High24h    decimal.Decimal `json:"high_24h"`
-	Low24h     decimal.Decimal `json:"low_24h"`
-	Timestamp  int64           `json:"timestamp"`
+	Symbol             string          `json:"symbol"`
+	LastPrice          decimal.Decimal `json:"last_price"`
+	IndexPrice         decimal.Decimal `json:"index_price"`
+	MarkPrice          decimal.Decimal `json:"mark_price"`
+	MidPrice           decimal.Decimal `json:"mid_price"`
+	Bid                decimal.Decimal `json:"bid"`
+	Ask                decimal.Decimal `json:"ask"`
+	Volume24h          decimal.Decimal `json:"volume_24h"`
+	QuoteVol           decimal.Decimal `json:"quote_vol"`
+	High24h            decimal.Decimal `json:"high_24h"`
+	Low24h             decimal.Decimal `json:"low_24h"`
+	OpenPrice          decimal.Decimal `json:"open_price,omitempty"`
+	PriceChange        decimal.Decimal `json:"price_change,omitempty"`
+	PriceChangePercent decimal.Decimal `json:"price_change_percent,omitempty"`
+	WeightedAvgPrice   decimal.Decimal `json:"weighted_avg_price,omitempty"`
+	TradeCount         int64           `json:"trade_count,omitempty"`
+	Timestamp          int64           `json:"timestamp"`
 }
 
 // Level represents a single price level in the order book.
