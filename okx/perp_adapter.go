@@ -794,15 +794,27 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ti
 	}
 
 	t := res[0]
+	last := parseString(t.Last)
+	open := parseString(t.Open24h)
+	priceChange := decimal.Zero
+	priceChangePct := decimal.Zero
+	if open.IsPositive() {
+		priceChange = last.Sub(open)
+		priceChangePct = priceChange.Div(open).Mul(decimal.NewFromInt(100))
+	}
 	return &exchanges.Ticker{
-		Symbol:    symbol,
-		LastPrice: parseString(t.Last),
-		Bid:       parseString(t.BidPx),
-		Ask:       parseString(t.AskPx),
-		High24h:   parseString(t.High24h),
-		Low24h:    parseString(t.Low24h),
-		Volume24h: parseString(t.Vol24h),
-		Timestamp: parseTime(t.Ts),
+		Symbol:             symbol,
+		LastPrice:          last,
+		Bid:                parseString(t.BidPx),
+		Ask:                parseString(t.AskPx),
+		High24h:            parseString(t.High24h),
+		Low24h:             parseString(t.Low24h),
+		Volume24h:          parseString(t.Vol24h),
+		QuoteVol:           parseString(t.VolCcy24h),
+		OpenPrice:          open,
+		PriceChange:        priceChange,
+		PriceChangePercent: priceChangePct,
+		Timestamp:          parseTime(t.Ts),
 	}, nil
 }
 
@@ -937,6 +949,56 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]
 		}
 	}
 	return res, nil
+}
+
+// FetchHistoricalTrades returns paginated historical public trades.
+// Uses OKX's /api/v5/market/history-trades endpoint in tradeId-cursor mode
+// (type=1) when FromID is set; otherwise timestamp-cursor mode (type=2).
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	instId := a.FormatSymbol(symbol)
+
+	typ := 1
+	var before, after string
+	limit := 100
+	if opts != nil {
+		if opts.Limit > 0 {
+			limit = opts.Limit
+		}
+		if opts.FromID != "" {
+			typ = 1
+			after = opts.FromID // older than this tradeId
+		} else if opts.Start != nil || opts.End != nil {
+			typ = 2
+			if opts.End != nil {
+				before = strconv.FormatInt(opts.End.UnixMilli(), 10)
+			}
+			if opts.Start != nil {
+				after = strconv.FormatInt(opts.Start.UnixMilli(), 10)
+			}
+		}
+	}
+
+	raw, err := a.client.GetHistoryTrades(ctx, instId, typ, before, after, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]exchanges.Trade, 0, len(raw))
+	for _, r := range raw {
+		side := exchanges.TradeSideBuy
+		if r.Side == "sell" {
+			side = exchanges.TradeSideSell
+		}
+		out = append(out, exchanges.Trade{
+			ID:        r.TradeId,
+			Symbol:    symbol,
+			Price:     parseString(r.Px),
+			Quantity:  parseString(r.Sz),
+			Side:      side,
+			Timestamp: parseTime(r.Ts),
+		})
+	}
+	return out, nil
 }
 
 // ================= WebSocket =================
