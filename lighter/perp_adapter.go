@@ -1238,3 +1238,18 @@ func (a *Adapter) requireWriteAccess() error {
 	}
 	return nil
 }
+
+// FetchOpenInterest is not implemented by this adapter.
+func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
+	_ = ctx
+	_ = symbol
+	return nil, exchanges.ErrNotSupported
+}
+
+// FetchFundingRateHistory is not implemented by this adapter.
+func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
+	_ = ctx
+	_ = symbol
+	_ = opts
+	return nil, exchanges.ErrNotSupported
+}
