@@ -28,6 +28,9 @@ func (s stubExchange) FetchOrderBook(ctx context.Context, symbol string, limit i
 func (s stubExchange) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
 	return nil, exchanges.ErrNotSupported
 }
+func (s stubExchange) FetchHistoricalTrades(context.Context, string, *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	return nil, nil
+}
 func (s stubExchange) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) ([]exchanges.Kline, error) {
 	return nil, exchanges.ErrNotSupported
 }
