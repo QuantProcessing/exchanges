@@ -12,6 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// AnalyticsSuiteOptions configures which analytics sub-tests run.
+// Default zero value runs all four. Set SkipTickerExtendedStats=true to skip
+// the extended-ticker assertion on adapters that don't yet populate those fields.
+type AnalyticsSuiteOptions struct {
+	SkipTickerExtendedStats bool
+}
+
 // RunAnalyticsComplianceTests exercises the P0 analytics surface against a
 // real perp adapter. Adapters that have not yet implemented a given capability
 // should return ErrNotSupported; those sub-tests will be skipped.
@@ -19,6 +26,12 @@ import (
 // perp is the PerpExchange under test. symbol is a base symbol known to be
 // actively traded (e.g. "BTC") so statistics are populated.
 func RunAnalyticsComplianceTests(t *testing.T, perp exchanges.PerpExchange, symbol string) {
+	RunAnalyticsComplianceTestsWithOpts(t, perp, symbol, AnalyticsSuiteOptions{})
+}
+
+// RunAnalyticsComplianceTestsWithOpts is like RunAnalyticsComplianceTests but
+// with configurable sub-test selection.
+func RunAnalyticsComplianceTestsWithOpts(t *testing.T, perp exchanges.PerpExchange, symbol string, opts AnalyticsSuiteOptions) {
 	t.Run("FetchOpenInterest", func(t *testing.T) {
 		TestFetchOpenInterest(t, perp, symbol)
 	})
@@ -31,9 +44,11 @@ func RunAnalyticsComplianceTests(t *testing.T, perp exchanges.PerpExchange, symb
 		TestFetchHistoricalTrades(t, perp, symbol)
 	})
 
-	t.Run("TickerExtendedStats", func(t *testing.T) {
-		TestTickerExtendedStats(t, perp, symbol)
-	})
+	if !opts.SkipTickerExtendedStats {
+		t.Run("TickerExtendedStats", func(t *testing.T) {
+			TestTickerExtendedStats(t, perp, symbol)
+		})
+	}
 }
 
 // TestFetchOpenInterest verifies OI is positive and timestamp is recent.
