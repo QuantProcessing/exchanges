@@ -263,3 +263,13 @@ func (b *BaseAdapter) ApplySlippage(
 	}
 	return nil
 }
+
+// FetchHistoricalTrades is the default implementation for adapters that do not
+// support paginated trade history. Override in the concrete adapter to provide
+// real behavior.
+func (b *BaseAdapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *HistoricalTradeOpts) ([]Trade, error) {
+	_ = ctx
+	_ = symbol
+	_ = opts
+	return nil, ErrNotSupported
+}

@@ -36,6 +36,10 @@ type Exchange interface {
 	FetchTicker(ctx context.Context, symbol string) (*Ticker, error)
 	FetchOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error)
 	FetchTrades(ctx context.Context, symbol string, limit int) ([]Trade, error)
+	// FetchHistoricalTrades returns paginated historical trades.
+	// opts may be nil; a nil opts means "most recent page, adapter default limit".
+	// Adapters that do not support paginated history must return ErrNotSupported.
+	FetchHistoricalTrades(ctx context.Context, symbol string, opts *HistoricalTradeOpts) ([]Trade, error)
 	FetchKlines(ctx context.Context, symbol string, interval Interval, opts *KlineOpts) ([]Kline, error)
 
 	// === Trading ===
@@ -81,6 +85,13 @@ type PerpExchange interface {
 	SetLeverage(ctx context.Context, symbol string, leverage int) error
 	FetchFundingRate(ctx context.Context, symbol string) (*FundingRate, error)
 	FetchAllFundingRates(ctx context.Context) ([]FundingRate, error)
+	// FetchFundingRateHistory returns historical funding rates for a symbol.
+	// opts may be nil for "most recent adapter-default page".
+	// Hourly normalization: returned FundingRate entries use the same
+	// per-hour convention as FetchFundingRate.
+	FetchFundingRateHistory(ctx context.Context, symbol string, opts *FundingRateHistoryOpts) ([]FundingRate, error)
+	// FetchOpenInterest returns current open interest for a perp symbol.
+	FetchOpenInterest(ctx context.Context, symbol string) (*OpenInterest, error)
 	ModifyOrder(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) (*Order, error)
 	ModifyOrderWS(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) error
 }
