@@ -810,7 +810,6 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ti
 		High24h:            parseString(t.High24h),
 		Low24h:             parseString(t.Low24h),
 		Volume24h:          parseString(t.Vol24h),
-		QuoteVol:           parseString(t.VolCcy24h),
 		OpenPrice:          open,
 		PriceChange:        priceChange,
 		PriceChangePercent: priceChangePct,
