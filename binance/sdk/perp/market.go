@@ -186,6 +186,37 @@ func (c *Client) GetAggTrades(ctx context.Context, symbol string, limit int) ([]
 	return res, nil
 }
 
+// AggTradesQuery is the full parameter set for /fapi/v1/aggTrades.
+type AggTradesQuery struct {
+	Symbol    string
+	FromID    *int64
+	StartTime int64
+	EndTime   int64
+	Limit     int
+}
+
+// GetAggTradesPaged is the paging-capable version of GetAggTrades.
+func (c *Client) GetAggTradesPaged(ctx context.Context, q AggTradesQuery) ([]AggTrade, error) {
+	params := map[string]interface{}{"symbol": q.Symbol}
+	if q.FromID != nil {
+		params["fromId"] = *q.FromID
+	}
+	if q.StartTime > 0 {
+		params["startTime"] = q.StartTime
+	}
+	if q.EndTime > 0 {
+		params["endTime"] = q.EndTime
+	}
+	if q.Limit > 0 {
+		params["limit"] = q.Limit
+	}
+	var res []AggTrade
+	if err := c.Get(ctx, "/fapi/v1/aggTrades", params, false, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // GetFundingInfo retrieves funding rate configuration information
 func (c *Client) GetFundingInfo(ctx context.Context) ([]FundingInfo, error) {
 	var res []FundingInfo
@@ -194,6 +225,21 @@ func (c *Client) GetFundingInfo(ctx context.Context) ([]FundingInfo, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// GetFundingIntervalHours returns the hourly funding interval for a symbol,
+// derived from /fapi/v1/fundingInfo. Defaults to 8 when the symbol is absent.
+func (c *Client) GetFundingIntervalHours(ctx context.Context, symbol string) (int64, error) {
+	infos, err := c.GetFundingInfo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, fi := range infos {
+		if fi.Symbol == symbol {
+			return fi.FundingIntervalHours, nil
+		}
+	}
+	return 8, nil
 }
 
 // GetFundingRate retrieves the funding rate for a specific symbol
