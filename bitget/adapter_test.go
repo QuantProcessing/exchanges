@@ -129,6 +129,9 @@ func configurePerpTestLeverage(t *testing.T, adp *Adapter) {
 func TestPerpAdapter_Compliance(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"))
+	testsuite.RunAnalyticsComplianceTestsWithOpts(t, adp, "BTC", testsuite.AnalyticsSuiteOptions{
+		SkipTickerExtendedStats: true,
+	})
 }
 
 func TestPerpAdapter_Orders(t *testing.T) {

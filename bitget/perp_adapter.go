@@ -343,17 +343,19 @@ func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval e
 	return exchanges.ErrNotSupported
 }
 
-// FetchOpenInterest is not implemented by this adapter.
-func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
-	_ = ctx
-	_ = symbol
-	return nil, exchanges.ErrNotSupported
+// FetchHistoricalTrades returns recent public fills. Bitget's /api/v3/market/fills
+// endpoint does not accept cursor, fromId, or time-range parameters — so opts.FromID,
+// opts.Start, and opts.End are ignored. Only opts.Limit is honored.
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	sym := a.FormatSymbol(symbol)
+	limit := 100
+	if opts != nil && opts.Limit > 0 {
+		limit = opts.Limit
+	}
+	raw, err := a.client.GetRecentFills(ctx, a.perpCategory, sym, limit)
+	if err != nil {
+		return nil, err
+	}
+	return mapTrades(symbol, raw), nil
 }
 
-// FetchFundingRateHistory is not implemented by this adapter.
-func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
-	_ = ctx
-	_ = symbol
-	_ = opts
-	return nil, exchanges.ErrNotSupported
-}
