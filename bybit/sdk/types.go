@@ -250,6 +250,20 @@ type ExecutionRecord struct {
 	ExecTime    string `json:"execTime"`
 }
 
+// OpenInterestEntry is one row of the open-interest history list.
+type OpenInterestEntry struct {
+	OpenInterest string `json:"openInterest"`
+	Timestamp    string `json:"timestamp"`
+}
+
+// OpenInterestResult is the result payload of /v5/market/open-interest.
+type OpenInterestResult struct {
+	Category       string              `json:"category"`
+	Symbol         string              `json:"symbol"`
+	List           []OpenInterestEntry `json:"list"`
+	NextPageCursor string              `json:"nextPageCursor,omitempty"`
+}
+
 func jsonArrayUnmarshal(data []byte, out any) error {
 	return json.Unmarshal(data, out)
 }

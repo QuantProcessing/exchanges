@@ -6,6 +6,38 @@ import (
 	"strconv"
 )
 
+// GetOpenInterest retrieves open-interest history.
+// category: "linear" | "inverse". intervalTime: "5min" | "15min" | "30min" | "1h" | "4h" | "1d".
+// startMillis / endMillis optional (pass 0 to omit). limit <=0 uses exchange default. cursor optional.
+// Docs: https://bybit-exchange.github.io/docs/v5/market/open-interest
+func (c *Client) GetOpenInterest(ctx context.Context, category, symbol, intervalTime string, startMillis, endMillis int64, limit int, cursor string) (*OpenInterestResult, error) {
+	query := map[string]string{
+		"category":     category,
+		"symbol":       symbol,
+		"intervalTime": intervalTime,
+	}
+	if startMillis > 0 {
+		query["startTime"] = strconv.FormatInt(startMillis, 10)
+	}
+	if endMillis > 0 {
+		query["endTime"] = strconv.FormatInt(endMillis, 10)
+	}
+	if limit > 0 {
+		query["limit"] = strconv.Itoa(limit)
+	}
+	if cursor != "" {
+		query["cursor"] = cursor
+	}
+	var resp responseEnvelope[OpenInterestResult]
+	if err := c.get(ctx, "/v5/market/open-interest", query, &resp); err != nil {
+		return nil, err
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("bybit sdk: get open interest failed: %d %s", resp.RetCode, resp.RetMsg)
+	}
+	return &resp.Result, nil
+}
+
 func (c *Client) GetInstruments(ctx context.Context, category string) ([]Instrument, error) {
 	var out []Instrument
 	cursor := ""

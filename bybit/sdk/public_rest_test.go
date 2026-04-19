@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -121,6 +122,26 @@ func TestGetKlinesParsesStringArrays(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, NumberString("50500"), got[0][4])
+}
+
+func TestGetOpenInterestParses(t *testing.T) {
+	t.Parallel()
+	payload := `{"retCode":0,"retMsg":"OK","result":{"category":"linear","symbol":"BTCUSDT","list":[{"openInterest":"12345.67","timestamp":"1700000000000"}],"nextPageCursor":"abc"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v5/market/open-interest", r.URL.Path)
+		require.Equal(t, "linear", r.URL.Query().Get("category"))
+		require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
+		require.Equal(t, "5min", r.URL.Query().Get("intervalTime"))
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer srv.Close()
+	client := NewClient()
+	client.baseURL = srv.URL
+	oi, err := client.GetOpenInterest(context.Background(), "linear", "BTCUSDT", "5min", 0, 0, 50, "")
+	require.NoError(t, err)
+	require.Len(t, oi.List, 1)
+	require.Equal(t, "12345.67", oi.List[0].OpenInterest)
+	require.Equal(t, "abc", oi.NextPageCursor)
 }
 
 func jsonResponse(body string) *http.Response {
