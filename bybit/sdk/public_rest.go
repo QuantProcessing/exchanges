@@ -38,6 +38,34 @@ func (c *Client) GetOpenInterest(ctx context.Context, category, symbol, interval
 	return &resp.Result, nil
 }
 
+// GetFundingHistory retrieves historical funding rates.
+// category: "linear" | "inverse". symbol required.
+// startMillis / endMillis optional (pass 0 to omit). limit <=0 uses exchange default (200).
+// Docs: https://bybit-exchange.github.io/docs/v5/market/history-fund-rate
+func (c *Client) GetFundingHistory(ctx context.Context, category, symbol string, startMillis, endMillis int64, limit int) ([]FundingHistoryEntry, error) {
+	query := map[string]string{
+		"category": category,
+		"symbol":   symbol,
+	}
+	if startMillis > 0 {
+		query["startTime"] = strconv.FormatInt(startMillis, 10)
+	}
+	if endMillis > 0 {
+		query["endTime"] = strconv.FormatInt(endMillis, 10)
+	}
+	if limit > 0 {
+		query["limit"] = strconv.Itoa(limit)
+	}
+	var resp responseEnvelope[FundingHistoryResult]
+	if err := c.get(ctx, "/v5/market/funding/history", query, &resp); err != nil {
+		return nil, err
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("bybit sdk: get funding history failed: %d %s", resp.RetCode, resp.RetMsg)
+	}
+	return resp.Result.List, nil
+}
+
 func (c *Client) GetInstruments(ctx context.Context, category string) ([]Instrument, error) {
 	var out []Instrument
 	cursor := ""

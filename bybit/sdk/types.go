@@ -264,6 +264,19 @@ type OpenInterestResult struct {
 	NextPageCursor string              `json:"nextPageCursor,omitempty"`
 }
 
+// FundingHistoryEntry matches one row of /v5/market/funding/history result.list.
+type FundingHistoryEntry struct {
+	Symbol               string `json:"symbol"`
+	FundingRate          string `json:"fundingRate"`
+	FundingRateTimestamp string `json:"fundingRateTimestamp"`
+}
+
+// FundingHistoryResult is the result payload of /v5/market/funding/history.
+type FundingHistoryResult struct {
+	Category string                `json:"category"`
+	List     []FundingHistoryEntry `json:"list"`
+}
+
 func jsonArrayUnmarshal(data []byte, out any) error {
 	return json.Unmarshal(data, out)
 }
