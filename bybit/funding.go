@@ -1,7 +1,8 @@
-package bitget
+package bybit
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -9,43 +10,45 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Funding remains explicitly unsupported until Bitget's controlled hybrid adapter
-// grows a documented perp funding implementation.
-func (a *Adapter) FetchFundingRate(ctx context.Context, symbol string) (*exchanges.FundingRate, error) {
-	return nil, exchanges.ErrNotSupported
-}
-
-func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.FundingRate, error) {
-	return nil, exchanges.ErrNotSupported
-}
-
-// FetchOpenInterest retrieves current open interest for a perp symbol.
+// FetchOpenInterest requests a single most-recent OI point via the 5min series.
+// Bybit's API returns a time series; we ask for limit=1 to get the latest value.
 func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
 	sym := a.FormatSymbol(symbol)
-	res, err := a.client.GetOpenInterest(ctx, sym, a.perpCategory)
+	res, err := a.client.GetOpenInterest(ctx, categoryLinear, sym, "5min", 0, 0, 1, "")
 	if err != nil {
 		return nil, err
 	}
-	ts, _ := strconv.ParseInt(res.Timestamp, 10, 64)
+	if len(res.List) == 0 {
+		return nil, fmt.Errorf("bybit: empty open-interest response for %s", symbol)
+	}
+	first := res.List[0]
+	ts, _ := strconv.ParseInt(first.Timestamp, 10, 64)
 	return &exchanges.OpenInterest{
 		Symbol:      symbol,
-		OIContracts: parseDecimal(res.Amount),
+		OIContracts: parseDecimal(first.OpenInterest),
 		Timestamp:   ts,
 	}, nil
 }
 
 // FetchFundingRateHistory returns historical funding rates, normalized to per-hour
-// assuming an 8h funding interval (standard for USDT-FUTURES).
+// assuming an 8h funding interval (standard for USDT linear perps).
 // TODO: read the per-symbol interval from instrument metadata instead of hardcoding.
 func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
 	sym := a.FormatSymbol(symbol)
 
-	pageSize := 100
-	if opts != nil && opts.Limit > 0 && opts.Limit <= 100 {
-		pageSize = opts.Limit
+	var startMs, endMs int64
+	var limit int
+	if opts != nil {
+		if opts.Start != nil {
+			startMs = opts.Start.UnixMilli()
+		}
+		if opts.End != nil {
+			endMs = opts.End.UnixMilli()
+		}
+		limit = opts.Limit
 	}
-	// Bitget history-fund-rate uses pageSize + pageNo; Start/End are not supported on v2.
-	raw, err := a.client.GetHistoryFundRate(ctx, sym, a.perpCategory, pageSize, 1)
+
+	raw, err := a.client.GetFundingHistory(ctx, categoryLinear, sym, startMs, endMs, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +58,7 @@ func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, op
 	for _, r := range raw {
 		rate := parseDecimal(r.FundingRate)
 		rate = rate.Div(decimal.NewFromInt(intervalHours))
-		ts, _ := strconv.ParseInt(r.FundingTime, 10, 64)
+		ts, _ := strconv.ParseInt(r.FundingRateTimestamp, 10, 64)
 		out = append(out, exchanges.FundingRate{
 			Symbol:               symbol,
 			FundingRate:          rate,

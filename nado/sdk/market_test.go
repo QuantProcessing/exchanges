@@ -2,13 +2,18 @@ package nado
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantProcessing/exchanges/internal/testenv"
+	"github.com/stretchr/testify/require"
 )
 
 func requireFullEnv(t *testing.T) {
@@ -167,4 +172,58 @@ func TestGetAllFundingRates(t *testing.T) {
 				rate.FundingIntervalHours, rate.ProductID)
 		}
 	}
+}
+
+// TestGetFundingRateHistoryParses verifies the SDK method parses the archive
+// response envelope correctly and forwards query parameters to the server.
+func TestGetFundingRateHistoryParses(t *testing.T) {
+	t.Parallel()
+
+	entries := []FundingRateArchiveEntry{
+		{ProductID: 1, FundingRateX18: "100000000000000000", Timestamp: 1700000000000},
+		{ProductID: 1, FundingRateX18: "200000000000000000", Timestamp: 1700003600000},
+	}
+	payload, err := json.Marshal(entries)
+	require.NoError(t, err)
+
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	c := NewClient().WithArchiveV1URL(srv.URL)
+	hist, err := c.GetFundingRateHistory(context.Background(), 1, 1700000000000, 1700007200000, 10)
+	require.NoError(t, err)
+	require.Len(t, hist, 2)
+	require.Equal(t, int64(1), hist[0].ProductID)
+	require.Equal(t, "100000000000000000", hist[0].FundingRateX18)
+	require.Equal(t, int64(1700000000000), hist[0].Timestamp)
+	require.Equal(t, int64(1700003600000), hist[1].Timestamp)
+
+	// Verify the request body included our query parameters.
+	var reqBody FundingRateHistoryRequest
+	require.NoError(t, json.Unmarshal(capturedBody, &reqBody))
+	require.Equal(t, int64(1), reqBody.FundingRateHistory.ProductID)
+	require.Equal(t, int64(1700000000000), reqBody.FundingRateHistory.StartTime)
+	require.Equal(t, int64(1700007200000), reqBody.FundingRateHistory.EndTime)
+	require.Equal(t, 10, reqBody.FundingRateHistory.Limit)
+}
+
+// TestGetFundingRateHistoryEmpty verifies that an empty array response is valid.
+func TestGetFundingRateHistoryEmpty(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+
+	c := NewClient().WithArchiveV1URL(srv.URL)
+	hist, err := c.GetFundingRateHistory(context.Background(), 99, 0, 0, 0)
+	require.NoError(t, err)
+	require.Empty(t, hist)
 }

@@ -809,6 +809,48 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]
 	return trades, nil
 }
 
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	tickerID := a.FormatSymbol(symbol)
+
+	limit := 100
+	var maxTradeID *int64
+	if opts != nil {
+		if opts.Limit > 0 {
+			limit = opts.Limit
+		}
+		if opts.FromID != "" {
+			id, err := strconv.ParseInt(opts.FromID, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid FromID: %w", err)
+			}
+			maxTradeID = &id
+		}
+		// Start/End not supported by Nado trades endpoint — ignored.
+	}
+
+	raw, err := a.httpClient.GetTrades(ctx, tickerID, &limit, maxTradeID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]exchanges.Trade, 0, len(raw))
+	for _, t := range raw {
+		side := exchanges.TradeSideBuy
+		if t.TradeType == "sell" {
+			side = exchanges.TradeSideSell
+		}
+		out = append(out, exchanges.Trade{
+			ID:        fmt.Sprintf("%d", t.TradeID),
+			Symbol:    symbol,
+			Price:     decimal.NewFromFloat(t.Price),
+			Quantity:  decimal.NewFromFloat(t.BaseFilled),
+			Side:      side,
+			Timestamp: t.Timestamp / 1000,
+		})
+	}
+	return out, nil
+}
+
 // ================= WebSocket =================
 
 func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
@@ -1406,17 +1448,3 @@ func (a *Adapter) requirePrivateAccess() error {
 	return nil
 }
 
-// FetchOpenInterest is not implemented by this adapter.
-func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
-	_ = ctx
-	_ = symbol
-	return nil, exchanges.ErrNotSupported
-}
-
-// FetchFundingRateHistory is not implemented by this adapter.
-func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
-	_ = ctx
-	_ = symbol
-	_ = opts
-	return nil, exchanges.ErrNotSupported
-}

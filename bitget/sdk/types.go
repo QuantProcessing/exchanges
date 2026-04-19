@@ -214,6 +214,20 @@ type PublicFill struct {
 	Timestamp  string `json:"ts"`
 }
 
+// OpenInterest matches /api/v2/mix/market/open-interest data.
+type OpenInterest struct {
+	Symbol    string `json:"symbol"`
+	Amount    string `json:"amount"` // base-asset units
+	Timestamp string `json:"timestamp"`
+}
+
+// HistoryFundRateEntry matches one element of /api/v2/mix/market/history-fund-rate.
+type HistoryFundRateEntry struct {
+	Symbol      string `json:"symbol"`
+	FundingRate string `json:"fundingRate"`
+	FundingTime string `json:"fundingTime"`
+}
+
 type Candle [7]NumberString
 
 func (c *Candle) UnmarshalJSON(data []byte) error {

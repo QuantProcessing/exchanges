@@ -27,6 +27,8 @@ type marketClient interface {
 	GetOrderBook(ctx context.Context, category, symbol string, limit int) (*sdk.OrderBook, error)
 	GetRecentTrades(ctx context.Context, category, symbol string, limit int) ([]sdk.PublicTrade, error)
 	GetKlines(ctx context.Context, category, symbol, interval string, start, end int64, limit int) ([]sdk.Candle, error)
+	GetOpenInterest(ctx context.Context, category, symbol, intervalTime string, startMillis, endMillis int64, limit int, cursor string) (*sdk.OpenInterestResult, error)
+	GetFundingHistory(ctx context.Context, category, symbol string, startMillis, endMillis int64, limit int) ([]sdk.FundingHistoryEntry, error)
 	GetWalletBalance(ctx context.Context, accountType, coin string) (*sdk.WalletBalanceResult, error)
 	GetFeeRates(ctx context.Context, category, symbol string) ([]sdk.FeeRateRecord, error)
 	GetPositions(ctx context.Context, category, symbol, settleCoin string) ([]sdk.PositionRecord, error)
