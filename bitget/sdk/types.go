@@ -221,6 +221,13 @@ type OpenInterest struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// HistoryFundRateEntry matches one element of /api/v2/mix/market/history-fund-rate.
+type HistoryFundRateEntry struct {
+	Symbol      string `json:"symbol"`
+	FundingRate string `json:"fundingRate"`
+	FundingTime string `json:"fundingTime"`
+}
+
 type Candle [7]NumberString
 
 func (c *Candle) UnmarshalJSON(data []byte) error {

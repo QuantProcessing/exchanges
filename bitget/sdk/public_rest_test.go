@@ -96,3 +96,23 @@ func TestGetOpenInterestParses(t *testing.T) {
 	require.Equal(t, "1700000000000", oi.Timestamp)
 }
 
+func TestGetHistoryFundRateParses(t *testing.T) {
+	t.Parallel()
+	payload := `{"code":"00000","msg":"success","data":[{"symbol":"BTCUSDT","fundingRate":"0.0001","fundingTime":"1700000000000"},{"symbol":"BTCUSDT","fundingRate":"0.00012","fundingTime":"1700028800000"}]}`
+	client := NewClient()
+	client.baseURL = "https://example.test"
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			require.Equal(t, "/api/v2/mix/market/history-fund-rate", r.URL.Path)
+			require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
+			require.Equal(t, "USDT-FUTURES", r.URL.Query().Get("productType"))
+			require.Equal(t, "2", r.URL.Query().Get("pageSize"))
+			return jsonResponse(payload), nil
+		}),
+	}
+	hist, err := client.GetHistoryFundRate(context.Background(), "BTCUSDT", "USDT-FUTURES", 2, 1)
+	require.NoError(t, err)
+	require.Len(t, hist, 2)
+	require.Equal(t, "0.0001", hist[0].FundingRate)
+	require.Equal(t, "1700000000000", hist[0].FundingTime)
+}

@@ -97,6 +97,32 @@ func (c *Client) GetOpenInterest(ctx context.Context, symbol, productType string
 	return &out.Data, nil
 }
 
+// GetHistoryFundRate retrieves historical funding rates.
+// pageSize max 100; pageNo 1-based.
+// Docs: https://www.bitget.com/api-doc/contract/market/Get-History-Funding-Rate
+func (c *Client) GetHistoryFundRate(ctx context.Context, symbol, productType string, pageSize, pageNo int) ([]HistoryFundRateEntry, error) {
+	query := map[string]string{
+		"symbol":      symbol,
+		"productType": productType,
+	}
+	if pageSize > 0 {
+		query["pageSize"] = strconv.Itoa(pageSize)
+	}
+	if pageNo > 0 {
+		query["pageNo"] = strconv.Itoa(pageNo)
+	}
+
+	var out responseEnvelope[[]HistoryFundRateEntry]
+	err := c.get(ctx, "/api/v2/mix/market/history-fund-rate", query, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get history fund rate failed: %s %s", out.Code, out.Msg)
+	}
+	return out.Data, nil
+}
+
 func (c *Client) GetCandles(ctx context.Context, category, symbol, interval, candleType string, startTime, endTime int64, limit int) ([]Candle, error) {
 	query := map[string]string{
 		"category": category,
