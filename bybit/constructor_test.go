@@ -87,6 +87,8 @@ type bybitStubClient struct {
 	getOrderBookFn      func(context.Context, string, string, int) (*sdk.OrderBook, error)
 	getRecentTradesFn   func(context.Context, string, string, int) ([]sdk.PublicTrade, error)
 	getKlinesFn         func(context.Context, string, string, string, int64, int64, int) ([]sdk.Candle, error)
+	getOpenInterestFn   func(context.Context, string, string, string, int64, int64, int, string) (*sdk.OpenInterestResult, error)
+	getFundingHistoryFn func(context.Context, string, string, int64, int64, int) ([]sdk.FundingHistoryEntry, error)
 	getWalletBalanceFn  func(context.Context, string, string) (*sdk.WalletBalanceResult, error)
 	getFeeRatesFn       func(context.Context, string, string) ([]sdk.FeeRateRecord, error)
 	getPositionsFn      func(context.Context, string, string, string) ([]sdk.PositionRecord, error)
@@ -137,6 +139,20 @@ func (c *bybitStubClient) GetKlines(ctx context.Context, category, symbol, inter
 		panic("unexpected GetKlines call")
 	}
 	return c.getKlinesFn(ctx, category, symbol, interval, start, end, limit)
+}
+
+func (c *bybitStubClient) GetOpenInterest(ctx context.Context, category, symbol, intervalTime string, startMillis, endMillis int64, limit int, cursor string) (*sdk.OpenInterestResult, error) {
+	if c.getOpenInterestFn == nil {
+		panic("unexpected GetOpenInterest call")
+	}
+	return c.getOpenInterestFn(ctx, category, symbol, intervalTime, startMillis, endMillis, limit, cursor)
+}
+
+func (c *bybitStubClient) GetFundingHistory(ctx context.Context, category, symbol string, startMillis, endMillis int64, limit int) ([]sdk.FundingHistoryEntry, error) {
+	if c.getFundingHistoryFn == nil {
+		panic("unexpected GetFundingHistory call")
+	}
+	return c.getFundingHistoryFn(ctx, category, symbol, startMillis, endMillis, limit)
 }
 
 func (c *bybitStubClient) GetWalletBalance(ctx context.Context, accountType, coin string) (*sdk.WalletBalanceResult, error) {

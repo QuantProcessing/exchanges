@@ -124,6 +124,21 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]
 	return mapTrades(symbol, raw), nil
 }
 
+// FetchHistoricalTrades returns recent public trades. Bybit's /v5/market/recent-trade
+// endpoint does not accept cursor, fromId, or time-range parameters — so opts.FromID,
+// opts.Start, and opts.End are ignored. Only opts.Limit is honored.
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	limit := 500
+	if opts != nil && opts.Limit > 0 {
+		limit = opts.Limit
+	}
+	raw, err := a.client.GetRecentTrades(ctx, categoryLinear, a.FormatSymbol(symbol), limit)
+	if err != nil {
+		return nil, err
+	}
+	return mapTrades(symbol, raw), nil
+}
+
 func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) ([]exchanges.Kline, error) {
 	rawInterval, err := klineIntervalString(interval)
 	if err != nil {
@@ -648,17 +663,3 @@ func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, par
 	return a.tradeWS.AmendOrder(ctx, req)
 }
 
-// FetchOpenInterest is not implemented by this adapter.
-func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
-	_ = ctx
-	_ = symbol
-	return nil, exchanges.ErrNotSupported
-}
-
-// FetchFundingRateHistory is not implemented by this adapter.
-func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
-	_ = ctx
-	_ = symbol
-	_ = opts
-	return nil, exchanges.ErrNotSupported
-}
