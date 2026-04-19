@@ -7,6 +7,44 @@ import (
 	"time"
 )
 
+// MetaAndAssetCtxsFull is the parsed form of the metaAndAssetCtxs response:
+// element [0] is meta (universe list) and element [1] is the array of AssetContexts.
+type MetaAndAssetCtxsFull struct {
+	Meta struct {
+		Universe []struct {
+			Name string `json:"name"`
+		} `json:"universe"`
+	}
+	AssetCtxs MetaAndAssetCtxsResponse
+}
+
+// GetMetaAndAssetCtxs fetches raw metaAndAssetCtxs from the /info endpoint and
+// returns the parsed meta+asset-context pair. Both GetFundingRate and
+// FetchOpenInterest use this shared helper to avoid duplicate POSTs.
+func (c *Client) GetMetaAndAssetCtxs(ctx context.Context) (*MetaAndAssetCtxsFull, error) {
+	data, err := c.Post(ctx, "/info", map[string]string{"type": "metaAndAssetCtxs"})
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw) < 2 {
+		return nil, fmt.Errorf("unexpected response format: expected 2 elements, got %d", len(raw))
+	}
+
+	var result MetaAndAssetCtxsFull
+	if err := json.Unmarshal(raw[0], &result.Meta); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw[1], &result.AssetCtxs); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // L2Book
 
 type L2BookResponse struct {
@@ -117,48 +155,15 @@ func (c *Client) GetPrepMeta(ctx context.Context) (*PrepMeta, error) {
 // It uses the metaAndAssetCtxs endpoint which provides real-time asset contexts
 // including mark price, funding rate, open interest, etc.
 func (c *Client) GetFundingRate(ctx context.Context, coin string) (*FundingRate, error) {
-	// Request metaAndAssetCtxs to get all asset contexts
-	req := map[string]string{
-		"type": "metaAndAssetCtxs",
-	}
-	data, err := c.Post(ctx, "/info", req)
+	meta, err := c.GetMetaAndAssetCtxs(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// The response is an array of two elements:
-	// [0] is meta (contains universe array with coin names)
-	// [1] is the array of asset contexts (funding rates, etc.)
-	// The indices match: universe[i] corresponds to assetCtxs[i]
-	var response []json.RawMessage
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, err
-	}
-
-	if len(response) < 2 {
-		return nil, fmt.Errorf("unexpected response format: expected 2 elements, got %d", len(response))
-	}
-
-	// Parse the meta object to get universe
-	var meta struct {
-		Universe []struct {
-			Name string `json:"name"`
-		} `json:"universe"`
-	}
-	if err := json.Unmarshal(response[0], &meta); err != nil {
-		return nil, err
-	}
-
-	// Parse the asset contexts array
-	var assetCtxs MetaAndAssetCtxsResponse
-	if err := json.Unmarshal(response[1], &assetCtxs); err != nil {
-		return nil, err
-	}
-
 	// Match coin by index
-	for i, uni := range meta.Universe {
+	for i, uni := range meta.Meta.Universe {
 		if uni.Name == coin {
-			if i >= len(assetCtxs) {
+			if i >= len(meta.AssetCtxs) {
 				return nil, fmt.Errorf("asset context not found for coin: %s", coin)
 			}
 
@@ -169,7 +174,7 @@ func (c *Client) GetFundingRate(ctx context.Context, coin string) (*FundingRate,
 
 			return &FundingRate{
 				Coin:                 coin,
-				FundingRate:          assetCtxs[i].Funding,
+				FundingRate:          meta.AssetCtxs[i].Funding,
 				FundingIntervalHours: 1,
 				FundingTime:          fundingTime.UnixMilli(),
 				NextFundingTime:      nextFundingTime.UnixMilli(),
@@ -183,51 +188,51 @@ func (c *Client) GetFundingRate(ctx context.Context, coin string) (*FundingRate,
 // GetAllFundingRates retrieves funding rates for all available coins.
 // Returns a map where keys are coin names (e.g., "BTC", "ETH") and values are funding rates.
 func (c *Client) GetAllFundingRates(ctx context.Context) (map[string]string, error) {
-	// Request metaAndAssetCtxs to get all asset contexts
-	req := map[string]string{
-		"type": "metaAndAssetCtxs",
-	}
-	data, err := c.Post(ctx, "/info", req)
+	meta, err := c.GetMetaAndAssetCtxs(ctx)
 	if err != nil {
-		return nil, err
-	}
-
-	// The response is an array of two elements:
-	// [0] is meta (contains universe array with coin names)
-	// [1] is the array of asset contexts (funding rates, etc.)
-	// The indices match: universe[i] corresponds to assetCtxs[i]
-	var response []json.RawMessage
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, err
-	}
-
-	if len(response) < 2 {
-		return nil, fmt.Errorf("unexpected response format: expected 2 elements, got %d", len(response))
-	}
-
-	// Parse the meta object to get universe
-	var meta struct {
-		Universe []struct {
-			Name string `json:"name"`
-		} `json:"universe"`
-	}
-	if err := json.Unmarshal(response[0], &meta); err != nil {
-		return nil, err
-	}
-
-	// Parse the asset contexts array
-	var assetCtxs MetaAndAssetCtxsResponse
-	if err := json.Unmarshal(response[1], &assetCtxs); err != nil {
 		return nil, err
 	}
 
 	// Build the map of coin name to funding rate
 	result := make(map[string]string)
-	for i, uni := range meta.Universe {
-		if i < len(assetCtxs) {
-			result[uni.Name] = assetCtxs[i].Funding
+	for i, uni := range meta.Meta.Universe {
+		if i < len(meta.AssetCtxs) {
+			result[uni.Name] = meta.AssetCtxs[i].Funding
 		}
 	}
 
 	return result, nil
+}
+
+// FundingRateHistoryEntry matches one element of the /info fundingHistory response.
+type FundingRateHistoryEntry struct {
+	Coin        string `json:"coin"`
+	FundingRate string `json:"fundingRate"`
+	Premium     string `json:"premium"`
+	Time        int64  `json:"time"`
+}
+
+// GetFundingRateHistory retrieves historical funding rates via the /info endpoint.
+// startTimeMs is required by the Hyperliquid API (post this time, inclusive).
+// endTimeMs is optional (0 = now). Returns ascending or descending per HL docs;
+// the caller can re-sort if needed.
+// Docs: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint
+func (c *Client) GetFundingRateHistory(ctx context.Context, coin string, startTimeMs, endTimeMs int64) ([]FundingRateHistoryEntry, error) {
+	body := map[string]interface{}{
+		"type":      "fundingHistory",
+		"coin":      coin,
+		"startTime": startTimeMs,
+	}
+	if endTimeMs > 0 {
+		body["endTime"] = endTimeMs
+	}
+	data, err := c.Post(ctx, "/info", body)
+	if err != nil {
+		return nil, err
+	}
+	var res []FundingRateHistoryEntry
+	if err := json.Unmarshal(data, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
 }

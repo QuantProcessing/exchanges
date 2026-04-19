@@ -2,9 +2,13 @@ package perp
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
+	"github.com/stretchr/testify/require"
 )
 
 // TestGetFundingRate tests the GetFundingRate method
@@ -94,4 +98,32 @@ func TestGetAllFundingRates(t *testing.T) {
 	}
 
 	t.Logf("Total coins with funding rates: %d", len(rates))
+}
+
+func TestGetFundingRateHistoryParses(t *testing.T) {
+	t.Parallel()
+
+	payload := `[
+		{"coin":"BTC","fundingRate":"0.0000125","premium":"0.0001","time":1700000000000},
+		{"coin":"BTC","fundingRate":"0.0000130","premium":"0.0001","time":1700003600000}
+	]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/info", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		require.Contains(t, string(body), `"type":"fundingHistory"`)
+		require.Contains(t, string(body), `"coin":"BTC"`)
+		require.Contains(t, string(body), `"startTime":1700000000000`)
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer srv.Close()
+
+	baseClient := hyperliquid.NewClient()
+	baseClient.BaseURL = srv.URL
+	c := NewClient(baseClient)
+
+	hist, err := c.GetFundingRateHistory(context.Background(), "BTC", 1700000000000, 0)
+	require.NoError(t, err)
+	require.Len(t, hist, 2)
+	require.Equal(t, "0.0000125", hist[0].FundingRate)
+	require.Equal(t, int64(1700000000000), hist[0].Time)
 }
