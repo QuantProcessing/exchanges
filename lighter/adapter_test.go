@@ -42,6 +42,9 @@ func setupSpotAdapter(t *testing.T) *SpotAdapter {
 func TestPerpAdapter_Compliance(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, "BTC")
+	testsuite.RunAnalyticsComplianceTestsWithOpts(t, adp, "BTC", testsuite.AnalyticsSuiteOptions{
+		SkipTickerExtendedStats: true,
+	})
 }
 
 func TestPerpAdapter_Orders(t *testing.T) {

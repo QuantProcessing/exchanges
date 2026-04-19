@@ -1239,17 +1239,88 @@ func (a *Adapter) requireWriteAccess() error {
 	return nil
 }
 
-// FetchOpenInterest is not implemented by this adapter.
 func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchanges.OpenInterest, error) {
-	_ = ctx
-	_ = symbol
-	return nil, exchanges.ErrNotSupported
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return nil, exchanges.ErrSymbolNotFound
+	}
+	res, err := a.client.GetOrderBookDetails(ctx, &mid, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.OrderBookDetails) == 0 {
+		return nil, fmt.Errorf("lighter: empty order-book-details for %s", symbol)
+	}
+	d := res.OrderBookDetails[0]
+	return &exchanges.OpenInterest{
+		Symbol:      symbol,
+		OIContracts: decimal.NewFromFloat(d.OpenInterest),
+		Timestamp:   time.Now().UnixMilli(),
+	}, nil
 }
 
-// FetchFundingRateHistory is not implemented by this adapter.
 func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, opts *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
-	_ = ctx
-	_ = symbol
-	_ = opts
-	return nil, exchanges.ErrNotSupported
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return nil, exchanges.ErrSymbolNotFound
+	}
+	var limit int64 = 100
+	if opts != nil && opts.Limit > 0 {
+		limit = int64(opts.Limit)
+	}
+	// Start/End ignored — Lighter's GetFundingHistory accepts only limit + optional market.
+	hist, err := a.client.GetFundingHistory(ctx, &mid, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]exchanges.FundingRate, 0, len(hist.Fundings))
+	for _, r := range hist.Fundings {
+		out = append(out, exchanges.FundingRate{
+			Symbol:               symbol,
+			FundingRate:          parseLighterFloat(r.Rate),
+			FundingIntervalHours: 1,
+			FundingTime:          r.Timestamp,
+			UpdateTime:           time.Now().Unix(),
+		})
+	}
+	return out, nil
+}
+
+// FetchHistoricalTrades wraps Lighter's recent-trades endpoint. Cursor pagination
+// is not supported by the API; FromID / Start / End on opts are ignored.
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	a.metaMu.RLock()
+	mid, ok := a.symbolToID[a.FormatSymbol(symbol)]
+	a.metaMu.RUnlock()
+	if !ok {
+		return nil, exchanges.ErrSymbolNotFound
+	}
+	var limit int64 = 100
+	if opts != nil && opts.Limit > 0 {
+		limit = int64(opts.Limit)
+	}
+	raw, err := a.client.GetRecentTrades(ctx, mid, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]exchanges.Trade, 0, len(raw.Trades))
+	for _, r := range raw.Trades {
+		side := exchanges.TradeSideSell
+		if !r.IsMakerAsk {
+			side = exchanges.TradeSideBuy
+		}
+		out = append(out, exchanges.Trade{
+			ID:        fmt.Sprintf("%d", r.TradeId),
+			Symbol:    symbol,
+			Price:     parseLighterFloat(r.Price),
+			Quantity:  parseLighterFloat(r.Size),
+			Side:      side,
+			Timestamp: r.Timestamp * 1000,
+		})
+	}
+	return out, nil
 }
