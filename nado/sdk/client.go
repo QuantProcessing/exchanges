@@ -43,6 +43,12 @@ func NewClient() *Client {
 	}
 }
 
+// WithArchiveV1URL overrides the archive V1 base URL. Intended for tests only.
+func (c *Client) WithArchiveV1URL(u string) *Client {
+	c.archiveV1URL = u
+	return c
+}
+
 func (c *Client) WithCredentials(privateKey, subaccount string) (*Client, error) {
 	signer, err := NewSigner(privateKey)
 	if err != nil {

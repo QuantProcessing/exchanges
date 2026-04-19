@@ -433,6 +433,27 @@ type FundingRateResponse struct {
 	UpdateTime     string `json:"update_time"`      // Epoch seconds
 }
 
+// FundingRateArchiveEntry is a single historical funding rate record returned
+// by the archive indexer's funding_rate_history query.
+type FundingRateArchiveEntry struct {
+	ProductID      int64  `json:"product_id"`
+	FundingRateX18 string `json:"funding_rate_x18"` // 24hr funding rate * 10^18
+	Timestamp      int64  `json:"timestamp"`        // Epoch milliseconds
+}
+
+// FundingRateHistoryRequest is the archive V1 query for historical funding rates.
+type FundingRateHistoryRequest struct {
+	FundingRateHistory FundingRateHistoryQuery `json:"funding_rate_history"`
+}
+
+// FundingRateHistoryQuery specifies filter parameters for the history query.
+type FundingRateHistoryQuery struct {
+	ProductID int64 `json:"product_id"`
+	StartTime int64 `json:"start_time,omitempty"` // Epoch milliseconds; 0 = unbounded
+	EndTime   int64 `json:"end_time,omitempty"`   // Epoch milliseconds; 0 = unbounded
+	Limit     int   `json:"limit,omitempty"`
+}
+
 // FundingRateData contains standardized funding rate information
 type FundingRateData struct {
 	ProductID            int64  `json:"product_id"`

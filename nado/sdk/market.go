@@ -306,6 +306,35 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 	return result, nil
 }
 
+// GetFundingRateHistory retrieves historical funding rates for a single product
+// from the archive indexer. startMillis / endMillis are optional epoch-millisecond
+// bounds; pass 0 to leave unbounded. limit <= 0 uses the indexer default.
+func (c *Client) GetFundingRateHistory(ctx context.Context, productID int64, startMillis, endMillis int64, limit int) ([]FundingRateArchiveEntry, error) {
+	q := FundingRateHistoryQuery{
+		ProductID: productID,
+	}
+	if startMillis > 0 {
+		q.StartTime = startMillis
+	}
+	if endMillis > 0 {
+		q.EndTime = endMillis
+	}
+	if limit > 0 {
+		q.Limit = limit
+	}
+	req := FundingRateHistoryRequest{FundingRateHistory: q}
+	data, err := c.QueryArchiveV1(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []FundingRateArchiveEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("GetFundingRateHistory: unmarshal: %w", err)
+	}
+	return entries, nil
+}
+
 // getSymbolForProduct looks up the symbol for a given product ID
 func (c *Client) getSymbolForProduct(ctx context.Context, productID int64) (string, error) {
 	perpType := "perp"
