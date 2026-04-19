@@ -79,6 +79,24 @@ func (c *Client) GetRecentFills(ctx context.Context, category, symbol string, li
 	return out.Data, nil
 }
 
+// GetOpenInterest retrieves current open interest for a perp symbol.
+// productType: "USDT-FUTURES" | "COIN-FUTURES" | "USDC-FUTURES"
+// Docs: https://www.bitget.com/api-doc/contract/market/Get-Open-Interest
+func (c *Client) GetOpenInterest(ctx context.Context, symbol, productType string) (*OpenInterest, error) {
+	var out responseEnvelope[OpenInterest]
+	err := c.get(ctx, "/api/v2/mix/market/open-interest", map[string]string{
+		"symbol":      symbol,
+		"productType": productType,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get open interest failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
 func (c *Client) GetCandles(ctx context.Context, category, symbol, interval, candleType string, startTime, endTime int64, limit int) ([]Candle, error) {
 	query := map[string]string{
 		"category": category,

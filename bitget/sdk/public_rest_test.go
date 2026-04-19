@@ -75,3 +75,24 @@ func jsonResponse(body string) *http.Response {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
+
+func TestGetOpenInterestParses(t *testing.T) {
+	t.Parallel()
+	payload := `{"code":"00000","msg":"success","data":{"symbol":"BTCUSDT","amount":"1234.56","timestamp":"1700000000000"}}`
+	client := NewClient()
+	client.baseURL = "https://example.test"
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			require.Equal(t, "/api/v2/mix/market/open-interest", r.URL.Path)
+			require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
+			require.Equal(t, "USDT-FUTURES", r.URL.Query().Get("productType"))
+			return jsonResponse(payload), nil
+		}),
+	}
+	oi, err := client.GetOpenInterest(context.Background(), "BTCUSDT", "USDT-FUTURES")
+	require.NoError(t, err)
+	require.Equal(t, "BTCUSDT", oi.Symbol)
+	require.Equal(t, "1234.56", oi.Amount)
+	require.Equal(t, "1700000000000", oi.Timestamp)
+}
+
