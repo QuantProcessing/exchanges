@@ -12,7 +12,6 @@ import (
 	"github.com/QuantProcessing/exchanges/backpack"
 	"github.com/QuantProcessing/exchanges/binance"
 	"github.com/QuantProcessing/exchanges/bitget"
-	"github.com/QuantProcessing/exchanges/decibel"
 	"github.com/QuantProcessing/exchanges/edgex"
 	"github.com/QuantProcessing/exchanges/grvt"
 	"github.com/QuantProcessing/exchanges/hyperliquid"
@@ -103,18 +102,6 @@ func TestPublicLiveWatchOrderBookAdapters(t *testing.T) {
 			symbol: envOrDefault("BITGET_SPOT_TEST_SYMBOL", "BTC"),
 			newAdapter: func(ctx context.Context) (exchanges.Exchange, error) {
 				return bitget.NewSpotAdapter(ctx, bitget.Options{})
-			},
-		},
-		{
-			name:       "decibel/perp",
-			symbol:     envOrDefault("DECIBEL_PERP_TEST_SYMBOL", "BTC"),
-			requireEnv: []string{"DECIBEL_API_KEY", "DECIBEL_PRIVATE_KEY", "DECIBEL_SUBACCOUNT_ADDR"},
-			newAdapter: func(ctx context.Context) (exchanges.Exchange, error) {
-				return decibel.NewAdapter(ctx, decibel.Options{
-					APIKey:         os.Getenv("DECIBEL_API_KEY"),
-					PrivateKey:     os.Getenv("DECIBEL_PRIVATE_KEY"),
-					SubaccountAddr: os.Getenv("DECIBEL_SUBACCOUNT_ADDR"),
-				})
 			},
 		},
 		{

@@ -154,7 +154,6 @@ Expected: PASS
 - Modify: `hyperliquid/unsupported_test.go`
 - Modify: `lighter/unsupported_test.go`
 - Modify: `standx/unsupported_test.go`
-- Modify: `decibel/unsupported_test.go`
 - Modify: `nado/unsupported_test.go`
 - Modify: `backpack/registry_test.go`
 - Modify: adapter files that currently implement `WatchOrders` but not `WatchFills`
@@ -174,7 +173,7 @@ Add analogous assertions in the other existing unsupported suites.
 
 - [ ] **Step 2: Run a narrow unsupported test command and confirm compile or runtime failures**
 
-Run: `env GOCACHE=/tmp/go-build go test ./binance ./okx ./hyperliquid ./lighter ./standx ./decibel ./nado ./backpack -run 'Test.*Unsupported.*|TestUnsupportedMethodsReturnErrNotSupported' -count=1`
+Run: `env GOCACHE=/tmp/go-build go test ./binance ./okx ./hyperliquid ./lighter ./standx ./nado ./backpack -run 'Test.*Unsupported.*|TestUnsupportedMethodsReturnErrNotSupported' -count=1`
 Expected: compile failures or missing method errors for `WatchFills` / `StopWatchFills`.
 
 - [ ] **Step 3: Add minimal adapter implementations that return `ErrNotSupported`**
@@ -195,7 +194,7 @@ Use the package’s existing receiver names and place the methods next to the ot
 
 - [ ] **Step 4: Re-run the unsupported command**
 
-Run: `env GOCACHE=/tmp/go-build go test ./binance ./okx ./hyperliquid ./lighter ./standx ./decibel ./nado ./backpack -run 'Test.*Unsupported.*|TestUnsupportedMethodsReturnErrNotSupported' -count=1`
+Run: `env GOCACHE=/tmp/go-build go test ./binance ./okx ./hyperliquid ./lighter ./standx ./nado ./backpack -run 'Test.*Unsupported.*|TestUnsupportedMethodsReturnErrNotSupported' -count=1`
 Expected: PASS
 
 ### Task 3: Normalize Order Mapping With Explicit Price Fields
@@ -210,7 +209,6 @@ Expected: PASS
 - Modify: `backpack/private_mapping.go`
 - Modify: `bitget/private_classic.go`
 - Modify: `bitget/order_request.go`
-- Modify: `decibel/perp_adapter.go`
 - Modify: `edgex/perp_adapter.go`
 - Modify: `grvt/perp_adapter.go`
 - Modify: `hyperliquid/perp_adapter.go`
@@ -272,12 +270,12 @@ Concrete examples:
 
 - Binance/Aster: `OrderPrice <- p`, `AverageFillPrice <- ap`, `LastFillPrice <- L`, `LastFillQuantity <- l`
 - OKX: `OrderPrice <- px`, `AverageFillPrice <- avgPx`, `LastFillPrice <- fillPx`, `LastFillQuantity <- fillSz`
-- Hyperliquid/Lighter/StandX/Decibel/EdgeX/Nado current order streams: set `OrderPrice` when available; leave fill-price fields zero if unavailable
+- Hyperliquid/Lighter/StandX/EdgeX/Nado current order streams: set `OrderPrice` when available; leave fill-price fields zero if unavailable
 - GRVT order stream: preserve current legacy `Price` behavior, but add explicit `AverageFillPrice`; set `OrderPrice` only if the source order carries a native submitted price
 
 - [ ] **Step 4: Run a compile-focused adapter command**
 
-Run: `env GOCACHE=/tmp/go-build go test ./aster ./backpack ./binance ./bitget ./decibel ./edgex ./grvt ./hyperliquid ./lighter ./nado ./okx ./standx -run '^$' -count=1`
+Run: `env GOCACHE=/tmp/go-build go test ./aster ./backpack ./binance ./bitget ./edgex ./grvt ./hyperliquid ./lighter ./nado ./okx ./standx -run '^$' -count=1`
 Expected: PASS
 
 ### Task 4: Implement First-Class WatchFills For Adapters With Existing Native Support
@@ -366,7 +364,7 @@ Update helpers and lifecycle logs so any future fill-aware suite code can print 
 
 Run:
 
-`env GOCACHE=/tmp/go-build go test . ./grvt ./hyperliquid ./nado ./binance ./okx ./aster ./backpack ./bitget ./decibel ./edgex ./lighter ./standx -run 'Test(OrderSupportsExplicitOrderAndFillPrices|FillCarriesExecutionDetails|ExplicitOrderPriceFieldsCanCoexistWithLegacyPrice|MapGrvtFillUsesExecutionPrice|MapHyperliquidFillUsesExecutionPrice|MapNadoFillUsesExecutionPrice|.*Unsupported.*|TestUnsupportedMethodsReturnErrNotSupported)' -count=1`
+`env GOCACHE=/tmp/go-build go test . ./grvt ./hyperliquid ./nado ./binance ./okx ./aster ./backpack ./bitget ./edgex ./lighter ./standx -run 'Test(OrderSupportsExplicitOrderAndFillPrices|FillCarriesExecutionDetails|ExplicitOrderPriceFieldsCanCoexistWithLegacyPrice|MapGrvtFillUsesExecutionPrice|MapHyperliquidFillUsesExecutionPrice|MapNadoFillUsesExecutionPrice|.*Unsupported.*|TestUnsupportedMethodsReturnErrNotSupported)' -count=1`
 
 Expected: PASS
 

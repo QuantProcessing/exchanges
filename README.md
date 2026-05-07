@@ -30,7 +30,6 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 | StandX      | ✅    | —    | —      | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —      | USDT             | USDT    |
 | EdgeX       | ✅    | —    | —      | USDC             | USDC    |
-| Decibel     | ✅    | —    | —      | USDC             | USDC    |
 
 ### Exchange Notes
 
@@ -39,7 +38,6 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 - Use explicit `*WS` methods such as `PlaceOrderWS` and `CancelOrderWS` for WebSocket writes. `PlaceOrderWS` returns only `error` and requires `OrderParams.ClientID` so follow-up order updates can be matched.
 - Bitget classic WebSocket writes still require Bitget to enable classic trade-socket access for the API key.
 - Bybit supports explicit trade WebSocket order writes for spot and linear perp. Live WS order tests are gated behind `BYBIT_ENABLE_WS_ORDER_TESTS=1`.
-- Decibel is perp-only in this repository. It uses authenticated REST/WebSocket reads plus Aptos-signed on-chain trading writes, with credentials `api_key + private_key + subaccount_addr`.
 
 ## Adding New Exchanges
 

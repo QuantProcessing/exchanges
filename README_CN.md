@@ -30,7 +30,6 @@
 | StandX      | ✅    | —    | —    | DUSD             | DUSD    |
 | GRVT        | ✅    | —    | —    | USDT             | USDT    |
 | EdgeX       | ✅    | —    | —    | USDC             | USDC    |
-| Decibel     | ✅    | —    | —    | USDC             | USDC    |
 
 ### 交易所说明
 
@@ -39,7 +38,6 @@
 - `PlaceOrderWS`、`CancelOrderWS` 等 `*WS` 接口表示显式 WebSocket 写路径。`PlaceOrderWS` 只返回 `error`，并且要求设置 `OrderParams.ClientID`，方便后续通过订单流做关联。
 - Bitget 经典账户的 WebSocket 写能力仍然需要由 Bitget 为该 API key 额外开通经典交易 socket 权限。
 - Bybit 已支持现货与 linear perp 的显式交易 WebSocket 写路径。真实 WS 下单测试通过 `BYBIT_ENABLE_WS_ORDER_TESTS=1` 控制开启。
-- Decibel 在本仓库中仅支持永续。它使用带鉴权的 REST/WebSocket 读取能力，以及基于 Aptos 签名的链上交易写入，凭证为 `api_key + private_key + subaccount_addr`。
 
 ## 安装
 

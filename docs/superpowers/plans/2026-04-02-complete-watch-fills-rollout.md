@@ -14,12 +14,12 @@
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-04-02-complete-watch-fills-rollout.md`
-- Inspect: `aster/*`, `backpack/*`, `binance/*`, `bitget/*`, `decibel/*`, `edgex/*`, `lighter/*`, `okx/*`, `standx/*`
+- Inspect: `aster/*`, `backpack/*`, `binance/*`, `bitget/*`, `edgex/*`, `lighter/*`, `okx/*`, `standx/*`
 
 - [ ] Confirm per-exchange implementation path:
   - Inline execution events from order streams: `aster`, `binance`, `backpack`, `okx`
   - Native private fill/trade stream already in sdk: `lighter`, `standx`
-  - Native fill data in account feed but sdk helper missing: `edgex`, `decibel`
+  - Native fill data in account feed but sdk helper missing: `edgex`
   - Separate private fill channel available but repository helper missing: `bitget`
 - [ ] Record any exchange that still cannot honestly support `WatchFills` after inspection.
 
@@ -62,19 +62,12 @@
 ### Task 4: Add Missing SDK Subscription Helpers Where Private Fill Data Already Exists
 
 **Files:**
-- Modify: `decibel/sdk/ws/client.go`
-- Modify: `decibel/sdk/ws/types.go`
-- Modify: `decibel/perp_adapter.go`
-- Modify: `decibel/perp_adapter_test.go`
 - Modify: `edgex/sdk/perp/ws_account.go`
 - Modify: `edgex/perp_adapter.go`
 - Create: `edgex/fills_test.go`
 
-- [ ] Add `decibel` `user_trades:{userAddr}` subscription support to the ws client and types.
-- [ ] Map `decibel` trade pushes directly into `Fill`.
 - [ ] Add an `EdgeX` account subscription helper for `ORDER_FILL_FEE_INCOME`.
 - [ ] Map `OrderFillTransaction` into `Fill`.
-- [ ] Extend existing decibel adapter test doubles so fill subscriptions can be exercised without live traffic.
 
 ### Task 5: Add Bitget Classic Fill Channel Support
 
