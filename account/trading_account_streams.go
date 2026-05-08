@@ -31,6 +31,7 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 		runCancel()
 		return context.Canceled
 	}
+	a.resetHealthForStart()
 
 	defer func() {
 		if err == nil {
@@ -67,25 +68,35 @@ func (a *TradingAccount) Start(ctx context.Context) (err error) {
 	if err := streamable.WatchOrders(runCtx, func(order *exchanges.Order) {
 		a.applyOrderUpdate(runGen, order)
 	}); err != nil {
+		a.markStreamError(StreamOrders, err)
 		return fmt.Errorf("trading_account: WatchOrders failed: %w", err)
 	}
+	a.markStreamReady(StreamOrders)
 
 	if watchErr := streamable.WatchFills(runCtx, func(fill *exchanges.Fill) {
 		a.applyFillUpdate(runGen, fill)
 	}); watchErr != nil {
 		if !errors.Is(watchErr, exchanges.ErrNotSupported) {
+			a.markStreamError(StreamFills, watchErr)
 			return fmt.Errorf("trading_account: WatchFills failed: %w", watchErr)
 		}
+		a.markStreamUnsupported(StreamFills, watchErr)
 		a.logger.Warnw("trading_account: WatchFills failed (may not be supported)", "error", watchErr)
+	} else {
+		a.markStreamReady(StreamFills)
 	}
 
 	if watchErr := streamable.WatchPositions(runCtx, func(position *exchanges.Position) {
 		a.applyPositionUpdate(runGen, position)
 	}); watchErr != nil {
 		if !errors.Is(watchErr, exchanges.ErrNotSupported) {
+			a.markStreamError(StreamPositions, watchErr)
 			return fmt.Errorf("trading_account: WatchPositions failed: %w", watchErr)
 		}
+		a.markStreamUnsupported(StreamPositions, watchErr)
 		a.logger.Warnw("trading_account: WatchPositions failed (may not be supported)", "error", watchErr)
+	} else {
+		a.markStreamReady(StreamPositions)
 	}
 
 	if runErr := runCtx.Err(); runErr != nil {
@@ -113,6 +124,7 @@ func (a *TradingAccount) Close() {
 	a.orderBus.Close()
 	a.positionBus.Close()
 	a.flows.CloseAll()
+	a.markStreamsStopped()
 
 	a.runMu.Lock()
 	a.closing = false

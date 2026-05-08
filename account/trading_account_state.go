@@ -1,6 +1,8 @@
 package account
 
 import (
+	"time"
+
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/shopspring/decimal"
 )
@@ -90,6 +92,7 @@ func (a *TradingAccount) applyAccountSnapshot(runGen uint64, acc *exchanges.Acco
 	a.orders = orders
 	a.positions = positions
 	a.mu.Unlock()
+	a.markSnapshotLoaded()
 }
 
 func (a *TradingAccount) resetSnapshotState() {
@@ -98,6 +101,11 @@ func (a *TradingAccount) resetSnapshotState() {
 	a.orders = make(map[string]*exchanges.Order)
 	a.positions = make(map[string]*exchanges.Position)
 	a.mu.Unlock()
+
+	a.healthMu.Lock()
+	a.snapshotLoaded = false
+	a.lastSnapshotAt = time.Time{}
+	a.healthMu.Unlock()
 }
 
 func (a *TradingAccount) applyOrderUpdate(runGen uint64, order *exchanges.Order) {
@@ -125,7 +133,8 @@ func (a *TradingAccount) applyOrderUpdate(runGen uint64, order *exchanges.Order)
 	if !a.isActiveRun(runGen) {
 		return
 	}
-	a.orderBus.Publish(order)
+	dropped := a.orderBus.Publish(order)
+	a.markStreamEvent(StreamOrders, dropped)
 	a.flows.RouteOrder(order)
 }
 
@@ -133,6 +142,7 @@ func (a *TradingAccount) applyFillUpdate(runGen uint64, fill *exchanges.Fill) {
 	if fill == nil || !a.isActiveRun(runGen) {
 		return
 	}
+	a.markStreamEvent(StreamFills, 0)
 	a.flows.RouteFill(fill)
 }
 
@@ -153,5 +163,6 @@ func (a *TradingAccount) applyPositionUpdate(runGen uint64, position *exchanges.
 	if !a.isActiveRun(runGen) {
 		return
 	}
-	a.positionBus.Publish(position)
+	dropped := a.positionBus.Publish(position)
+	a.markStreamEvent(StreamPositions, dropped)
 }

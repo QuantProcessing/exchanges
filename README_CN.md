@@ -361,6 +361,8 @@ fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 
 如果某个 adapter 不支持 `WatchFills`，`OrderFlow.C()` 会退化为原来的仅订单流行为，而 `OrderFlow.Fills()` 会保持为空。
 
+`TradingAccount.Health()` 会暴露 stream 就绪状态、不支持状态、事件计数和慢订阅者丢弃计数；详见 [Stream Health](./docs/stream-health.md)。
+
 cross-exchanges-arb 等下游消费者应基于已经包含 `TradingAccount + OrderFlow` 的发布版本迁移，并先重新跑自己的集成验证。
 
 > TradingAccount 是当前发布面向外部的账户运行时入口，位于 `github.com/QuantProcessing/exchanges/account`。新的集成应基于 `TradingAccount + OrderFlow`。

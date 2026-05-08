@@ -1,6 +1,9 @@
 package account
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // ============================================================================
 // EventBus — generic fan-out pub/sub for streaming events
@@ -25,6 +28,7 @@ type eventBus[T any] struct {
 	mu          sync.RWMutex
 	subscribers map[uint64]*Subscription[T]
 	nextID      uint64
+	dropped     atomic.Uint64
 }
 
 func newEventBus[T any]() *eventBus[T] {
@@ -53,17 +57,26 @@ func (b *eventBus[T]) Subscribe() *Subscription[T] {
 
 // Publish sends an event to all current subscribers (non-blocking).
 // If a subscriber's channel is full, the event is dropped for that subscriber.
-func (b *eventBus[T]) Publish(event *T) {
+func (b *eventBus[T]) Publish(event *T) uint64 {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	var dropped uint64
 	for _, sub := range b.subscribers {
 		select {
 		case sub.ch <- event:
 		default:
-			// Channel full — drop to avoid blocking the publisher
+			dropped++
 		}
 	}
+	if dropped > 0 {
+		b.dropped.Add(dropped)
+	}
+	return dropped
+}
+
+func (b *eventBus[T]) Dropped() uint64 {
+	return b.dropped.Load()
 }
 
 // unsubscribe removes a subscriber and closes its channel.

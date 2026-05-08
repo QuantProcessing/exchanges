@@ -367,6 +367,8 @@ fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 
 If `WatchFills` is not supported by an adapter, `OrderFlow.C()` degrades to the existing order-only behavior and `OrderFlow.Fills()` remains empty.
 
+`TradingAccount.Health()` exposes stream readiness, unsupported stream status, event counters, and slow-subscriber drop counters; see [Stream Health](./docs/stream-health.md).
+
 Downstream consumers such as cross-exchanges-arb should migrate against a release that already includes `TradingAccount + OrderFlow` and after re-running their own integration coverage.
 
 > TradingAccount is the release-facing account runtime in `github.com/QuantProcessing/exchanges/account`. New integrations should build on `TradingAccount + OrderFlow`.

@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"sync"
+	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/shopspring/decimal"
@@ -19,6 +20,11 @@ type TradingAccount struct {
 	orders    map[string]*exchanges.Order
 	positions map[string]*exchanges.Position
 	balance   decimal.Decimal
+
+	healthMu       sync.RWMutex
+	streams        map[StreamName]StreamHealth
+	snapshotLoaded bool
+	lastSnapshotAt time.Time
 
 	orderBus    *eventBus[exchanges.Order]
 	positionBus *eventBus[exchanges.Position]
@@ -42,6 +48,7 @@ func NewTradingAccount(adp exchanges.Exchange, logger exchanges.Logger, _ ...Tra
 		logger:      logger,
 		orders:      make(map[string]*exchanges.Order),
 		positions:   make(map[string]*exchanges.Position),
+		streams:     initialStreamHealth(),
 		orderBus:    newEventBus[exchanges.Order](),
 		positionBus: newEventBus[exchanges.Position](),
 		flows:       newOrderFlowRegistry(),
