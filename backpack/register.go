@@ -8,6 +8,23 @@ import (
 )
 
 func init() {
+	exchanges.RegisterCapabilities("BACKPACK", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		FetchOpenOrders:     true,
+		TradingAccountReady: true,
+	})
+	exchanges.RegisterCapabilities("BACKPACK", exchanges.MarketTypeSpot, exchanges.Capabilities{
+		PlaceOrder:          true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		FetchOpenOrders:     true,
+		TradingAccountReady: true,
+	})
 	exchanges.Register("BACKPACK", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			APIKey:        opts["api_key"],

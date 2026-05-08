@@ -8,6 +8,19 @@ import (
 )
 
 func init() {
+	exchanges.RegisterCapabilities("STANDX", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		WatchTicker:         true,
+		WatchTrades:         true,
+		FetchOpenOrders:     true,
+		TradingAccountReady: true,
+	})
 	exchanges.Register("STANDX", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			PrivateKey:    opts["private_key"],

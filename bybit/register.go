@@ -8,6 +8,30 @@ import (
 )
 
 func init() {
+	exchanges.RegisterCapabilities("BYBIT", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		FetchOpenOrders:     true,
+		FetchOrderHistory:   true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
+	exchanges.RegisterCapabilities("BYBIT", exchanges.MarketTypeSpot, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		FetchOpenOrders:     true,
+		FetchOrderHistory:   true,
+		TradingAccountReady: true,
+	})
 	exchanges.Register("BYBIT", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			APIKey:        opts["api_key"],

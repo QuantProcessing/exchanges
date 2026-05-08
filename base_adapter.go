@@ -33,6 +33,10 @@ type BaseAdapter struct {
 	symbolDetails map[string]*SymbolDetails
 	symbolMu      sync.RWMutex
 
+	// Static feature claims exposed for SDK-user capability discovery.
+	capabilities Capabilities
+	capMu        sync.RWMutex
+
 	// Local Orderbooks
 	orderBooks map[string]LocalOrderBook
 	obMu       sync.RWMutex
@@ -43,13 +47,17 @@ func NewBaseAdapter(name string, marketType MarketType, logger Logger) *BaseAdap
 	if logger == nil {
 		logger = NopLogger
 	}
-	return &BaseAdapter{
+	b := &BaseAdapter{
 		Name:          name,
 		MarketType:    marketType,
 		Logger:        logger,
 		symbolDetails: make(map[string]*SymbolDetails),
 		orderBooks:    make(map[string]LocalOrderBook),
 	}
+	if caps, ok := LookupCapabilities(name, marketType); ok {
+		b.capabilities = caps
+	}
+	return b
 }
 
 // GetExchange returns the exchange name
@@ -60,6 +68,20 @@ func (b *BaseAdapter) GetExchange() string {
 // GetMarketType returns the market type
 func (b *BaseAdapter) GetMarketType() MarketType {
 	return b.MarketType
+}
+
+// SetCapabilities replaces the adapter's static support claims.
+func (b *BaseAdapter) SetCapabilities(caps Capabilities) {
+	b.capMu.Lock()
+	defer b.capMu.Unlock()
+	b.capabilities = caps
+}
+
+// Capabilities returns the adapter's static support claims.
+func (b *BaseAdapter) Capabilities() Capabilities {
+	b.capMu.RLock()
+	defer b.capMu.RUnlock()
+	return b.capabilities
 }
 
 // ================= Connection Tracking =================

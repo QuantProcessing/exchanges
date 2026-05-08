@@ -8,6 +8,33 @@ import (
 )
 
 func init() {
+	exchanges.RegisterCapabilities("NADO", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		WatchTicker:         true,
+		WatchTrades:         true,
+		WatchKlines:         true,
+		FetchOpenOrders:     true,
+		TradingAccountReady: true,
+	})
+	exchanges.RegisterCapabilities("NADO", exchanges.MarketTypeSpot, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		WatchTicker:         true,
+		WatchTrades:         true,
+		FetchOpenOrders:     true,
+		TradingAccountReady: true,
+	})
 	exchanges.Register("NADO", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			PrivateKey:     opts["private_key"],

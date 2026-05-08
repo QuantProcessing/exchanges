@@ -25,6 +25,7 @@
 | Nado        | ✅    | ✅    | —    | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —    | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —    | USDC             | USDC    |
+| Backpack    | ✅    | ✅    | —    | USDC             | USDC    |
 | Bitget      | ✅    | ✅    | —    | USDT, USDC       | USDT    |
 | Bybit       | ✅    | ✅    | —    | USDT, USDC       | USDT    |
 | StandX      | ✅    | —    | —    | DUSD             | DUSD    |
@@ -38,6 +39,7 @@
 - `PlaceOrderWS`、`CancelOrderWS` 等 `*WS` 接口表示显式 WebSocket 写路径。`PlaceOrderWS` 只返回 `error`，并且要求设置 `OrderParams.ClientID`，方便后续通过订单流做关联。
 - Bitget 经典账户的 WebSocket 写能力仍然需要由 Bitget 为该 API key 额外开通经典交易 socket 权限。
 - Bybit 已支持现货与 linear perp 的显式交易 WebSocket 写路径。真实 WS 下单测试通过 `BYBIT_ENABLE_WS_ORDER_TESTS=1` 控制开启。
+- 使用 `exchanges.GetCapabilities(adp)` 或 `exchanges.LookupCapabilities(name, marketType)` 检查 `WatchFills`、`PlaceOrderWS`、`FetchOrders` 等可选能力；详见 [Adapter Capabilities](./docs/capabilities.md)。
 
 ## 安装
 

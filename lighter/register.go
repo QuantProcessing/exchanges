@@ -8,6 +8,33 @@ import (
 )
 
 func init() {
+	exchanges.RegisterCapabilities("LIGHTER", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		WatchTicker:         true,
+		WatchTrades:         true,
+		FetchOpenOrders:     true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
+	exchanges.RegisterCapabilities("LIGHTER", exchanges.MarketTypeSpot, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchTicker:         true,
+		WatchTrades:         true,
+		FetchOpenOrders:     true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
 	exchanges.Register("LIGHTER", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			PrivateKey:    opts["private_key"],

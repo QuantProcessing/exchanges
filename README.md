@@ -25,6 +25,7 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 | Nado        | ✅    | ✅    | —      | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —      | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —      | USDC             | USDC    |
+| Backpack    | ✅    | ✅    | —      | USDC             | USDC    |
 | Bitget      | ✅    | ✅    | —      | USDT, USDC       | USDT    |
 | Bybit       | ✅    | ✅    | —      | USDT, USDC       | USDT    |
 | StandX      | ✅    | —    | —      | DUSD             | DUSD    |
@@ -38,6 +39,7 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 - Use explicit `*WS` methods such as `PlaceOrderWS` and `CancelOrderWS` for WebSocket writes. `PlaceOrderWS` returns only `error` and requires `OrderParams.ClientID` so follow-up order updates can be matched.
 - Bitget classic WebSocket writes still require Bitget to enable classic trade-socket access for the API key.
 - Bybit supports explicit trade WebSocket order writes for spot and linear perp. Live WS order tests are gated behind `BYBIT_ENABLE_WS_ORDER_TESTS=1`.
+- Use `exchanges.GetCapabilities(adp)` or `exchanges.LookupCapabilities(name, marketType)` to check optional surfaces such as `WatchFills`, `PlaceOrderWS`, and `FetchOrders`; see [Adapter Capabilities](./docs/capabilities.md).
 
 ## Adding New Exchanges
 
