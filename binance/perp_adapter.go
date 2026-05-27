@@ -474,13 +474,18 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (_ *exchanges.
 	}
 
 	ticker := &exchanges.Ticker{
-		Symbol:    symbol,
-		LastPrice: parseDecimal(t.LastPrice),
-		High24h:   parseDecimal(t.HighPrice),
-		Low24h:    parseDecimal(t.LowPrice),
-		Volume24h: parseDecimal(t.Volume),
-		QuoteVol:  parseDecimal(t.QuoteVolume),
-		Timestamp: t.CloseTime,
+		Symbol:             symbol,
+		LastPrice:          parseDecimal(t.LastPrice),
+		High24h:            parseDecimal(t.HighPrice),
+		Low24h:             parseDecimal(t.LowPrice),
+		Volume24h:          parseDecimal(t.Volume),
+		QuoteVol:           parseDecimal(t.QuoteVolume),
+		OpenPrice:          parseDecimal(t.OpenPrice),
+		PriceChange:        parseDecimal(t.PriceChange),
+		PriceChangePercent: parseDecimal(t.PriceChangePercent),
+		WeightedAvgPrice:   parseDecimal(t.WeightedAvgPrice),
+		TradeCount:         t.Count,
+		Timestamp:          t.CloseTime,
 	}
 
 	if len(depth.Bids) > 0 {
@@ -581,6 +586,56 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) (_ 
 
 		trades = append(trades, exchanges.Trade{
 			ID:        fmt.Sprintf("%d", r.ID),
+			Symbol:    symbol,
+			Price:     parseDecimal(r.Price),
+			Quantity:  parseDecimal(r.Quantity),
+			Side:      side,
+			Timestamp: r.Timestamp,
+		})
+	}
+	return trades, nil
+}
+
+// FetchHistoricalTrades returns paginated historical trades via aggTrades.
+// Binance's aggTrades endpoint accepts symbol + (fromId | startTime/endTime) + limit.
+// FromID takes precedence over the time range when set.
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	formattedSymbol := a.FormatSymbol(symbol)
+
+	q := perp.AggTradesQuery{Symbol: formattedSymbol, Limit: 500}
+	if opts != nil {
+		if opts.Limit > 0 {
+			q.Limit = opts.Limit
+		}
+		if opts.FromID != "" {
+			id, err := strconv.ParseInt(opts.FromID, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid FromID: %w", err)
+			}
+			q.FromID = &id
+		} else {
+			if opts.Start != nil {
+				q.StartTime = opts.Start.UnixMilli()
+			}
+			if opts.End != nil {
+				q.EndTime = opts.End.UnixMilli()
+			}
+		}
+	}
+
+	raw, err := a.client.GetAggTradesPaged(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+
+	trades := make([]exchanges.Trade, 0, len(raw))
+	for _, r := range raw {
+		side := exchanges.TradeSideBuy
+		if r.IsBuyerMaker {
+			side = exchanges.TradeSideSell
+		}
+		trades = append(trades, exchanges.Trade{
+			ID:        strconv.FormatInt(r.ID, 10),
 			Symbol:    symbol,
 			Price:     parseDecimal(r.Price),
 			Quantity:  parseDecimal(r.Quantity),

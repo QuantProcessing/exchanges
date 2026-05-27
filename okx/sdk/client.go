@@ -25,6 +25,10 @@ type Client struct {
 
 	HTTPClient *http.Client
 	Signer     *Signer
+
+	// BaseURL overrides the default OKX base URL. Used in tests to point at
+	// an httptest server. Leave empty to use the package-level BaseURL constant.
+	BaseURL string
 }
 
 func NewClient() *Client {
@@ -70,7 +74,11 @@ func (c *Client) Do(ctx context.Context, method Method, path string, payload int
 		bodyString = string(jsonBytes)
 	}
 
-	fullURL := BaseURL + path
+	base := BaseURL
+	if c.BaseURL != "" {
+		base = c.BaseURL
+	}
+	fullURL := base + path
 	req, err := http.NewRequestWithContext(ctx, string(method), fullURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

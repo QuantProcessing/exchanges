@@ -216,6 +216,25 @@ func (a *Adapter) getCtVal(ctx context.Context, symbol string) decimal.Decimal {
 	return decimal.NewFromFloat(0.01) // fallback
 }
 
+func (a *Adapter) formatPerpOrderSize(ctx context.Context, instId string, quantity decimal.Decimal) (string, error) {
+	ctVal := a.getCtVal(ctx, instId)
+	if ctVal.IsZero() {
+		return "", fmt.Errorf("invalid contract value for %s", instId)
+	}
+
+	contracts := quantity.Div(ctVal)
+
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if ok {
+		prec := exchanges.CountDecimalPlaces(inst.LotSz)
+		return contracts.StringFixed(prec), nil
+	}
+
+	return contracts.Floor().String(), nil
+}
+
 // ================= Account & Trading =================
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
@@ -327,30 +346,14 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	// Map Order Type & TIF
 	ordType := a.mapOrderType(params)
 
-	ctVal := a.getCtVal(ctx, instId)
-	if ctVal.IsZero() {
-		return nil, fmt.Errorf("invalid contract value for %s", instId)
+	sz, err := a.formatPerpOrderSize(ctx, instId, params.Quantity)
+	if err != nil {
+		return nil, err
 	}
 
-	// Calculate sz (Contracts)
-	// params.Quantity (Coins) / CtVal (Coins/Contract) = Contracts
-	szVal := params.Quantity.Div(ctVal)
-
-	// Format to LotSz precision
-	// We need LotSz.
 	a.mu.RLock()
 	inst, ok := a.instruments[instId]
 	a.mu.RUnlock()
-
-	sz := ""
-	if ok {
-		prec := exchanges.CountDecimalPlaces(inst.LotSz)
-		sz = szVal.StringFixed(prec)
-	} else {
-		// Fallback to integer
-		szVal = szVal.Floor()
-		sz = szVal.String()
-	}
 
 	var clOrdId *string
 	if params.ClientID != "" {
@@ -422,6 +425,9 @@ func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams)
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
+	if err := okxOrderActionError("place order", ids[0]); err != nil {
+		return nil, err
+	}
 	return &exchanges.Order{
 		OrderID:       ids[0].OrdId,
 		ClientOrderID: ids[0].ClOrdId,
@@ -445,7 +451,10 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 		side = "sell"
 	}
 	ordType := a.mapOrderType(params)
-	sz := fmt.Sprintf("%v", params.Quantity)
+	sz, err := a.formatPerpOrderSize(ctx, instId, params.Quantity)
+	if err != nil {
+		return err
+	}
 
 	a.mu.RLock()
 	pm := a.posMode
@@ -475,10 +484,6 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 
 	var px *string
 	if params.Type != exchanges.OrderTypeMarket && params.Price.IsPositive() {
-		if ctVal := a.getCtVal(ctx, instId); !ctVal.IsZero() {
-			contracts := params.Quantity.Div(ctVal)
-			sz = fmt.Sprintf("%v", contracts)
-		}
 		if inst, ok := a.instruments[instId]; ok {
 			prec := exchanges.CountDecimalPlaces(inst.TickSz)
 			s := params.Price.StringFixed(prec)
@@ -489,15 +494,27 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 		}
 	}
 
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("missing instrument metadata for %s", instId)
+	}
+	instIdCode, err := okxInstrumentIDCode(inst, instId)
+	if err != nil {
+		return err
+	}
+
 	req := &okx.OrderRequest{
-		InstId:  instId,
-		TdMode:  "isolated",
-		Side:    side,
-		PosSide: posSide,
-		OrdType: ordType,
-		Sz:      sz,
-		Px:      px,
-		ClOrdId: clOrdId,
+		InstId:     instId,
+		InstIdCode: &instIdCode,
+		TdMode:     "isolated",
+		Side:       side,
+		PosSide:    posSide,
+		OrdType:    ordType,
+		Sz:         sz,
+		Px:         px,
+		ClOrdId:    clOrdId,
 	}
 
 	if params.ReduceOnly {
@@ -508,7 +525,7 @@ func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParam
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
-	_, err := a.wsPrivate.PlaceOrderWS(req)
+	_, err = a.wsPrivate.PlaceOrderWS(req)
 	return err
 }
 
@@ -532,16 +549,32 @@ func (a *Adapter) mapOrderType(params *exchanges.OrderParams) string {
 
 func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
 	instId := a.FormatSymbol(symbol)
-	_, err := a.client.CancelOrder(ctx, instId, orderID, "")
-	return err
+	resp, err := a.client.CancelOrder(ctx, instId, orderID, "")
+	if err != nil {
+		return err
+	}
+	if len(resp) == 0 {
+		return nil
+	}
+	return okxOrderActionError("cancel order", resp[0])
 }
 
 func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
 	instId := a.FormatSymbol(symbol)
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("missing instrument metadata for %s", instId)
+	}
+	instIdCode, err := okxInstrumentIDCode(inst, instId)
+	if err != nil {
+		return err
+	}
 	if err := a.WsOrderConnected(ctx); err != nil {
 		return err
 	}
-	_, err := a.wsPrivate.CancelOrderWS(instId, &orderID, nil)
+	_, err = a.wsPrivate.CancelOrderWS(instIdCode, &orderID, nil)
 	return err
 }
 
@@ -568,6 +601,9 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 	if len(resp) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
+	if err := okxOrderActionError("modify order", resp[0]); err != nil {
+		return nil, err
+	}
 
 	return &exchanges.Order{
 		OrderID:       resp[0].OrdId,
@@ -580,9 +616,21 @@ func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, param
 func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
 	instId := a.FormatSymbol(symbol)
 
+	a.mu.RLock()
+	inst, ok := a.instruments[instId]
+	a.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("missing instrument metadata for %s", instId)
+	}
+	instIdCode, err := okxInstrumentIDCode(inst, instId)
+	if err != nil {
+		return err
+	}
+
 	req := &okx.ModifyOrderRequest{
-		InstId: instId,
-		OrdId:  &orderID,
+		InstId:     instId,
+		InstIdCode: &instIdCode,
+		OrdId:      &orderID,
 	}
 	if params.Quantity.IsPositive() {
 		sz := fmt.Sprintf("%v", params.Quantity)
@@ -600,10 +648,7 @@ func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, par
 	if err != nil {
 		return err
 	}
-	if resp.SCode != "0" {
-		return fmt.Errorf("modify error: %s", resp.SMsg)
-	}
-	return nil
+	return okxOrderActionError("modify order", *resp)
 }
 
 func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
@@ -678,9 +723,14 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 		if end > len(reqs) {
 			end = len(reqs)
 		}
-		_, err := a.client.CancelOrders(ctx, reqs[i:end])
+		resp, err := a.client.CancelOrders(ctx, reqs[i:end])
 		if err != nil {
 			return err
+		}
+		for _, result := range resp {
+			if err := okxOrderActionError("cancel order", result); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -744,15 +794,26 @@ func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ti
 	}
 
 	t := res[0]
+	last := parseString(t.Last)
+	open := parseString(t.Open24h)
+	priceChange := decimal.Zero
+	priceChangePct := decimal.Zero
+	if open.IsPositive() {
+		priceChange = last.Sub(open)
+		priceChangePct = priceChange.Div(open).Mul(decimal.NewFromInt(100))
+	}
 	return &exchanges.Ticker{
-		Symbol:    symbol,
-		LastPrice: parseString(t.Last),
-		Bid:       parseString(t.BidPx),
-		Ask:       parseString(t.AskPx),
-		High24h:   parseString(t.High24h),
-		Low24h:    parseString(t.Low24h),
-		Volume24h: parseString(t.Vol24h),
-		Timestamp: parseTime(t.Ts),
+		Symbol:             symbol,
+		LastPrice:          last,
+		Bid:                parseString(t.BidPx),
+		Ask:                parseString(t.AskPx),
+		High24h:            parseString(t.High24h),
+		Low24h:             parseString(t.Low24h),
+		Volume24h:          parseString(t.Vol24h),
+		OpenPrice:          open,
+		PriceChange:        priceChange,
+		PriceChangePercent: priceChangePct,
+		Timestamp:          parseTime(t.Ts),
 	}, nil
 }
 
@@ -887,6 +948,56 @@ func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]
 		}
 	}
 	return res, nil
+}
+
+// FetchHistoricalTrades returns paginated historical public trades.
+// Uses OKX's /api/v5/market/history-trades endpoint in tradeId-cursor mode
+// (type=1) when FromID is set; otherwise timestamp-cursor mode (type=2).
+func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
+	instId := a.FormatSymbol(symbol)
+
+	typ := 1
+	var before, after string
+	limit := 100
+	if opts != nil {
+		if opts.Limit > 0 {
+			limit = opts.Limit
+		}
+		if opts.FromID != "" {
+			typ = 1
+			after = opts.FromID // older than this tradeId
+		} else if opts.Start != nil || opts.End != nil {
+			typ = 2
+			if opts.End != nil {
+				before = strconv.FormatInt(opts.End.UnixMilli(), 10)
+			}
+			if opts.Start != nil {
+				after = strconv.FormatInt(opts.Start.UnixMilli(), 10)
+			}
+		}
+	}
+
+	raw, err := a.client.GetHistoryTrades(ctx, instId, typ, before, after, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]exchanges.Trade, 0, len(raw))
+	for _, r := range raw {
+		side := exchanges.TradeSideBuy
+		if r.Side == "sell" {
+			side = exchanges.TradeSideSell
+		}
+		out = append(out, exchanges.Trade{
+			ID:        r.TradeId,
+			Symbol:    symbol,
+			Price:     parseString(r.Px),
+			Quantity:  parseString(r.Sz),
+			Side:      side,
+			Timestamp: parseTime(r.Ts),
+		})
+	}
+	return out, nil
 }
 
 // ================= WebSocket =================

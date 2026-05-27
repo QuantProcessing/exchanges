@@ -141,6 +141,14 @@ func (a *Adapter) FetchAllFundingRates(ctx context.Context) ([]exchanges.Funding
 	return out, nil
 }
 
+func (a *Adapter) FetchFundingRateHistory(context.Context, string, *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
+	return nil, exchanges.ErrNotSupported
+}
+
+func (a *Adapter) FetchOpenInterest(context.Context, string) (*exchanges.OpenInterest, error) {
+	return nil, exchanges.ErrNotSupported
+}
+
 func (a *Adapter) FetchPositions(context.Context) ([]exchanges.Position, error) {
 	return nil, exchanges.ErrNotSupported
 }
