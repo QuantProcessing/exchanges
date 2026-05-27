@@ -7,16 +7,25 @@ import (
 )
 
 func (c *Client) GetInstruments(ctx context.Context, category string) ([]Instrument, error) {
+	return c.GetInstrumentsForBase(ctx, category, "")
+}
+
+func (c *Client) GetInstrumentsForBase(ctx context.Context, category, baseCoin string) ([]Instrument, error) {
 	var out []Instrument
 	cursor := ""
 
 	for {
-		var resp responseEnvelope[InstrumentsResult]
-		err := c.get(ctx, "/v5/market/instruments-info", map[string]string{
+		query := map[string]string{
 			"category": category,
 			"limit":    strconv.Itoa(1000),
 			"cursor":   cursor,
-		}, &resp)
+		}
+		if baseCoin != "" {
+			query["baseCoin"] = baseCoin
+		}
+
+		var resp responseEnvelope[InstrumentsResult]
+		err := c.get(ctx, "/v5/market/instruments-info", query, &resp)
 		if err != nil {
 			return nil, err
 		}

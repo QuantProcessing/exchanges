@@ -37,6 +37,12 @@ func init() {
 		ModifyOrder:         true,
 		TradingAccountReady: true,
 	})
+	exchanges.RegisterCapabilities("BINANCE", exchanges.MarketTypeOption, exchanges.Capabilities{
+		FetchOptionContracts: true,
+		PlaceOrder:           true,
+		FetchOpenOrders:      true,
+		FetchOrderHistory:    true,
+	})
 	exchanges.Register("BINANCE", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			APIKey:        opts["api_key"],
@@ -48,6 +54,8 @@ func init() {
 			return NewAdapter(ctx, o)
 		case exchanges.MarketTypeSpot:
 			return NewSpotAdapter(ctx, o)
+		case exchanges.MarketTypeOption:
+			return NewOptionAdapter(ctx, o)
 		default:
 			return nil, fmt.Errorf("binance: unsupported market type %q", mt)
 		}

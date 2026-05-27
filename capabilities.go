@@ -12,21 +12,22 @@ import (
 // without a breaking interface change. A false value means either unsupported
 // or not claimed by the adapter.
 type Capabilities struct {
-	PlaceOrder          bool `json:"place_order"`
-	PlaceOrderWS        bool `json:"place_order_ws"`
-	CancelOrderWS       bool `json:"cancel_order_ws"`
-	WatchOrderBook      bool `json:"watch_order_book"`
-	WatchOrders         bool `json:"watch_orders"`
-	WatchFills          bool `json:"watch_fills"`
-	WatchPositions      bool `json:"watch_positions"`
-	WatchTicker         bool `json:"watch_ticker"`
-	WatchTrades         bool `json:"watch_trades"`
-	WatchKlines         bool `json:"watch_klines"`
-	FetchOpenOrders     bool `json:"fetch_open_orders"`
-	FetchOrderHistory   bool `json:"fetch_order_history"`
-	ModifyOrder         bool `json:"modify_order"`
-	TransferAsset       bool `json:"transfer_asset"`
-	TradingAccountReady bool `json:"trading_account_ready"`
+	PlaceOrder           bool `json:"place_order"`
+	PlaceOrderWS         bool `json:"place_order_ws"`
+	CancelOrderWS        bool `json:"cancel_order_ws"`
+	WatchOrderBook       bool `json:"watch_order_book"`
+	WatchOrders          bool `json:"watch_orders"`
+	WatchFills           bool `json:"watch_fills"`
+	WatchPositions       bool `json:"watch_positions"`
+	WatchTicker          bool `json:"watch_ticker"`
+	WatchTrades          bool `json:"watch_trades"`
+	WatchKlines          bool `json:"watch_klines"`
+	FetchOpenOrders      bool `json:"fetch_open_orders"`
+	FetchOrderHistory    bool `json:"fetch_order_history"`
+	FetchOptionContracts bool `json:"fetch_option_contracts"`
+	ModifyOrder          bool `json:"modify_order"`
+	TransferAsset        bool `json:"transfer_asset"`
+	TradingAccountReady  bool `json:"trading_account_ready"`
 }
 
 // CapabilityProvider is implemented by adapters that expose static support

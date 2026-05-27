@@ -93,8 +93,17 @@ const (
 type MarketType string
 
 const (
-	MarketTypeSpot MarketType = "spot" // Spot trading
-	MarketTypePerp MarketType = "perp" // Perpetual futures
+	MarketTypeSpot   MarketType = "spot"   // Spot trading
+	MarketTypePerp   MarketType = "perp"   // Perpetual futures
+	MarketTypeOption MarketType = "option" // Options contracts
+)
+
+// OptionType represents the call/put side of an option contract.
+type OptionType string
+
+const (
+	OptionTypeCall OptionType = "CALL"
+	OptionTypePut  OptionType = "PUT"
 )
 
 // AccountType represents an account type for asset transfers.
@@ -118,6 +127,28 @@ const (
 // ============================================================================
 // Data Structs
 // ============================================================================
+
+// OptionContract describes one listed option contract.
+//
+// Symbol is the repository-canonical contract symbol:
+// BASE-QUOTE-SETTLE-YYYYMMDD-STRIKE-C or BASE-QUOTE-SETTLE-YYYYMMDD-STRIKE-P.
+// ExchangeSymbol preserves the exchange-native contract symbol.
+type OptionContract struct {
+	Symbol         string          `json:"symbol"`
+	ExchangeSymbol string          `json:"exchange_symbol,omitempty"`
+	Underlying     string          `json:"underlying"`
+	BaseAsset      string          `json:"base_asset"`
+	QuoteAsset     string          `json:"quote_asset"`
+	SettleAsset    string          `json:"settle_asset"`
+	Type           OptionType      `json:"type"`
+	StrikePrice    decimal.Decimal `json:"strike_price"`
+	ExpiryTime     int64           `json:"expiry_time"`
+	ContractSize   decimal.Decimal `json:"contract_size"`
+	TickSize       decimal.Decimal `json:"tick_size"`
+	LotSize        decimal.Decimal `json:"lot_size"`
+	MinQuantity    decimal.Decimal `json:"min_quantity"`
+	Status         string          `json:"status"`
+}
 
 // Order represents a trading order with its current state.
 type Order struct {

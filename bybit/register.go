@@ -32,11 +32,18 @@ func init() {
 		FetchOrderHistory:   true,
 		TradingAccountReady: true,
 	})
+	exchanges.RegisterCapabilities("BYBIT", exchanges.MarketTypeOption, exchanges.Capabilities{
+		FetchOptionContracts: true,
+		PlaceOrder:           true,
+		FetchOpenOrders:      true,
+		FetchOrderHistory:    true,
+	})
 	exchanges.Register("BYBIT", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
-			APIKey:        opts["api_key"],
-			SecretKey:     opts["secret_key"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
+			APIKey:            opts["api_key"],
+			SecretKey:         opts["secret_key"],
+			QuoteCurrency:     exchanges.QuoteCurrency(opts["quote_currency"]),
+			OptionUnderlyings: parseOptionUnderlyings(opts["option_underlyings"]),
 		}
 
 		switch mt {
@@ -44,6 +51,8 @@ func init() {
 			return NewAdapter(ctx, o)
 		case exchanges.MarketTypeSpot:
 			return NewSpotAdapter(ctx, o)
+		case exchanges.MarketTypeOption:
+			return NewOptionAdapter(ctx, o)
 		default:
 			return nil, fmt.Errorf("bybit: unsupported market type %q", mt)
 		}

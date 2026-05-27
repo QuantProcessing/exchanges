@@ -151,7 +151,8 @@ func (b *BaseAdapter) GetSymbolDetail(symbol string) (*SymbolDetails, error) {
 }
 
 // ListSymbols returns all symbols in the symbol details cache.
-// These are base currency symbols (e.g. "BTC", "ETH") loaded at adapter init.
+// Spot/perp adapters use base currency symbols (e.g. "BTC", "ETH"). Option
+// adapters use canonical option contract symbols, including quote and settle.
 func (b *BaseAdapter) ListSymbols() []string {
 	b.symbolMu.RLock()
 	defer b.symbolMu.RUnlock()

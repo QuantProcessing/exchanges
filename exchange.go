@@ -14,8 +14,10 @@ import (
 // Exchange is the primary interface for strategy developers.
 // It provides a unified, CCXT-inspired API for interacting with any exchanges.
 //
-// Symbol convention: all methods accept a **base currency** symbol (e.g. "BTC",
-// "ETH"). The adapter handles conversion to echange-specific formats internally.
+// Symbol convention: spot and perpetual adapters accept a base currency symbol
+// (e.g. "BTC", "ETH"). Option adapters accept a contract symbol because expiry,
+// strike, and call/put side are part of the market identity. The adapter handles
+// conversion to exchange-specific formats internally.
 //
 // Method naming convention: Fetch* = REST query, Watch* = WebSocket subscription.
 type Exchange interface {
@@ -25,9 +27,11 @@ type Exchange interface {
 	Close() error
 
 	// === Symbol Mapping ===
-	// FormatSymbol converts a base symbol (e.g. "BTC") to exchange-specific format.
+	// FormatSymbol converts a base symbol, or an option contract symbol for
+	// MarketTypeOption adapters, to exchange-specific format.
 	FormatSymbol(symbol string) string
-	// ExtractSymbol converts an exchange-specific symbol back to base symbol.
+	// ExtractSymbol converts an exchange-specific symbol back to the canonical
+	// base symbol, or the canonical option contract symbol for MarketTypeOption.
 	ExtractSymbol(symbol string) string
 	// ListSymbols returns all symbols supported by this adapter.
 	ListSymbols() []string
@@ -90,6 +94,16 @@ type SpotExchange interface {
 	Exchange
 	FetchSpotBalances(ctx context.Context) ([]SpotBalance, error)
 	TransferAsset(ctx context.Context, params *TransferParams) error
+}
+
+// OptionExchange extends Exchange with option contract discovery.
+// Shared Exchange methods on option adapters accept contract symbols; use
+// ListOptionContracts for discovery. Passing an empty underlying requests all
+// contracts supported by the adapter.
+type OptionExchange interface {
+	Exchange
+	ListOptionContracts(ctx context.Context, underlying string) ([]OptionContract, error)
+	FetchOptionContract(ctx context.Context, contractSymbol string) (*OptionContract, error)
 }
 
 // Streamable provides WebSocket streaming capabilities.

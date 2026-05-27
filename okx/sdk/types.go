@@ -250,24 +250,26 @@ type OrderBook struct {
 }
 
 type Instrument struct {
-	InstId   string `json:"instId"`
-	Uly      string `json:"uly"`
-	BaseCcy  string `json:"baseCcy"`
-	QuoteCcy string `json:"quoteCcy"`
-	SettCcy  string `json:"settCcy"`
-	CtVal    string `json:"ctVal"`
-	CtMult   string `json:"ctMult"`
-	CtValCcy string `json:"ctValCcy"`
-	OptType  string `json:"optType"`
-	Stk      string `json:"stk"`
-	ListTime string `json:"listTime"`
-	ExpTime  string `json:"expTime"`
-	Leverage string `json:"leverage"`
-	TickSz   string `json:"tickSz"`
-	LotSz    string `json:"lotSz"`
-	MinSz    string `json:"minSz"`
-	InstType string `json:"instType"`
-	State    string `json:"state"`
+	InstId     string `json:"instId"`
+	Uly        string `json:"uly"`
+	InstFamily string `json:"instFamily"`
+	BaseCcy    string `json:"baseCcy"`
+	QuoteCcy   string `json:"quoteCcy"`
+	SettCcy    string `json:"settCcy"`
+	SettleCcy  string `json:"settleCcy"`
+	CtVal      string `json:"ctVal"`
+	CtMult     string `json:"ctMult"`
+	CtValCcy   string `json:"ctValCcy"`
+	OptType    string `json:"optType"`
+	Stk        string `json:"stk"`
+	ListTime   string `json:"listTime"`
+	ExpTime    string `json:"expTime"`
+	Leverage   string `json:"leverage"`
+	TickSz     string `json:"tickSz"`
+	LotSz      string `json:"lotSz"`
+	MinSz      string `json:"minSz"`
+	InstType   string `json:"instType"`
+	State      string `json:"state"`
 }
 
 // [0] ts
@@ -280,6 +282,15 @@ type Instrument struct {
 // [7] volume ccy quote
 // [8] confirm: 0 (not finish) or 1 (finish)
 type Candle [9]string
+
+type PublicTrade struct {
+	InstId  string `json:"instId"`
+	TradeId string `json:"tradeId"`
+	Px      string `json:"px"`
+	Sz      string `json:"sz"`
+	Side    string `json:"side"`
+	Ts      string `json:"ts"`
+}
 
 type FundingRate struct {
 	InstrumentType  string `json:"instType"`

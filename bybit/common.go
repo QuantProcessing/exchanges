@@ -18,6 +18,7 @@ const exchangeName = "BYBIT"
 const (
 	categorySpot            = "spot"
 	categoryLinear          = "linear"
+	categoryOption          = "option"
 	instrumentStatusTrading = "Trading"
 )
 

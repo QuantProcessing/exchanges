@@ -83,4 +83,41 @@ func TestRegisteredCapabilitiesCaptureAdapterDifferences(t *testing.T) {
 	require.True(t, okxPerp.PlaceOrderWS)
 	require.False(t, okxPerp.WatchTrades)
 	require.False(t, okxPerp.WatchKlines)
+
+	deribitPerp, ok := exchanges.LookupCapabilities("DERIBIT", exchanges.MarketTypePerp)
+	require.True(t, ok)
+	require.False(t, deribitPerp.PlaceOrder)
+	require.False(t, deribitPerp.WatchOrderBook)
+	require.False(t, deribitPerp.TradingAccountReady)
+}
+
+func TestRegisteredOptionCapabilitiesExposeRESTTradingOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, exchange := range []string{"BINANCE", "OKX", "BYBIT", "DERIBIT"} {
+		exchange := exchange
+		t.Run(exchange, func(t *testing.T) {
+			t.Parallel()
+
+			caps, ok := exchanges.LookupCapabilities(exchange, exchanges.MarketTypeOption)
+			require.True(t, ok)
+			require.True(t, caps.FetchOptionContracts)
+			require.True(t, caps.PlaceOrder)
+			require.True(t, caps.FetchOpenOrders)
+			require.False(t, caps.PlaceOrderWS)
+			require.False(t, caps.WatchOrderBook)
+			require.False(t, caps.WatchOrders)
+			require.False(t, caps.WatchFills)
+			require.False(t, caps.WatchPositions)
+			require.False(t, caps.TradingAccountReady)
+			if exchange == "BYBIT" || exchange == "BINANCE" || exchange == "DERIBIT" {
+				require.True(t, caps.FetchOrderHistory)
+			} else {
+				require.False(t, caps.FetchOrderHistory)
+			}
+		})
+	}
+
+	_, ok := exchanges.LookupCapabilities("BITGET", exchanges.MarketTypeOption)
+	require.False(t, ok)
 }

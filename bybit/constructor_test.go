@@ -82,22 +82,23 @@ func testLinearInstrument() sdk.Instrument {
 }
 
 type bybitStubClient struct {
-	getInstrumentsFn    func(context.Context, string) ([]sdk.Instrument, error)
-	getTickerFn         func(context.Context, string, string) (*sdk.Ticker, error)
-	getOrderBookFn      func(context.Context, string, string, int) (*sdk.OrderBook, error)
-	getRecentTradesFn   func(context.Context, string, string, int) ([]sdk.PublicTrade, error)
-	getKlinesFn         func(context.Context, string, string, string, int64, int64, int) ([]sdk.Candle, error)
-	getWalletBalanceFn  func(context.Context, string, string) (*sdk.WalletBalanceResult, error)
-	getFeeRatesFn       func(context.Context, string, string) ([]sdk.FeeRateRecord, error)
-	getPositionsFn      func(context.Context, string, string, string) ([]sdk.PositionRecord, error)
-	setLeverageFn       func(context.Context, sdk.SetLeverageRequest) error
-	placeOrderFn        func(context.Context, sdk.PlaceOrderRequest) (*sdk.OrderActionResponse, error)
-	cancelOrderFn       func(context.Context, sdk.CancelOrderRequest) (*sdk.OrderActionResponse, error)
-	cancelAllOrdersFn   func(context.Context, sdk.CancelAllOrdersRequest) error
-	amendOrderFn        func(context.Context, sdk.AmendOrderRequest) (*sdk.OrderActionResponse, error)
-	getOpenOrdersFn     func(context.Context, string, string) ([]sdk.OrderRecord, error)
-	getOrderHistoryFn   func(context.Context, string, string) ([]sdk.OrderRecord, error)
-	getRealtimeOrdersFn func(context.Context, string, string, string, string, string, int) ([]sdk.OrderRecord, error)
+	getInstrumentsFn        func(context.Context, string) ([]sdk.Instrument, error)
+	getInstrumentsForBaseFn func(context.Context, string, string) ([]sdk.Instrument, error)
+	getTickerFn             func(context.Context, string, string) (*sdk.Ticker, error)
+	getOrderBookFn          func(context.Context, string, string, int) (*sdk.OrderBook, error)
+	getRecentTradesFn       func(context.Context, string, string, int) ([]sdk.PublicTrade, error)
+	getKlinesFn             func(context.Context, string, string, string, int64, int64, int) ([]sdk.Candle, error)
+	getWalletBalanceFn      func(context.Context, string, string) (*sdk.WalletBalanceResult, error)
+	getFeeRatesFn           func(context.Context, string, string) ([]sdk.FeeRateRecord, error)
+	getPositionsFn          func(context.Context, string, string, string) ([]sdk.PositionRecord, error)
+	setLeverageFn           func(context.Context, sdk.SetLeverageRequest) error
+	placeOrderFn            func(context.Context, sdk.PlaceOrderRequest) (*sdk.OrderActionResponse, error)
+	cancelOrderFn           func(context.Context, sdk.CancelOrderRequest) (*sdk.OrderActionResponse, error)
+	cancelAllOrdersFn       func(context.Context, sdk.CancelAllOrdersRequest) error
+	amendOrderFn            func(context.Context, sdk.AmendOrderRequest) (*sdk.OrderActionResponse, error)
+	getOpenOrdersFn         func(context.Context, string, string) ([]sdk.OrderRecord, error)
+	getOrderHistoryFn       func(context.Context, string, string) ([]sdk.OrderRecord, error)
+	getRealtimeOrdersFn     func(context.Context, string, string, string, string, string, int) ([]sdk.OrderRecord, error)
 }
 
 func (c *bybitStubClient) GetInstruments(ctx context.Context, category string) ([]sdk.Instrument, error) {
@@ -105,6 +106,13 @@ func (c *bybitStubClient) GetInstruments(ctx context.Context, category string) (
 		panic("unexpected GetInstruments call")
 	}
 	return c.getInstrumentsFn(ctx, category)
+}
+
+func (c *bybitStubClient) GetInstrumentsForBase(ctx context.Context, category, baseCoin string) ([]sdk.Instrument, error) {
+	if c.getInstrumentsForBaseFn != nil {
+		return c.getInstrumentsForBaseFn(ctx, category, baseCoin)
+	}
+	return c.GetInstruments(ctx, category)
 }
 
 func (c *bybitStubClient) HasCredentials() bool {
