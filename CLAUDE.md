@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository
 
-Go SDK (`github.com/QuantProcessing/exchanges`, Go 1.26) that gives one unified `Exchange` interface across many crypto venues: Binance, OKX, Aster, Nado, Lighter, Hyperliquid, Bitget, Bybit, StandX, GRVT, EdgeX, Decibel, Backpack. Designed as a Go-native CCXT alternative for a quantitative trading stack.
+Go SDK (`github.com/QuantProcessing/exchanges`, Go 1.26) that gives one unified `Exchange` interface across many crypto venues: Binance, OKX, Aster, Nado, Lighter, Hyperliquid, Bitget, Bybit, StandX, GRVT, EdgeX, Backpack. Designed as a Go-native CCXT alternative for a quantitative trading stack.
 
 ## Architecture
 

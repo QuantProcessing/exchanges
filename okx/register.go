@@ -8,6 +8,31 @@ import (
 )
 
 func init() {
+	exchanges.RegisterCapabilities("OKX", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		WatchTicker:         true,
+		FetchOpenOrders:     true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
+	exchanges.RegisterCapabilities("OKX", exchanges.MarketTypeSpot, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchTicker:         true,
+		FetchOpenOrders:     true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
 	exchanges.Register("OKX", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
 		o := Options{
 			APIKey:        opts["api_key"],
@@ -20,6 +45,8 @@ func init() {
 			return NewAdapter(ctx, o)
 		case exchanges.MarketTypeSpot:
 			return NewSpotAdapter(ctx, o)
+		case exchanges.MarketTypeOption:
+			return NewOptionAdapter(ctx, o)
 		default:
 			return nil, fmt.Errorf("okx: unsupported market type %q", mt)
 		}

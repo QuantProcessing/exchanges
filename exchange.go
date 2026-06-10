@@ -103,6 +103,35 @@ type SpotExchange interface {
 	TransferAsset(ctx context.Context, params *TransferParams) error
 }
 
+// OptionExchange extends Exchange with option-specific capabilities.
+//
+// Symbol convention reminder: like the rest of the library, the unified
+// methods on Exchange take a base symbol (e.g. "BTC"). Option-specific
+// instruments are addressed by *OptionInstrument; FormatInstrument and
+// ParseInstrument bridge the typed form with the venue's wire string ID
+// (e.g. "BTC-251226-100000-C"). Use the typed form whenever possible —
+// the string form is only for transport and storage.
+//
+// Use type assertion: if opt, ok := adp.(exchanges.OptionExchange); ok { ... }
+type OptionExchange interface {
+	Exchange
+
+	// Market data
+	FetchOptionChain(ctx context.Context, underlying string, opts *OptionChainOpts) ([]OptionInstrument, error)
+	FetchExpirations(ctx context.Context, underlying string) ([]time.Time, error)
+	FetchGreeks(ctx context.Context, instrumentID string) (*Greeks, error)
+	FetchOptionMark(ctx context.Context, instrumentID string) (*OptionMark, error)
+
+	// Account — returns Positions with InstrumentType == InstrumentTypeOption
+	// and Option != nil. Adapters that share user-data with perp markets must
+	// filter to options-only here.
+	FetchOptionPositions(ctx context.Context) ([]Position, error)
+
+	// Instrument ID parsing — must be a perfect round-trip.
+	FormatInstrument(inst *OptionInstrument) string
+	ParseInstrument(id string) (*OptionInstrument, error)
+}
+
 // Streamable provides WebSocket streaming capabilities.
 // All Watch methods accept a callback. Not all exchanges support all stream types.
 type Streamable interface {

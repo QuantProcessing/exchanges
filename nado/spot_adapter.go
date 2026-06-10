@@ -313,13 +313,14 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 		}
 
 		account.Positions = append(account.Positions, exchanges.Position{
-			Symbol:        symbol,
-			Side:          side,
-			Quantity:      quantity,
-			EntryPrice:    decimal.NewFromFloat(entryPrice),
-			UnrealizedPnL: unrealizedPnl,
-			RealizedPnL:   decimal.NewFromFloat(realizedPnL),
-			MarginType:    "CROSS",
+			InstrumentType: exchanges.InstrumentTypeSpot,
+			Symbol:         symbol,
+			Side:           side,
+			Quantity:       quantity,
+			EntryPrice:     decimal.NewFromFloat(entryPrice),
+			UnrealizedPnL:  unrealizedPnl,
+			RealizedPnL:    decimal.NewFromFloat(realizedPnL),
+			MarginType:     "CROSS",
 		})
 	}
 
@@ -867,10 +868,11 @@ func (a *SpotAdapter) WatchPositions(ctx context.Context, callback exchanges.Pos
 		}
 
 		callback(&exchanges.Position{
-			Symbol:     a.getSymbol(d.ProductId),
-			Side:       side,
-			Quantity:   amount,
-			EntryPrice: entry,
+			InstrumentType: exchanges.InstrumentTypeSpot,
+			Symbol:         a.getSymbol(d.ProductId),
+			Side:           side,
+			Quantity:       amount,
+			EntryPrice:     entry,
 		})
 	})
 }

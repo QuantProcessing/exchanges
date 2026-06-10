@@ -62,7 +62,7 @@ func TestPerpAdapter_TradingAccountPostOnlyTopOfBookTerminalRefusal(t *testing.T
 	defer adp.Close()
 
 	ctx := context.Background()
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(ctx))
 	defer acct.Close()
 
@@ -80,7 +80,7 @@ func TestPerpAdapter_TradingAccountPostOnlyTopOfBookTerminalRefusal(t *testing.T
 	tick := decimal.New(1, -details.PricePrecision)
 	rejectPrice = exchanges.RoundToPrecision(rejectPrice.Add(tick), details.PricePrecision)
 
-	flow, err := acct.Place(ctx, &exchanges.OrderParams{
+	flow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:      "DOGE",
 		Side:        exchanges.OrderSideBuy,
 		Type:        exchanges.OrderTypeLimit,

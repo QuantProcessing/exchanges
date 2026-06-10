@@ -95,6 +95,16 @@ Preferred lookup order for `FetchOrderByID`:
 2. authenticated order history or broader order-list endpoint that includes terminal states
 3. symbol-scoped history/list endpoint that can still resolve the order
 
+## Position.InstrumentType Is Mandatory
+
+Every `exchanges.Position` value an adapter returns — whether from
+`FetchPositions`, `WatchPositions`, or as part of `FetchAccount` — MUST set
+`InstrumentType`. Use `exchanges.InstrumentTypePerp` for perp adapters,
+`InstrumentTypeSpot` for synthesized spot "positions", and
+`InstrumentTypeOption` for option adapters (where `Position.Option` is also
+required). The zero value is reserved as a programming error and rejected
+by the compliance suites.
+
 ## Private Streams And TradingAccount
 
 `TradingAccount` depends on adapter behavior. It is not a separate adapter interface.

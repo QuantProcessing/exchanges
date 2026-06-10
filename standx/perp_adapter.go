@@ -186,6 +186,7 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 			side = exchanges.PositionSideShort
 		}
 		acc.Positions = append(acc.Positions, exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           a.toAdapterSymbol(p.Symbol),
 			Side:             side,
 			Quantity:         size,
@@ -235,6 +236,7 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 			side = exchanges.PositionSideShort
 		}
 		res = append(res, exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           a.toAdapterSymbol(p.Symbol),
 			Side:             side,
 			Quantity:         size,
@@ -673,6 +675,7 @@ func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.Positio
 		}
 		// Map Position
 		pos := exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           a.toAdapterSymbol(p.Symbol),
 			Side:             side,
 			Quantity:         qty,

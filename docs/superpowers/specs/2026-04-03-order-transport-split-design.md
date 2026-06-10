@@ -365,22 +365,6 @@ Adapters that support only a subset of WS writes should expose that subset hones
 
 No method may silently downgrade to REST.
 
-### Non-REST, non-WS write transports
-
-This repository already has at least one important exception:
-
-- `decibel` writes through Aptos transaction submission rather than REST or WS
-
-This design does not try to force a fake REST/WS classification onto that adapter.
-
-For this rollout, the repository should explicitly document Decibel as a controlled exception:
-
-- `PlaceOrder`, `CancelOrder`, and any related non-WS write methods remain its primary write surface
-- `*WS` methods return `ErrNotSupported`
-- the adapter documentation must state that its primary write path is chain-backed rather than REST-backed
-
-This exception is preferable to lying about the transport semantics.
-
 ## Shared Helper And Documentation Changes
 
 The repository should update:
@@ -467,9 +451,8 @@ Recommended rollout order:
 4. Add `LocalState.PlaceOrderWS`.
 5. Migrate dual-transport adapters to explicit `*WS` methods.
 6. Migrate REST-only adapters to return `ErrNotSupported` for `*WS`.
-7. Keep Decibel as a documented exception for non-WS primary writes.
-8. Add targeted WS write-path tests.
-9. Re-run focused repository tests and selected adapter package tests.
+7. Add targeted WS write-path tests.
+8. Re-run focused repository tests and selected adapter package tests.
 
 ## Open Questions Resolved
 

@@ -97,8 +97,9 @@ const (
 type MarketType string
 
 const (
-	MarketTypeSpot MarketType = "spot" // Spot trading
-	MarketTypePerp MarketType = "perp" // Perpetual futures
+	MarketTypeSpot   MarketType = "spot"   // Spot trading
+	MarketTypePerp   MarketType = "perp"   // Perpetual futures
+	MarketTypeOption MarketType = "option" // European/American options
 )
 
 // AccountType represents an account type for asset transfers.
@@ -141,6 +142,7 @@ type Order struct {
 	Fee              decimal.Decimal `json:"fee,omitempty"`
 	ClientOrderID    string          `json:"client_order_id,omitempty"`
 	ReduceOnly       bool            `json:"reduce_only,omitempty"`
+	PostOnly         bool            `json:"post_only,omitempty"`
 	TimeInForce      TimeInForce     `json:"time_in_force,omitempty"`
 }
 
@@ -159,9 +161,15 @@ type Fill struct {
 	Timestamp     int64           `json:"timestamp"`
 }
 
-// Position represents an open position in a perpetual futures market.
+// Position represents an open position in a leveraged or option market.
+//
+// InstrumentType is a mandatory discriminator: adapters MUST set it, and
+// consumers can branch on it to interpret the market-specific fields.
+// For options, Option != nil and carries strike/expiry/Greeks; for perps
+// and futures, Leverage / LiquidationPrice are meaningful and Option is nil.
 type Position struct {
 	Symbol            string          `json:"symbol"`
+	InstrumentType    InstrumentType  `json:"instrument_type"` // spot/perp/future/option — mandatory
 	Side              PositionSide    `json:"side"`
 	Quantity          decimal.Decimal `json:"quantity"`
 	EntryPrice        decimal.Decimal `json:"entry_price"`
@@ -171,6 +179,9 @@ type Position struct {
 	Leverage          decimal.Decimal `json:"leverage,omitempty"`
 	MaintenanceMargin decimal.Decimal `json:"maintenance_margin,omitempty"`
 	MarginType        string          `json:"margin_type,omitempty"` // ISOLATED or CROSSED
+
+	// Option is the option-specific payload. Non-nil iff InstrumentType == InstrumentTypeOption.
+	Option *OptionPositionData `json:"option,omitempty"`
 }
 
 // Account represents a trading account summary.
@@ -375,6 +386,7 @@ type OrderParams struct {
 	Price       decimal.Decimal // Required for LIMIT; optional reference price for MARKET and slippage conversion
 	TimeInForce TimeInForce     // Default: GTC for LIMIT
 	ReduceOnly  bool
+	PostOnly    bool
 	Slippage    decimal.Decimal // If > 0 and Type == MARKET, auto-applies slippage logic
 	ClientID    string          // Client-defined order ID
 }

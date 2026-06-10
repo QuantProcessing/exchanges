@@ -26,13 +26,13 @@ func ExampleOrderFlow_Fills() {
 		},
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	if err := acct.Start(ctx); err != nil {
 		panic(err)
 	}
 	defer acct.Close()
 
-	flow, err := acct.Place(ctx, &exchanges.OrderParams{
+	flow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,

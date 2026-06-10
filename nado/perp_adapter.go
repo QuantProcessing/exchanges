@@ -327,13 +327,14 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 		}
 
 		account.Positions = append(account.Positions, exchanges.Position{
-			Symbol:        symbol,
-			Side:          side,
-			Quantity:      quantity,
-			EntryPrice:    decimal.NewFromFloat(entryPrice),
-			UnrealizedPnL: unrealizedPnl,
-			RealizedPnL:   decimal.NewFromFloat(realizedPnL),
-			MarginType:    "CROSS",
+			InstrumentType: exchanges.InstrumentTypePerp,
+			Symbol:         symbol,
+			Side:           side,
+			Quantity:       quantity,
+			EntryPrice:     decimal.NewFromFloat(entryPrice),
+			UnrealizedPnL:  unrealizedPnl,
+			RealizedPnL:    decimal.NewFromFloat(realizedPnL),
+			MarginType:     "CROSS",
 		})
 	}
 
@@ -943,10 +944,11 @@ func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.Positio
 		}
 
 		callback(&exchanges.Position{
-			Symbol:     a.getSymbol(d.ProductId),
-			Side:       side,
-			Quantity:   amount,
-			EntryPrice: entry,
+			InstrumentType: exchanges.InstrumentTypePerp,
+			Symbol:         a.getSymbol(d.ProductId),
+			Side:           side,
+			Quantity:       amount,
+			EntryPrice:     entry,
 		})
 	})
 }
@@ -1447,4 +1449,3 @@ func (a *Adapter) requirePrivateAccess() error {
 	}
 	return nil
 }
-

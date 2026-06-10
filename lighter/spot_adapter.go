@@ -255,9 +255,10 @@ func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, err
 			continue
 		}
 		positions = append(positions, exchanges.Position{
-			Symbol:   sym,
-			Side:     exchanges.PositionSideLong,
-			Quantity: qty,
+			InstrumentType: exchanges.InstrumentTypeSpot,
+			Symbol:         sym,
+			Side:           exchanges.PositionSideLong,
+			Quantity:       qty,
 		})
 	}
 	account.Positions = positions

@@ -107,6 +107,7 @@ func mapPosition(raw sdk.Position) exchanges.Position {
 		qty = qty.Abs()
 	}
 	return exchanges.Position{
+		InstrumentType:   exchanges.InstrumentTypePerp,
 		Symbol:           extractBaseSymbol(raw.Symbol),
 		Side:             side,
 		Quantity:         qty,
@@ -126,12 +127,13 @@ func mapPositionUpdate(raw sdk.PositionUpdateEvent) *exchanges.Position {
 	}
 
 	return &exchanges.Position{
-		Symbol:        extractBaseSymbol(raw.Symbol),
-		Side:          side,
-		Quantity:      qty,
-		EntryPrice:    parseDecimal(raw.EntryPrice.String()),
-		UnrealizedPnL: parseDecimal(raw.PnlUnrealized.String()),
-		RealizedPnL:   parseDecimal(raw.PnlRealized.String()),
+		InstrumentType: exchanges.InstrumentTypePerp,
+		Symbol:         extractBaseSymbol(raw.Symbol),
+		Side:           side,
+		Quantity:       qty,
+		EntryPrice:     parseDecimal(raw.EntryPrice.String()),
+		UnrealizedPnL:  parseDecimal(raw.PnlUnrealized.String()),
+		RealizedPnL:    parseDecimal(raw.PnlRealized.String()),
 	}
 }
 

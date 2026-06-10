@@ -260,6 +260,7 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 		}
 
 		account.Positions = append(account.Positions, exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           p.Symbol,
 			Side:             side,
 			Quantity:         qty,
@@ -1133,6 +1134,7 @@ func (a *Adapter) mapPosition(p *lighter.Position) *exchanges.Position {
 		marginType = "ISOLATED"
 	}
 	return &exchanges.Position{
+		InstrumentType:   exchanges.InstrumentTypePerp,
 		Symbol:           p.Symbol,
 		Side:             side,
 		Quantity:         qty,

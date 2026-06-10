@@ -254,6 +254,7 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 		}
 
 		account.Positions = append(account.Positions, exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           symbol,
 			Side:             side,
 			Quantity:         size,
@@ -645,11 +646,12 @@ func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.Positio
 			}
 
 			callback(&exchanges.Position{
-				Symbol:     symbol,
-				Side:       side,
-				Quantity:   size,
-				EntryPrice: entryPrice,
-				MarginType: "CROSSED",
+				InstrumentType: exchanges.InstrumentTypePerp,
+				Symbol:         symbol,
+				Side:           side,
+				Quantity:       size,
+				EntryPrice:     entryPrice,
+				MarginType:     "CROSSED",
 			})
 		}
 	})

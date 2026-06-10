@@ -12,7 +12,7 @@
 
 **Tech Stack:** Go 1.26, `github.com/shopspring/decimal`, `github.com/stretchr/testify`. Reference: Binance Futures USD-M REST docs (`/fapi/v1/openInterest`, `/fapi/v1/fundingRate`, `/fapi/v1/ticker/24hr`, `/fapi/v1/aggTrades`); OKX v5 REST docs (`/api/v5/public/open-interest`, `/api/v5/public/funding-rate-history`, `/api/v5/market/ticker`, `/api/v5/market/history-trades`).
 
-**Scope boundary:** This plan produces a shippable slice. Remaining perp adapters (aster/bitget/bybit/nado/lighter/hyperliquid/standx/grvt/edgex/decibel/backpack) get `ErrNotSupported` stubs so the codebase compiles; their real implementations are follow-up plans. Spot adapters get only the Ticker field additions (mostly a no-op since most don't populate these fields today) and the `FetchHistoricalTrades` `ErrNotSupported` default via `BaseAdapter`.
+**Scope boundary:** This plan produces a shippable slice. Remaining perp adapters (aster/bitget/bybit/nado/lighter/hyperliquid/standx/grvt/edgex/backpack) get `ErrNotSupported` stubs so the codebase compiles; their real implementations are follow-up plans. Spot adapters get only the Ticker field additions (mostly a no-op since most don't populate these fields today) and the `FetchHistoricalTrades` `ErrNotSupported` default via `BaseAdapter`.
 
 ---
 
@@ -33,7 +33,7 @@
 - `okx/funding.go` — add `FetchFundingRateHistory`.
 - `okx/perp_adapter.go` — add `FetchOpenInterest`, populate new `Ticker` fields, add `FetchHistoricalTrades`.
 - `okx/adapter_test.go` — wire `RunAnalyticsComplianceTests`.
-- `aster/perp_adapter.go`, `bitget/perp_adapter.go`, `bybit/perp_adapter.go`, `nado/perp_adapter.go`, `lighter/perp_adapter.go`, `hyperliquid/perp_adapter.go`, `standx/perp_adapter.go`, `grvt/perp_adapter.go`, `edgex/perp_adapter.go`, `decibel/perp_adapter.go`, `backpack/perp_adapter.go` — add `FetchOpenInterest` + `FetchFundingRateHistory` stubs.
+- `aster/perp_adapter.go`, `bitget/perp_adapter.go`, `bybit/perp_adapter.go`, `nado/perp_adapter.go`, `lighter/perp_adapter.go`, `hyperliquid/perp_adapter.go`, `standx/perp_adapter.go`, `grvt/perp_adapter.go`, `edgex/perp_adapter.go`, `backpack/perp_adapter.go` — add `FetchOpenInterest` + `FetchFundingRateHistory` stubs.
 
 **Create:**
 - `testsuite/analytics_suite.go` — shared compliance tests.
@@ -1573,10 +1573,10 @@ git commit -m "Lighter + Hyperliquid + StandX: ErrNotSupported stubs for new Per
 
 ---
 
-### Task 14: Add stubs to GRVT, EdgeX, Decibel, Backpack
+### Task 14: Add stubs to GRVT, EdgeX, Backpack
 
 **Files:**
-- Modify: `grvt/perp_adapter.go`, `edgex/perp_adapter.go`, `decibel/perp_adapter.go`, `backpack/perp_adapter.go`
+- Modify: `grvt/perp_adapter.go`, `edgex/perp_adapter.go`, `backpack/perp_adapter.go`
 
 - [ ] **Step 1: Append the same two-method stub block to each file.**
 
@@ -1584,7 +1584,7 @@ Note: GRVT and EdgeX are behind build tags. Make sure the stub is added inside t
 
 - [ ] **Step 2: Compile check — default tags**
 
-Run: `go build ./decibel/... ./backpack/...`
+Run: `go build ./backpack/...`
 Expected: SUCCESS.
 
 - [ ] **Step 3: Compile check — behind build tags**
@@ -1600,8 +1600,8 @@ Expected: SUCCESS (everything compiles).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add grvt/perp_adapter.go edgex/perp_adapter.go decibel/perp_adapter.go backpack/perp_adapter.go
-git commit -m "GRVT + EdgeX + Decibel + Backpack: ErrNotSupported stubs for new PerpExchange analytics methods"
+git add grvt/perp_adapter.go edgex/perp_adapter.go backpack/perp_adapter.go
+git commit -m "GRVT + EdgeX + Backpack: ErrNotSupported stubs for new PerpExchange analytics methods"
 ```
 
 ---

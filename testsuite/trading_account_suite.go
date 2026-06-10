@@ -21,19 +21,39 @@ type TradingAccountConfig struct {
 	AllowNegativeBalance bool
 }
 
+// RunTradingAccountSuite dispatches to the perp or spot implementation
+// based on the adapter's declared market type, so adapter tests can keep
+// a single entry point.
 func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAccountConfig) {
 	require.NotEmpty(t, cfg.Symbol, "Symbol must be set")
 
+	switch adp.GetMarketType() {
+	case exchanges.MarketTypePerp:
+		perp, ok := adp.(exchanges.PerpExchange)
+		require.True(t, ok, "perp market type adapter must implement PerpExchange")
+		runPerpTradingAccountSuite(t, perp, cfg)
+	case exchanges.MarketTypeSpot:
+		spot, ok := adp.(exchanges.SpotExchange)
+		require.True(t, ok, "spot market type adapter must implement SpotExchange")
+		runSpotTradingAccountSuite(t, spot, cfg)
+	default:
+		t.Fatalf("RunTradingAccountSuite: unsupported market type %q", adp.GetMarketType())
+	}
+}
+
+// =============================================================================
+// Perp suite
+// =============================================================================
+
+func runPerpTradingAccountSuite(t *testing.T, adp exchanges.PerpExchange, cfg TradingAccountConfig) {
 	ctx := context.Background()
-	isPerp := adp.GetMarketType() == exchanges.MarketTypePerp
 
-	t.Log("═══ Phase 1: Start TradingAccount ═══")
+	t.Log("═══ Phase 1: Start PerpTradingAccount ═══")
 
-	acct := account.NewTradingAccount(adp, nil)
-	err := acct.Start(ctx)
-	require.NoError(t, err, "TradingAccount.Start should succeed")
+	acct := account.NewPerpTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(ctx), "PerpTradingAccount.Start should succeed")
 	defer acct.Close()
-	t.Log("✓ TradingAccount started (REST snapshot + WS subscriptions)")
+	t.Log("✓ PerpTradingAccount started (REST snapshot + WS subscriptions)")
 
 	time.Sleep(2 * time.Second)
 
@@ -57,34 +77,32 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	t.Logf("  Open orders: %d", len(openOrders))
 	t.Log("✓ Initial state queries OK")
 
-	if isPerp {
-		if pos, ok := acct.Position(cfg.Symbol); ok && pos.Quantity.IsPositive() {
-			t.Log("═══ Phase 2b: Flatten pre-existing position ═══")
+	if pos, ok := acct.Position(cfg.Symbol); ok && pos.Quantity.IsPositive() {
+		t.Log("═══ Phase 2b: Flatten pre-existing position ═══")
 
-			closeSide := exchanges.OrderSideSell
-			if pos.Side == exchanges.PositionSideShort {
-				closeSide = exchanges.OrderSideBuy
-			}
-
-			t.Logf("  Flattening existing %s position qty=%s", pos.Side, pos.Quantity)
-			flattenFlow, err := acct.Place(ctx, &exchanges.OrderParams{
-				Symbol:     cfg.Symbol,
-				Side:       closeSide,
-				Type:       exchanges.OrderTypeMarket,
-				Quantity:   pos.Quantity,
-				ReduceOnly: true,
-			})
-			require.NoError(t, err, "Pre-test position cleanup should succeed")
-			defer flattenFlow.Close()
-
-			_, err = flattenFlow.Wait(ctx, func(o *exchanges.Order) bool {
-				return o.Status == exchanges.OrderStatusFilled
-			})
-			require.NoError(t, err, "Pre-test cleanup order should fill")
-			t.Log("✓ Pre-existing position flattened")
-
-			time.Sleep(2 * time.Second)
+		closeSide := exchanges.OrderSideSell
+		if pos.Side == exchanges.PositionSideShort {
+			closeSide = exchanges.OrderSideBuy
 		}
+
+		t.Logf("  Flattening existing %s position qty=%s", pos.Side, pos.Quantity)
+		flattenFlow, err := acct.Place(ctx, &account.PerpOrderParams{
+			Symbol:     cfg.Symbol,
+			Side:       closeSide,
+			Type:       exchanges.OrderTypeMarket,
+			Quantity:   pos.Quantity,
+			ReduceOnly: true,
+		})
+		require.NoError(t, err, "Pre-test position cleanup should succeed")
+		defer flattenFlow.Close()
+
+		_, err = flattenFlow.Wait(ctx, func(o *exchanges.Order) bool {
+			return o.Status == exchanges.OrderStatusFilled
+		})
+		require.NoError(t, err, "Pre-test cleanup order should fill")
+		t.Log("✓ Pre-existing position flattened")
+
+		time.Sleep(2 * time.Second)
 	}
 
 	t.Log("═══ Phase 3: Test SubscribeOrders fan-out ═══")
@@ -104,7 +122,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	}
 	t.Logf("  Symbol=%s  Qty=%s  RefPrice=%s", cfg.Symbol, qty, lastPrice)
 
-	flow, err := acct.Place(ctx, &exchanges.OrderParams{
+	flow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:   cfg.Symbol,
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeMarket,
@@ -123,42 +141,17 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	assert.Equal(t, exchanges.OrderStatusFilled, filled.Status)
 	t.Logf("✓ OrderFlow.Wait returned FILLED: qty=%s", filled.FilledQuantity)
 
-	verifySub := func(name string, sub *account.Subscription[exchanges.Order]) {
-		timer := time.After(3 * time.Second)
-		for {
-			select {
-			case o := <-sub.C:
-				if o.OrderID == placed.OrderID || o.ClientOrderID == placed.ClientOrderID {
-					t.Logf("  %s received: ID=%s Status=%s", name, o.OrderID, o.Status)
-					if o.Status == exchanges.OrderStatusFilled ||
-						o.Status == exchanges.OrderStatusCancelled ||
-						o.Status == exchanges.OrderStatusRejected {
-						return
-					}
-				}
-			case <-timer:
-				t.Logf("  %s: no terminal event within 3s (may have been consumed)", name)
-				return
-			}
-		}
-	}
-	verifySub("sub1", sub1)
-	verifySub("sub2", sub2)
+	verifyOrderSubFanout(t, "sub1", sub1, placed)
+	verifyOrderSubFanout(t, "sub2", sub2, placed)
 	t.Log("✓ Fan-out verified")
 
-	t.Log("═══ Phase 5: Verify position via TradingAccount ═══")
+	t.Log("═══ Phase 5: Verify position via PerpTradingAccount ═══")
 
 	time.Sleep(2 * time.Second)
-
-	if isPerp {
-		pos, ok := acct.Position(cfg.Symbol)
-		if ok && pos.Quantity.IsPositive() {
-			t.Logf("✓ Position tracked: side=%s qty=%s entry=%s", pos.Side, pos.Quantity, pos.EntryPrice)
-		} else {
-			t.Log("  Position not yet in TradingAccount (may need WatchPositions support)")
-		}
+	if pos, ok := acct.Position(cfg.Symbol); ok && pos.Quantity.IsPositive() {
+		t.Logf("✓ Position tracked: side=%s qty=%s entry=%s", pos.Side, pos.Quantity, pos.EntryPrice)
 	} else {
-		t.Log("  Spot: position tracking via balance change")
+		t.Log("  Position not yet in PerpTradingAccount (may need WatchPositions support)")
 	}
 
 	t.Log("═══ Phase 6: Limit order + Cancel ═══")
@@ -171,7 +164,7 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 	}
 	t.Logf("  Passive limit price: %s (well below market)", limitPrice)
 
-	limitFlow, err := acct.Place(ctx, &exchanges.OrderParams{
+	limitFlow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:   cfg.Symbol,
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -186,11 +179,10 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	time.Sleep(2 * time.Second)
 	_, found := acct.OpenOrder(limitOrder.OrderID)
-	t.Logf("  Order tracked by TradingAccount: %v", found)
+	t.Logf("  Order tracked by PerpTradingAccount: %v", found)
 
 	cancelOrderID := limitOrder.OrderID
-	err = acct.Cancel(ctx, cancelOrderID, cfg.Symbol)
-	require.NoError(t, err, "Cancel should succeed")
+	require.NoError(t, acct.Cancel(ctx, cancelOrderID, cfg.Symbol), "Cancel should succeed")
 	t.Logf("✓ Cancel sent for order %s", cancelOrderID)
 
 	cancelled, err := limitFlow.Wait(ctx, func(o *exchanges.Order) bool {
@@ -202,31 +194,23 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	time.Sleep(500 * time.Millisecond)
 	_, stillOpen := acct.OpenOrder(cancelOrderID)
-	assert.False(t, stillOpen, "Cancelled order should be removed from TradingAccount open orders")
-	t.Log("✓ Cancelled order removed from TradingAccount open orders")
+	assert.False(t, stillOpen, "Cancelled order should be removed from PerpTradingAccount open orders")
+	t.Log("✓ Cancelled order removed from PerpTradingAccount open orders")
 
 	t.Log("═══ Phase 7: Close position ═══")
 
 	closeQty := qty
-	if isPerp {
-		if p, ok := acct.Position(cfg.Symbol); ok && p.Quantity.IsPositive() {
-			closeQty = p.Quantity
-		}
-	} else {
-		closeQty = filled.FilledQuantity
+	if p, ok := acct.Position(cfg.Symbol); ok && p.Quantity.IsPositive() {
+		closeQty = p.Quantity
 	}
 
-	closeParams := &exchanges.OrderParams{
-		Symbol:   cfg.Symbol,
-		Side:     exchanges.OrderSideSell,
-		Type:     exchanges.OrderTypeMarket,
-		Quantity: closeQty,
-	}
-	if isPerp {
-		closeParams.ReduceOnly = true
-	}
-
-	closeFlow, err := acct.Place(ctx, closeParams)
+	closeFlow, err := acct.Place(ctx, &account.PerpOrderParams{
+		Symbol:     cfg.Symbol,
+		Side:       exchanges.OrderSideSell,
+		Type:       exchanges.OrderTypeMarket,
+		Quantity:   closeQty,
+		ReduceOnly: true,
+	})
 	require.NoError(t, err, "Place(close) should succeed")
 	defer closeFlow.Close()
 
@@ -242,41 +226,212 @@ func RunTradingAccountSuite(t *testing.T, adp exchanges.Exchange, cfg TradingAcc
 
 	t.Log("═══ Phase 8: Verify final state ═══")
 
-	if isPerp {
-		time.Sleep(2 * time.Second)
-		pos, ok := acct.Position(cfg.Symbol)
-		if ok {
-			t.Logf("  Final position: qty=%s (should be ~0)", pos.Quantity)
-		} else {
-			t.Log("  No position found (closed)")
-		}
-
-		posAfter := findTradingAccountPosition(t, adp, cfg.Symbol)
-		if posAfter != nil {
-			assert.True(t, posAfter.Quantity.IsZero(),
-				fmt.Sprintf("Position should be zero after close, got qty=%s", posAfter.Quantity))
-		}
-		t.Log("✓ Position closed successfully")
+	time.Sleep(2 * time.Second)
+	if pos, ok := acct.Position(cfg.Symbol); ok {
+		t.Logf("  Final position: qty=%s (should be ~0)", pos.Quantity)
 	} else {
-		account, err := adp.FetchAccount(ctx)
-		require.NoError(t, err)
-		t.Logf("✓ Spot closed, final balance: %s", account.TotalBalance)
+		t.Log("  No position found (closed)")
 	}
 
+	if posAfter := findPerpAccountPosition(t, adp, cfg.Symbol); posAfter != nil {
+		assert.True(t, posAfter.Quantity.IsZero(),
+			fmt.Sprintf("Position should be zero after close, got qty=%s", posAfter.Quantity))
+	}
+	t.Log("✓ Position closed successfully")
+
 	finalBalance := acct.Balance()
-	t.Logf("  Final balance from TradingAccount: %s", finalBalance)
+	t.Logf("  Final balance from PerpTradingAccount: %s", finalBalance)
 
 	t.Log("═══ Summary ═══")
-	t.Log("✓ TradingAccount.Start (REST + WS)")
+	t.Log("✓ PerpTradingAccount.Start (REST + WS)")
 	t.Log("✓ State queries (balance, positions, orders)")
 	t.Log("✓ SubscribeOrders fan-out (2 consumers)")
 	t.Log("✓ Place + OrderFlow.Wait (market fill)")
 	t.Log("✓ Place + Cancel + OrderFlow.Wait (limit cancel)")
 	t.Log("✓ Position tracking")
 	t.Log("✓ Close position")
-	t.Log("All TradingAccount integration tests passed!")
+	t.Log("All PerpTradingAccount integration tests passed!")
 
 	_ = lastPrice
+}
+
+// =============================================================================
+// Spot suite
+// =============================================================================
+
+func runSpotTradingAccountSuite(t *testing.T, adp exchanges.SpotExchange, cfg TradingAccountConfig) {
+	ctx := context.Background()
+
+	t.Log("═══ Phase 1: Start SpotTradingAccount ═══")
+
+	acct := account.NewSpotTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(ctx), "SpotTradingAccount.Start should succeed")
+	defer acct.Close()
+	t.Log("✓ SpotTradingAccount started (REST snapshot + WS subscriptions)")
+
+	time.Sleep(2 * time.Second)
+
+	t.Log("═══ Phase 2: Verify initial state queries ═══")
+
+	balances := acct.Balances()
+	t.Logf("  Balances: %d assets", len(balances))
+	for _, b := range balances {
+		if b.Total.IsPositive() {
+			t.Logf("    %s: free=%s locked=%s", b.Asset, b.Free, b.Locked)
+		}
+	}
+
+	openOrders := acct.OpenOrders()
+	t.Logf("  Open orders: %d", len(openOrders))
+	t.Log("✓ Initial state queries OK")
+
+	t.Log("═══ Phase 3: Test SubscribeOrders fan-out ═══")
+
+	sub1 := acct.SubscribeOrders()
+	defer sub1.Unsubscribe()
+	sub2 := acct.SubscribeOrders()
+	defer sub2.Unsubscribe()
+	t.Log("✓ Two order subscribers created")
+
+	t.Log("═══ Phase 4: Place market buy + wait for fill ═══")
+
+	qty, lastPrice := SmartQuantity(t, adp, cfg.Symbol)
+	if cfg.MarketQuantity.IsPositive() {
+		qty = cfg.MarketQuantity
+		t.Logf("  Using configured market quantity override: %s", qty)
+	}
+	t.Logf("  Symbol=%s  Qty=%s  RefPrice=%s", cfg.Symbol, qty, lastPrice)
+
+	flow, err := acct.Place(ctx, &account.SpotOrderParams{
+		Symbol:   cfg.Symbol,
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeMarket,
+		Quantity: qty,
+	})
+	require.NoError(t, err, "Place(market buy) should succeed")
+	defer flow.Close()
+
+	placed := flowLatest(t, flow, "market order")
+	t.Logf("✓ Market buy placed: ID=%s", placed.OrderID)
+
+	filled, err := flow.Wait(ctx, func(o *exchanges.Order) bool {
+		return o.Status == exchanges.OrderStatusFilled
+	})
+	require.NoError(t, err, "OrderFlow.Wait should succeed")
+	assert.Equal(t, exchanges.OrderStatusFilled, filled.Status)
+	t.Logf("✓ OrderFlow.Wait returned FILLED: qty=%s", filled.FilledQuantity)
+
+	verifyOrderSubFanout(t, "sub1", sub1, placed)
+	verifyOrderSubFanout(t, "sub2", sub2, placed)
+	t.Log("✓ Fan-out verified")
+
+	t.Log("═══ Phase 5: Spot — position tracking via balance change ═══")
+
+	t.Log("═══ Phase 6: Limit order + Cancel ═══")
+
+	limitPrice := SmartLimitPrice(t, adp, cfg.Symbol, exchanges.OrderSideBuy)
+	limitQty := qty
+	if cfg.PassiveLimitQuantity.IsPositive() {
+		limitQty = cfg.PassiveLimitQuantity
+		t.Logf("  Using configured passive limit quantity override: %s", limitQty)
+	}
+	t.Logf("  Passive limit price: %s (well below market)", limitPrice)
+
+	limitFlow, err := acct.Place(ctx, &account.SpotOrderParams{
+		Symbol:   cfg.Symbol,
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Price:    limitPrice,
+		Quantity: limitQty,
+	})
+	require.NoError(t, err, "Place(limit buy) should succeed")
+	defer limitFlow.Close()
+
+	limitOrder := flowLatestWithOrderID(t, limitFlow, "limit order")
+	t.Logf("✓ Limit order placed: ID=%s", limitOrder.OrderID)
+
+	time.Sleep(2 * time.Second)
+	_, found := acct.OpenOrder(limitOrder.OrderID)
+	t.Logf("  Order tracked by SpotTradingAccount: %v", found)
+
+	cancelOrderID := limitOrder.OrderID
+	require.NoError(t, acct.Cancel(ctx, cancelOrderID, cfg.Symbol), "Cancel should succeed")
+	t.Logf("✓ Cancel sent for order %s", cancelOrderID)
+
+	cancelled, err := limitFlow.Wait(ctx, func(o *exchanges.Order) bool {
+		return o.Status == exchanges.OrderStatusCancelled
+	})
+	require.NoError(t, err, "OrderFlow.Wait should succeed for cancelled order")
+	assert.Equal(t, exchanges.OrderStatusCancelled, cancelled.Status)
+	t.Logf("✓ OrderFlow.Wait returned CANCELLED")
+
+	time.Sleep(500 * time.Millisecond)
+	_, stillOpen := acct.OpenOrder(cancelOrderID)
+	assert.False(t, stillOpen, "Cancelled order should be removed from SpotTradingAccount open orders")
+	t.Log("✓ Cancelled order removed from SpotTradingAccount open orders")
+
+	t.Log("═══ Phase 7: Sell back to close ═══")
+
+	closeFlow, err := acct.Place(ctx, &account.SpotOrderParams{
+		Symbol:   cfg.Symbol,
+		Side:     exchanges.OrderSideSell,
+		Type:     exchanges.OrderTypeMarket,
+		Quantity: filled.FilledQuantity,
+	})
+	require.NoError(t, err, "Place(close) should succeed")
+	defer closeFlow.Close()
+
+	closeOrder := flowLatest(t, closeFlow, "close order")
+	t.Logf("✓ Sell order placed: ID=%s", closeOrder.OrderID)
+
+	closeFilled, err := closeFlow.Wait(ctx, func(o *exchanges.Order) bool {
+		return o.Status == exchanges.OrderStatusFilled
+	})
+	require.NoError(t, err, "OrderFlow.Wait(close) should succeed")
+	assert.Equal(t, exchanges.OrderStatusFilled, closeFilled.Status)
+	t.Logf("✓ Sell order filled: qty=%s", closeFilled.FilledQuantity)
+
+	t.Log("═══ Phase 8: Verify final state ═══")
+
+	finalAcc, err := adp.FetchAccount(ctx)
+	require.NoError(t, err)
+	t.Logf("✓ Spot closed, final total balance: %s", finalAcc.TotalBalance)
+
+	t.Log("═══ Summary ═══")
+	t.Log("✓ SpotTradingAccount.Start (REST + WS)")
+	t.Log("✓ State queries (balances, orders)")
+	t.Log("✓ SubscribeOrders fan-out (2 consumers)")
+	t.Log("✓ Place + OrderFlow.Wait (market fill)")
+	t.Log("✓ Place + Cancel + OrderFlow.Wait (limit cancel)")
+	t.Log("✓ Sell back to close")
+	t.Log("All SpotTradingAccount integration tests passed!")
+
+	_ = lastPrice
+}
+
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+func verifyOrderSubFanout(t *testing.T, name string, sub *account.Subscription[exchanges.Order], placed *exchanges.Order) {
+	t.Helper()
+	timer := time.After(3 * time.Second)
+	for {
+		select {
+		case o := <-sub.C:
+			if o.OrderID == placed.OrderID || o.ClientOrderID == placed.ClientOrderID {
+				t.Logf("  %s received: ID=%s Status=%s", name, o.OrderID, o.Status)
+				if o.Status == exchanges.OrderStatusFilled ||
+					o.Status == exchanges.OrderStatusCancelled ||
+					o.Status == exchanges.OrderStatusRejected {
+					return
+				}
+			}
+		case <-timer:
+			t.Logf("  %s: no terminal event within 3s (may have been consumed)", name)
+			return
+		}
+	}
 }
 
 func flowLatest(t *testing.T, flow *account.OrderFlow, label string) *exchanges.Order {
@@ -300,15 +455,15 @@ func flowLatestWithOrderID(t *testing.T, flow *account.OrderFlow, label string) 
 	return order
 }
 
-func findTradingAccountPosition(t *testing.T, adp exchanges.Exchange, symbol string) *exchanges.Position {
+func findPerpAccountPosition(t *testing.T, adp exchanges.PerpExchange, symbol string) *exchanges.Position {
 	t.Helper()
 
-	account, err := adp.FetchAccount(context.Background())
+	acc, err := adp.FetchAccount(context.Background())
 	require.NoError(t, err)
 
-	for i := range account.Positions {
-		if account.Positions[i].Symbol == symbol {
-			p := account.Positions[i]
+	for i := range acc.Positions {
+		if acc.Positions[i].Symbol == symbol {
+			p := acc.Positions[i]
 			return &p
 		}
 	}

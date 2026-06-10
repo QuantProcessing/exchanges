@@ -312,6 +312,7 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 		qty := sz.Mul(ctVal)
 
 		positions = append(positions, exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           a.ExtractSymbol(p.InstId),
 			Side:             side,
 			Quantity:         qty,
@@ -1020,10 +1021,11 @@ func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.Positio
 		qty := parseString(p.Pos).Mul(ctVal)
 
 		callback(&exchanges.Position{
-			Symbol:     a.ExtractSymbol(p.InstId),
-			Side:       side,
-			Quantity:   qty,
-			EntryPrice: parseString(p.AvgPx),
+			InstrumentType: exchanges.InstrumentTypePerp,
+			Symbol:         a.ExtractSymbol(p.InstId),
+			Side:           side,
+			Quantity:       qty,
+			EntryPrice:     parseString(p.AvgPx),
 		})
 	})
 }

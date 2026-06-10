@@ -153,6 +153,7 @@ func (a *Adapter) FetchAccount(ctx context.Context) (_ *exchanges.Account, retEr
 		}
 
 		account.Positions = append(account.Positions, exchanges.Position{
+			InstrumentType:    exchanges.InstrumentTypePerp,
 			Symbol:            a.ExtractSymbol(p.Symbol),
 			Side:              side,
 			Quantity:          amt,
@@ -1133,12 +1134,13 @@ func (a *Adapter) normalizePositionUpdate(p struct {
 	}
 
 	return &exchanges.Position{
-		Symbol:        a.ExtractSymbol(p.Symbol),
-		Side:          side,
-		Quantity:      amt,
-		EntryPrice:    entry,
-		UnrealizedPnL: unPnL,
-		MarginType:    p.MarginType,
+		InstrumentType: exchanges.InstrumentTypePerp,
+		Symbol:         a.ExtractSymbol(p.Symbol),
+		Side:           side,
+		Quantity:       amt,
+		EntryPrice:     entry,
+		UnrealizedPnL:  unPnL,
+		MarginType:     p.MarginType,
 	}
 }
 
@@ -1186,4 +1188,3 @@ func (a *Adapter) requirePrivateAccess() error {
 	}
 	return nil
 }
-

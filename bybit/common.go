@@ -289,6 +289,7 @@ func mapPosition(symbol string, raw sdk.PositionRecord) exchanges.Position {
 		side = exchanges.PositionSideShort
 	}
 	return exchanges.Position{
+		InstrumentType:   exchanges.InstrumentTypePerp,
 		Symbol:           strings.ToUpper(symbol),
 		Side:             side,
 		Quantity:         parseDecimal(raw.Size),

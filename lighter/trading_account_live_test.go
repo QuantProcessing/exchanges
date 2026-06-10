@@ -16,7 +16,7 @@ func TestPerpAdapter_TradingAccountOrderFlowFillsLive(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	ctx := context.Background()
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(ctx))
 	t.Cleanup(acct.Close)
 
@@ -28,7 +28,7 @@ func TestPerpAdapter_TradingAccountOrderFlowFillsLive(t *testing.T) {
 
 	qty, _ := testsuite.SmartQuantity(t, adp, "ETH")
 
-	flow, err := acct.Place(ctx, &exchanges.OrderParams{
+	flow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeMarket,
@@ -58,7 +58,7 @@ func TestPerpAdapter_TradingAccountOrderFlowFillsLive(t *testing.T) {
 	expectedAverage := rawTotalQuote.Div(rawTotalQty)
 	require.True(t, merged.AverageFillPrice.Equal(expectedAverage), "merged average fill price %s should equal raw weighted average %s", merged.AverageFillPrice, expectedAverage)
 
-	closeFlow, err := acct.Place(ctx, &exchanges.OrderParams{
+	closeFlow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:     "ETH",
 		Side:       exchanges.OrderSideSell,
 		Type:       exchanges.OrderTypeMarket,
@@ -128,7 +128,7 @@ func waitLighterOrderFlowFusion(t *testing.T, flow *account.OrderFlow, timeout t
 	}
 }
 
-func flattenLighterPerpPosition(t *testing.T, ctx context.Context, adp *Adapter, acct *account.TradingAccount, symbol string) {
+func flattenLighterPerpPosition(t *testing.T, ctx context.Context, adp *Adapter, acct *account.PerpTradingAccount, symbol string) {
 	t.Helper()
 
 	pos := fetchLighterPerpPosition(t, adp, symbol)
@@ -143,7 +143,7 @@ func flattenLighterPerpPosition(t *testing.T, ctx context.Context, adp *Adapter,
 
 	t.Logf("flattening existing %s position qty=%s", pos.Side, pos.Quantity)
 
-	flow, err := acct.Place(ctx, &exchanges.OrderParams{
+	flow, err := acct.Place(ctx, &account.PerpOrderParams{
 		Symbol:     symbol,
 		Side:       side,
 		Type:       exchanges.OrderTypeMarket,

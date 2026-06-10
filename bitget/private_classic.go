@@ -732,6 +732,7 @@ func mapClassicMixOrderStream(symbol string, raw sdk.ClassicMixOrderRecord) *exc
 
 func mapClassicMixPosition(raw sdk.ClassicMixPositionRecord) exchanges.Position {
 	return exchanges.Position{
+		InstrumentType:   exchanges.InstrumentTypePerp,
 		Symbol:           strings.ToUpper(firstNonEmpty(raw.InstID, raw.Symbol)),
 		Side:             mapPositionSide(raw.HoldSide),
 		Quantity:         parseDecimal(raw.Total),

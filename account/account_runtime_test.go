@@ -21,7 +21,31 @@ type stubExchange struct {
 
 func (s *stubExchange) GetExchange() string { return "stub" }
 
-func (s *stubExchange) GetMarketType() exchanges.MarketType { return exchanges.MarketTypeSpot }
+func (s *stubExchange) GetMarketType() exchanges.MarketType { return exchanges.MarketTypePerp }
+
+// PerpExchange interface satisfaction (no-op stubs).
+func (s *stubExchange) FetchPositions(context.Context) ([]exchanges.Position, error) {
+	return nil, nil
+}
+func (s *stubExchange) SetLeverage(context.Context, string, int) error { return nil }
+func (s *stubExchange) FetchFundingRate(context.Context, string) (*exchanges.FundingRate, error) {
+	return nil, nil
+}
+func (s *stubExchange) FetchAllFundingRates(context.Context) ([]exchanges.FundingRate, error) {
+	return nil, nil
+}
+func (s *stubExchange) FetchFundingRateHistory(context.Context, string, *exchanges.FundingRateHistoryOpts) ([]exchanges.FundingRate, error) {
+	return nil, nil
+}
+func (s *stubExchange) FetchOpenInterest(context.Context, string) (*exchanges.OpenInterest, error) {
+	return nil, nil
+}
+func (s *stubExchange) ModifyOrder(context.Context, string, string, *exchanges.ModifyOrderParams) (*exchanges.Order, error) {
+	return nil, nil
+}
+func (s *stubExchange) ModifyOrderWS(context.Context, string, string, *exchanges.ModifyOrderParams) error {
+	return nil
+}
 
 func (s *stubExchange) Close() error { return nil }
 
@@ -496,11 +520,11 @@ func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
 		}},
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.Place(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -539,11 +563,11 @@ func TestTradingAccountPlaceTracksSyncOrderUpdateBeforeAckReturns(t *testing.T) 
 		placeReturnDelay: 50 * time.Millisecond,
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.Place(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -565,11 +589,11 @@ func TestTradingAccountPlaceWSGeneratesClientIDWhenMissing(t *testing.T) {
 
 	adp := &accountRuntimeStubExchange{}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.PlaceWS(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -592,11 +616,11 @@ func TestTradingAccountPlaceWSPreservesProvidedClientID(t *testing.T) {
 
 	adp := &accountRuntimeStubExchange{}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.PlaceWS(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -629,11 +653,11 @@ func TestTradingAccountPlaceWSTracksSyncOrderUpdateBeforeReturn(t *testing.T) {
 		placeWSReturnDelay: 50 * time.Millisecond,
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.PlaceWS(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.PlaceWS(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -664,11 +688,11 @@ func TestTradingAccountRoutesFillsIntoOrderFlow(t *testing.T) {
 		},
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.Place(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -727,11 +751,11 @@ func TestTradingAccountFilledWaitsForFillAfterRawFilledConfirm(t *testing.T) {
 		},
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
-	flow, err := acct.Place(context.Background(), &exchanges.OrderParams{
+	flow, err := acct.Place(context.Background(), &account.PerpOrderParams{
 		Symbol:   "ETH",
 		Side:     exchanges.OrderSideBuy,
 		Type:     exchanges.OrderTypeLimit,
@@ -790,7 +814,7 @@ func TestTradingAccountStartIgnoresUnsupportedWatchFills(t *testing.T) {
 		watchFillsErr: exchanges.ErrNotSupported,
 	}
 
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 	require.NoError(t, acct.Start(context.Background()))
 	defer acct.Close()
 
@@ -799,7 +823,7 @@ func TestTradingAccountStartIgnoresUnsupportedWatchFills(t *testing.T) {
 }
 
 func TestTradingAccountEmptyQueries(t *testing.T) {
-	acct := account.NewTradingAccount(nil, nil)
+	acct := account.NewPerpTradingAccount(nil, nil)
 
 	_, ok := acct.OpenOrder("nonexistent")
 	assert.False(t, ok)
@@ -817,7 +841,7 @@ func TestTradingAccountStartFailsWhenFetchAccountFails(t *testing.T) {
 	adp := &accountRuntimeStubExchange{
 		fetchAccountErr: errors.New("boom"),
 	}
-	acct := account.NewTradingAccount(adp, nil)
+	acct := account.NewPerpTradingAccount(adp, nil)
 
 	err := acct.Start(context.Background())
 	require.ErrorContains(t, err, "boom")

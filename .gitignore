@@ -31,3 +31,5 @@ __debug_bin*
 
 # Local git worktrees
 .worktrees/
+
+.omx

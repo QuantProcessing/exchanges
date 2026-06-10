@@ -219,6 +219,7 @@ func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) 
 		}
 
 		account.Positions = append(account.Positions, exchanges.Position{
+			InstrumentType:   exchanges.InstrumentTypePerp,
 			Symbol:           pos.Coin,
 			Side:             side,
 			Quantity:         decimal.NewFromFloat(quantity),
@@ -880,6 +881,7 @@ func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.Positio
 			}
 
 			callback(&exchanges.Position{
+				InstrumentType:   exchanges.InstrumentTypePerp,
 				Symbol:           ap.Position.Coin,
 				Side:             side,
 				Quantity:         decimal.NewFromFloat(q),
@@ -1236,4 +1238,3 @@ func (a *Adapter) localOrderBookSnapshot(symbol string, depth int) *exchanges.Or
 	}
 	return nadoOb.ToAdapterOrderBook(depth)
 }
-

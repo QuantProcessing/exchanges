@@ -429,6 +429,9 @@ func mergePlacementOrder(current, placement *exchanges.Order) *exchanges.Order {
 	if !merged.ReduceOnly {
 		merged.ReduceOnly = placement.ReduceOnly
 	}
+	if !merged.PostOnly {
+		merged.PostOnly = placement.PostOnly
+	}
 	if merged.Status == "" || merged.Status == exchanges.OrderStatusPending || merged.Status == exchanges.OrderStatusUnknown {
 		merged.Status = placement.Status
 	}

@@ -124,7 +124,6 @@ If an exchange exposes distinct native topics for order lifecycle and executions
 This design does not require hidden fusion for exchanges such as:
 
 - Bitget
-- Decibel
 - EdgeX
 - GRVT
 - Hyperliquid
@@ -160,7 +159,6 @@ These adapters should use single-subscription fan-out:
 These adapters should keep separate native subscriptions:
 
 - Bitget
-- Decibel
 - EdgeX
 - GRVT
 - Hyperliquid

@@ -142,6 +142,7 @@ func mapPosition(raw sdk.PositionRecord) exchanges.Position {
 		qty = qty.Abs()
 	}
 	return exchanges.Position{
+		InstrumentType:   exchanges.InstrumentTypePerp,
 		Symbol:           raw.Symbol,
 		Side:             side,
 		Quantity:         qty,
