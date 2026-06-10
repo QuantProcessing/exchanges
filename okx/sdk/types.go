@@ -253,10 +253,12 @@ type Instrument struct {
 	InstId            string   `json:"instId"`
 	GroupId           string   `json:"groupId"`
 	Uly               string   `json:"uly"`
+	InstFamily        string   `json:"instFamily"`
 	BaseCcy           string   `json:"baseCcy"`
 	QuoteCcy          string   `json:"quoteCcy"`
 	TradeQuoteCcyList []string `json:"tradeQuoteCcyList"`
 	SettCcy           string   `json:"settCcy"`
+	SettleCcy         string   `json:"settleCcy"`
 	CtVal             string   `json:"ctVal"`
 	CtMult            string   `json:"ctMult"`
 	CtValCcy          string   `json:"ctValCcy"`
@@ -285,6 +287,15 @@ type Instrument struct {
 // [7] volume ccy quote
 // [8] confirm: 0 (not finish) or 1 (finish)
 type Candle [9]string
+
+type PublicTrade struct {
+	InstId  string `json:"instId"`
+	TradeId string `json:"tradeId"`
+	Px      string `json:"px"`
+	Sz      string `json:"sz"`
+	Side    string `json:"side"`
+	Ts      string `json:"ts"`
+}
 
 type FundingRate struct {
 	InstrumentType  string `json:"instType"`

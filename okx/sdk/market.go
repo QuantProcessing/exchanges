@@ -51,6 +51,19 @@ func (c *Client) GetInstruments(ctx context.Context, instType string) ([]Instrum
 	return Request[Instrument](c, ctx, MethodGet, path, nil, false)
 }
 
+// GetInstrumentsByFamily retrieves instruments for products, such as options,
+// that require an instrument family.
+func (c *Client) GetInstrumentsByFamily(ctx context.Context, instType, instFamily string) ([]Instrument, error) {
+	params := url.Values{}
+	params.Add("instType", instType)
+	if instFamily != "" {
+		params.Add("instFamily", instFamily)
+	}
+	path := "/api/v5/public/instruments?" + params.Encode()
+
+	return Request[Instrument](c, ctx, MethodGet, path, nil, false)
+}
+
 // GetCandles retrieves candles for a specific instrument.
 // bar: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h
 // limit: default 100, max 300
@@ -72,6 +85,18 @@ func (c *Client) GetCandles(ctx context.Context, instId string, bar *string, aft
 	path := "/api/v5/market/candles?" + params.Encode()
 
 	return Request[Candle](c, ctx, MethodGet, path, nil, false)
+}
+
+// GetTrades retrieves recent public trades for an instrument.
+func (c *Client) GetTrades(ctx context.Context, instId string, limit *int) ([]PublicTrade, error) {
+	params := url.Values{}
+	params.Add("instId", instId)
+	if limit != nil {
+		params.Add("limit", fmt.Sprintf("%d", *limit))
+	}
+	path := "/api/v5/market/trades?" + params.Encode()
+
+	return Request[PublicTrade](c, ctx, MethodGet, path, nil, false)
 }
 
 // GetFundingRate retrieves the current funding rate for a specific instrument

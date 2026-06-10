@@ -25,6 +25,7 @@
 | Nado        | ✅    | ✅    | —    | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —    | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —    | USDC             | USDC    |
+| Backpack    | ✅    | ✅    | —    | USDC             | USDC    |
 | Bitget      | ✅    | ✅    | —    | USDT, USDC       | USDT    |
 | Bybit       | ✅    | ✅    | —    | USDT, USDC       | USDT    |
 | StandX      | ✅    | —    | —    | DUSD             | DUSD    |
@@ -359,6 +360,8 @@ fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
 `OrderFlow.Fills()` 仍然提供同一笔订单的原始成交明细流。要逐笔执行细节时读 `Fills()`；要在策略控制流里消费统一快照时读 `C()`。
 
 如果某个 adapter 不支持 `WatchFills`，`OrderFlow.C()` 会退化为原来的仅订单流行为，而 `OrderFlow.Fills()` 会保持为空。
+
+`TradingAccount.Health()` 会暴露 stream 就绪状态、不支持状态、事件计数和慢订阅者丢弃计数；详见 [Stream Health](./docs/stream-health.md)。
 
 cross-exchanges-arb 等下游消费者应基于已经包含 `TradingAccount + OrderFlow` 的发布版本迁移，并先重新跑自己的集成验证。
 

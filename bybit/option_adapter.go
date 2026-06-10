@@ -146,11 +146,11 @@ func (a *OptionAdapter) WatchTrades(context.Context, string, exchanges.TradeCall
 func (a *OptionAdapter) WatchKlines(context.Context, string, exchanges.Interval, exchanges.KlineCallback) error {
 	return notSupported("WatchKlines")
 }
-func (a *OptionAdapter) StopWatchOrders(context.Context) error           { return nil }
-func (a *OptionAdapter) StopWatchFills(context.Context) error            { return nil }
-func (a *OptionAdapter) StopWatchPositions(context.Context) error        { return nil }
-func (a *OptionAdapter) StopWatchTicker(context.Context, string) error   { return nil }
-func (a *OptionAdapter) StopWatchTrades(context.Context, string) error   { return nil }
+func (a *OptionAdapter) StopWatchOrders(context.Context) error         { return nil }
+func (a *OptionAdapter) StopWatchFills(context.Context) error          { return nil }
+func (a *OptionAdapter) StopWatchPositions(context.Context) error      { return nil }
+func (a *OptionAdapter) StopWatchTicker(context.Context, string) error { return nil }
+func (a *OptionAdapter) StopWatchTrades(context.Context, string) error { return nil }
 func (a *OptionAdapter) StopWatchKlines(context.Context, string, exchanges.Interval) error {
 	return nil
 }

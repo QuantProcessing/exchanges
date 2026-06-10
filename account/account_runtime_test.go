@@ -822,6 +822,74 @@ func TestTradingAccountStartIgnoresUnsupportedWatchFills(t *testing.T) {
 	require.EqualValues(t, 1, adp.watchFillsCalls.Load())
 }
 
+func TestTradingAccountHealthReportsReadyAndUnsupportedStreams(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		watchFillsErr: exchanges.ErrNotSupported,
+	}
+
+	acct := account.NewPerpTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	health := acct.Health()
+	require.True(t, health.Started)
+	require.True(t, health.SnapshotLoaded)
+	require.Equal(t, account.StreamStatusReady, health.Streams[account.StreamOrders].Status)
+	require.Equal(t, account.StreamStatusUnsupported, health.Streams[account.StreamFills].Status)
+	require.Equal(t, account.StreamStatusReady, health.Streams[account.StreamPositions].Status)
+	require.False(t, health.Streams[account.StreamFills].Supported)
+}
+
+func TestTradingAccountHealthCountsStreamEvents(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{}
+	acct := account.NewPerpTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	adp.EmitOrder(&exchanges.Order{OrderID: "o-1", Symbol: "ETH", Status: exchanges.OrderStatusNew})
+	adp.EmitFill(&exchanges.Fill{TradeID: "t-1", OrderID: "o-1", Symbol: "ETH"})
+	adp.EmitPosition(&exchanges.Position{Symbol: "ETH", Quantity: decimal.RequireFromString("1")})
+
+	require.Eventually(t, func() bool {
+		health := acct.Health()
+		return health.Streams[account.StreamOrders].Events == 1 &&
+			health.Streams[account.StreamFills].Events == 1 &&
+			health.Streams[account.StreamPositions].Events == 1 &&
+			!health.Streams[account.StreamOrders].LastEventAt.IsZero() &&
+			!health.Streams[account.StreamFills].LastEventAt.IsZero() &&
+			!health.Streams[account.StreamPositions].LastEventAt.IsZero()
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTradingAccountHealthCountsDroppedOrderSubscriberEvents(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{}
+	acct := account.NewPerpTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	sub := acct.SubscribeOrders()
+	defer sub.Unsubscribe()
+
+	for i := 0; i < 70; i++ {
+		adp.EmitOrder(&exchanges.Order{
+			OrderID: "o-drop",
+			Symbol:  "ETH",
+			Status:  exchanges.OrderStatusNew,
+		})
+	}
+
+	require.Eventually(t, func() bool {
+		health := acct.Health()
+		return health.Streams[account.StreamOrders].DroppedEvents > 0
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestTradingAccountEmptyQueries(t *testing.T) {
 	acct := account.NewPerpTradingAccount(nil, nil)
 

@@ -31,7 +31,12 @@ type Instrument struct {
 	Symbol        string        `json:"symbol"`
 	BaseCoin      string        `json:"baseCoin"`
 	QuoteCoin     string        `json:"quoteCoin"`
+	SettleCoin    string        `json:"settleCoin"`
 	Status        string        `json:"status"`
+	OptionsType   string        `json:"optionsType"`
+	LaunchTime    string        `json:"launchTime"`
+	DeliveryTime  string        `json:"deliveryTime"`
+	DisplayName   string        `json:"displayName"`
 	PriceScale    string        `json:"priceScale"`
 	PriceFilter   PriceFilter   `json:"priceFilter"`
 	LotSizeFilter LotSizeFilter `json:"lotSizeFilter"`

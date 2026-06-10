@@ -25,6 +25,7 @@ Provides both **low-level SDK clients** (REST + WebSocket) and **high-level adap
 | Nado        | ✅    | ✅    | —      | USDT             | USDT    |
 | Lighter     | ✅    | ✅    | —      | USDC             | USDC    |
 | Hyperliquid | ✅    | ✅    | —      | USDC             | USDC    |
+| Backpack    | ✅    | ✅    | —      | USDC             | USDC    |
 | Bitget      | ✅    | ✅    | —      | USDT, USDC       | USDT    |
 | Bybit       | ✅    | ✅    | —      | USDT, USDC       | USDT    |
 | StandX      | ✅    | —    | —      | DUSD             | DUSD    |
@@ -365,6 +366,8 @@ fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
 `OrderFlow.Fills()` remains the raw execution-detail stream for the same order. Use it when you need every normalized fill event; use `OrderFlow.C()` when you want one control-flow snapshot per order.
 
 If `WatchFills` is not supported by an adapter, `OrderFlow.C()` degrades to the existing order-only behavior and `OrderFlow.Fills()` remains empty.
+
+`TradingAccount.Health()` exposes stream readiness, unsupported stream status, event counters, and slow-subscriber drop counters; see [Stream Health](./docs/stream-health.md).
 
 Downstream consumers such as cross-exchanges-arb should migrate against a release that already includes `TradingAccount + OrderFlow` and after re-running their own integration coverage.
 
