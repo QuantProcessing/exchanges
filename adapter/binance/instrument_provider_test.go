@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2InstrumentProviderCachesSpotAndPerpSeparately(t *testing.T) {
-	provider := newV2InstrumentProviderForTest([]v2InstrumentSeed{
+func TestInstrumentProviderCachesSpotAndPerpSeparately(t *testing.T) {
+	provider := newInstrumentProviderForTest([]instrumentSeed{
 		{RawSymbol: "BTCUSDT", Product: venue.ProductHintSpot, Base: model.BTC, Quote: model.USDT},
 		{RawSymbol: "BTCUSDT", Product: venue.ProductHintPerp, Base: model.BTC, Quote: model.USDT},
 	})
@@ -27,8 +27,8 @@ func TestV2InstrumentProviderCachesSpotAndPerpSeparately(t *testing.T) {
 	require.Equal(t, model.InstrumentTypeCryptoPerp, perp.Type)
 }
 
-func TestV2InstrumentProviderLoadReturnsInstrumentNotLoaded(t *testing.T) {
-	provider := newV2InstrumentProviderForTest(nil)
+func TestInstrumentProviderLoadReturnsInstrumentNotLoaded(t *testing.T) {
+	provider := newInstrumentProviderForTest(nil)
 	_, err := provider.Load(context.Background(), model.MustInstrumentID("ETH-USDT-PERP.BINANCE"))
 	require.ErrorIs(t, err, model.ErrInstrumentNotLoaded)
 }

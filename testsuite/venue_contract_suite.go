@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type V2VenueSuiteConfig struct {
+type VenueContractSuiteConfig struct {
 	Provider                 venue.InstrumentProvider
 	MarketData               venue.MarketDataClient
 	InstrumentID             model.InstrumentID
@@ -18,7 +18,7 @@ type V2VenueSuiteConfig struct {
 	ExpectStreamsUnsupported bool
 }
 
-func RunV2VenueSuite(t *testing.T, cfg V2VenueSuiteConfig) {
+func RunVenueContractSuite(t *testing.T, cfg VenueContractSuiteConfig) {
 	t.Helper()
 	require.NotNil(t, cfg.Provider, "Provider is required")
 	require.NotNil(t, cfg.MarketData, "MarketData is required")

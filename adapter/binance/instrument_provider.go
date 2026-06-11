@@ -13,7 +13,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-var _ venue.InstrumentProvider = (*v2InstrumentProvider)(nil)
+var _ venue.InstrumentProvider = (*instrumentProvider)(nil)
 
 type binanceSpotExchangeInfoClient interface {
 	ExchangeInfo(ctx context.Context) (*spot.ExchangeInfoResponse, error)
@@ -23,38 +23,38 @@ type binancePerpExchangeInfoClient interface {
 	ExchangeInfo(ctx context.Context) (*perp.ExchangeInfoResponse, error)
 }
 
-type v2InstrumentSeed struct {
+type instrumentSeed struct {
 	RawSymbol string
 	Product   venue.ProductHint
 	Base      model.Currency
 	Quote     model.Currency
 }
 
-type v2InstrumentProvider struct {
+type instrumentProvider struct {
 	mu         sync.RWMutex
-	normalizer v2SymbolNormalizer
+	normalizer symbolNormalizer
 	spot       binanceSpotExchangeInfoClient
 	perp       binancePerpExchangeInfoClient
-	seeds      []v2InstrumentSeed
+	seeds      []instrumentSeed
 	cache      map[model.InstrumentID]model.Instrument
 }
 
-func newV2InstrumentProvider(spotClient binanceSpotExchangeInfoClient, perpClient binancePerpExchangeInfoClient) *v2InstrumentProvider {
-	return &v2InstrumentProvider{
+func newInstrumentProvider(spotClient binanceSpotExchangeInfoClient, perpClient binancePerpExchangeInfoClient) *instrumentProvider {
+	return &instrumentProvider{
 		spot:  spotClient,
 		perp:  perpClient,
 		cache: make(map[model.InstrumentID]model.Instrument),
 	}
 }
 
-func newV2InstrumentProviderForTest(seeds []v2InstrumentSeed) *v2InstrumentProvider {
-	return &v2InstrumentProvider{
+func newInstrumentProviderForTest(seeds []instrumentSeed) *instrumentProvider {
+	return &instrumentProvider{
 		seeds: seeds,
 		cache: make(map[model.InstrumentID]model.Instrument),
 	}
 }
 
-func (p *v2InstrumentProvider) LoadAll(ctx context.Context) error {
+func (p *instrumentProvider) LoadAll(ctx context.Context) error {
 	instruments := make([]model.Instrument, 0)
 	for _, seed := range p.seeds {
 		inst, err := p.instrumentFromSeed(seed)
@@ -102,7 +102,7 @@ func (p *v2InstrumentProvider) LoadAll(ctx context.Context) error {
 	return nil
 }
 
-func (p *v2InstrumentProvider) Load(ctx context.Context, id model.InstrumentID) (model.Instrument, error) {
+func (p *instrumentProvider) Load(ctx context.Context, id model.InstrumentID) (model.Instrument, error) {
 	if inst, ok := p.Get(id); ok {
 		return inst, nil
 	}
@@ -115,7 +115,7 @@ func (p *v2InstrumentProvider) Load(ctx context.Context, id model.InstrumentID) 
 	return model.Instrument{}, fmt.Errorf("%w: %s", model.ErrInstrumentNotLoaded, id.String())
 }
 
-func (p *v2InstrumentProvider) Find(ctx context.Context, q venue.InstrumentQuery) ([]model.Instrument, error) {
+func (p *instrumentProvider) Find(ctx context.Context, q venue.InstrumentQuery) ([]model.Instrument, error) {
 	if len(p.List()) == 0 {
 		if err := p.LoadAll(ctx); err != nil {
 			return nil, err
@@ -143,14 +143,14 @@ func (p *v2InstrumentProvider) Find(ctx context.Context, q venue.InstrumentQuery
 	return out, nil
 }
 
-func (p *v2InstrumentProvider) Get(id model.InstrumentID) (model.Instrument, bool) {
+func (p *instrumentProvider) Get(id model.InstrumentID) (model.Instrument, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	inst, ok := p.cache[id]
 	return inst, ok
 }
 
-func (p *v2InstrumentProvider) List() []model.Instrument {
+func (p *instrumentProvider) List() []model.Instrument {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	out := make([]model.Instrument, 0, len(p.cache))
@@ -163,7 +163,7 @@ func (p *v2InstrumentProvider) List() []model.Instrument {
 	return out
 }
 
-func (p *v2InstrumentProvider) instrumentFromSeed(seed v2InstrumentSeed) (model.Instrument, error) {
+func (p *instrumentProvider) instrumentFromSeed(seed instrumentSeed) (model.Instrument, error) {
 	id, err := p.normalizer.ToInstrumentID(seed.RawSymbol, seed.Product)
 	if err != nil {
 		return model.Instrument{}, err
@@ -190,7 +190,7 @@ func (p *v2InstrumentProvider) instrumentFromSeed(seed v2InstrumentSeed) (model.
 	return inst, nil
 }
 
-func (p *v2InstrumentProvider) instrumentFromSpotSymbol(s spot.SymbolInfo) (model.Instrument, error) {
+func (p *instrumentProvider) instrumentFromSpotSymbol(s spot.SymbolInfo) (model.Instrument, error) {
 	if s.Status != "" && s.Status != "TRADING" {
 		return model.Instrument{}, nil
 	}
@@ -220,7 +220,7 @@ func (p *v2InstrumentProvider) instrumentFromSpotSymbol(s spot.SymbolInfo) (mode
 	return inst, nil
 }
 
-func (p *v2InstrumentProvider) instrumentFromPerpSymbol(s perp.SymbolInfo) (model.Instrument, error) {
+func (p *instrumentProvider) instrumentFromPerpSymbol(s perp.SymbolInfo) (model.Instrument, error) {
 	if s.Status != "" && s.Status != "TRADING" {
 		return model.Instrument{}, nil
 	}

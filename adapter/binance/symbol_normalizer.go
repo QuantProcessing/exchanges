@@ -8,9 +8,9 @@ import (
 	"github.com/QuantProcessing/exchanges/venue"
 )
 
-type v2SymbolNormalizer struct{}
+type symbolNormalizer struct{}
 
-func (v2SymbolNormalizer) ToInstrumentID(raw string, hint venue.ProductHint) (model.InstrumentID, error) {
+func (symbolNormalizer) ToInstrumentID(raw string, hint venue.ProductHint) (model.InstrumentID, error) {
 	raw = strings.ToUpper(strings.TrimSpace(raw))
 	base, quote, ok := splitBinanceSymbol(raw)
 	if !ok {
@@ -32,7 +32,7 @@ func (v2SymbolNormalizer) ToInstrumentID(raw string, hint venue.ProductHint) (mo
 	return model.ParseInstrumentID(base + "-" + quote + "-" + product + ".BINANCE")
 }
 
-func (v2SymbolNormalizer) ToVenueSymbol(id model.InstrumentID) (string, error) {
+func (symbolNormalizer) ToVenueSymbol(id model.InstrumentID) (string, error) {
 	if id.Venue != model.VenueBinance {
 		return "", fmt.Errorf("%w: %s", model.ErrInvalidInstrumentID, id.String())
 	}

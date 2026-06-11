@@ -1,2 +1,2 @@
-// Package model contains the normalized V2 trading domain model.
+// Package model contains the normalized trading domain model.
 package model

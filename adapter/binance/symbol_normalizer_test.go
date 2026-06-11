@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2SymbolNormalizerSpot(t *testing.T) {
-	n := v2SymbolNormalizer{}
+func TestSymbolNormalizerSpot(t *testing.T) {
+	n := symbolNormalizer{}
 	got, err := n.ToInstrumentID("BTCUSDT", venue.ProductHintSpot)
 	require.NoError(t, err)
 	require.Equal(t, model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"), got)
@@ -18,8 +18,8 @@ func TestV2SymbolNormalizerSpot(t *testing.T) {
 	require.Equal(t, "BTCUSDT", raw)
 }
 
-func TestV2SymbolNormalizerPerp(t *testing.T) {
-	n := v2SymbolNormalizer{}
+func TestSymbolNormalizerPerp(t *testing.T) {
+	n := symbolNormalizer{}
 	got, err := n.ToInstrumentID("BTCUSDT", venue.ProductHintPerp)
 	require.NoError(t, err)
 	require.Equal(t, model.MustInstrumentID("BTC-USDT-PERP.BINANCE"), got)

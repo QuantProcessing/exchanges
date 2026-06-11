@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewV2AdapterWiresVenueClients(t *testing.T) {
-	adapter, err := NewV2Adapter(context.Background(), V2Options{AccountID: "acct"})
+func TestNewVenueAdapterWiresVenueClients(t *testing.T) {
+	adapter, err := NewVenueAdapter(context.Background(), VenueOptions{AccountID: "acct"})
 	require.NoError(t, err)
 	require.Equal(t, model.VenueBinance, adapter.Venue())
 	require.NotNil(t, adapter.Instruments())
@@ -21,8 +21,8 @@ func TestNewV2AdapterWiresVenueClients(t *testing.T) {
 	var _ venue.Adapter = adapter
 }
 
-func TestV2DeclaredCapabilitiesSeparateCertifiedLifecycleFromBasicStartup(t *testing.T) {
-	caps := V2DeclaredCapabilities()
+func TestDeclaredCapabilitiesSeparateCertifiedLifecycleFromBasicStartup(t *testing.T) {
+	caps := DeclaredCapabilities()
 	require.Equal(t, model.VenueBinance, caps.Venue)
 	require.Contains(t, caps.InstrumentTypes, model.InstrumentTypeCurrencyPair)
 	require.Contains(t, caps.InstrumentTypes, model.InstrumentTypeCryptoPerp)

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2SpotAccountStateBalances(t *testing.T) {
+func TestSpotAccountStateBalances(t *testing.T) {
 	var resp spot.AccountResponse
 	require.NoError(t, json.Unmarshal([]byte(`{
 		"balances": [
@@ -20,7 +20,7 @@ func TestV2SpotAccountStateBalances(t *testing.T) {
 		]
 	}`), &resp))
 
-	state, err := v2SpotAccountState("acct", &resp)
+	state, err := spotAccountState("acct", &resp)
 	require.NoError(t, err)
 	require.Equal(t, model.AccountTypeCash, state.Type)
 	require.Len(t, state.Balances, 1)
@@ -29,7 +29,7 @@ func TestV2SpotAccountStateBalances(t *testing.T) {
 	require.True(t, state.Balances[0].Locked.Amount.Equal(decimal.RequireFromString("2")))
 }
 
-func TestV2PerpAccountStateBalancesAndAccountWideMargin(t *testing.T) {
+func TestPerpAccountStateBalancesAndAccountWideMargin(t *testing.T) {
 	var resp perp.AccountResponse
 	require.NoError(t, json.Unmarshal([]byte(`{
 		"assets": [
@@ -40,7 +40,7 @@ func TestV2PerpAccountStateBalancesAndAccountWideMargin(t *testing.T) {
 		]
 	}`), &resp))
 
-	state, err := v2PerpAccountState("acct", &resp)
+	state, err := perpAccountState("acct", &resp)
 	require.NoError(t, err)
 	require.Equal(t, model.AccountTypeMargin, state.Type)
 	require.Len(t, state.Balances, 1)

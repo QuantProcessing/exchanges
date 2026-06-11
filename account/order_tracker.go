@@ -6,7 +6,7 @@ import (
 	"github.com/QuantProcessing/exchanges/model"
 )
 
-type V2OrderFlow struct {
+type OrderTracker struct {
 	mu        sync.RWMutex
 	latest    *model.OrderStatusReport
 	fills     []model.FillReport
@@ -17,8 +17,8 @@ type V2OrderFlow struct {
 	closeOnce sync.Once
 }
 
-func newV2OrderFlow(initial *model.OrderStatusReport) *V2OrderFlow {
-	f := &V2OrderFlow{
+func newOrderTracker(initial *model.OrderStatusReport) *OrderTracker {
+	f := &OrderTracker{
 		orderCh: make(chan model.OrderStatusReport, 64),
 		fillCh:  make(chan model.FillReport, 64),
 		done:    make(chan struct{}),
@@ -30,15 +30,15 @@ func newV2OrderFlow(initial *model.OrderStatusReport) *V2OrderFlow {
 	return f
 }
 
-func (f *V2OrderFlow) C() <-chan model.OrderStatusReport {
+func (f *OrderTracker) C() <-chan model.OrderStatusReport {
 	return f.orderCh
 }
 
-func (f *V2OrderFlow) Fills() <-chan model.FillReport {
+func (f *OrderTracker) Fills() <-chan model.FillReport {
 	return f.fillCh
 }
 
-func (f *V2OrderFlow) Latest() (model.OrderStatusReport, bool) {
+func (f *OrderTracker) Latest() (model.OrderStatusReport, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	if f.latest == nil {
@@ -47,13 +47,13 @@ func (f *V2OrderFlow) Latest() (model.OrderStatusReport, bool) {
 	return *f.latest, true
 }
 
-func (f *V2OrderFlow) FillsSnapshot() []model.FillReport {
+func (f *OrderTracker) FillsSnapshot() []model.FillReport {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return append([]model.FillReport(nil), f.fills...)
 }
 
-func (f *V2OrderFlow) publishOrder(report model.OrderStatusReport) {
+func (f *OrderTracker) publishOrder(report model.OrderStatusReport) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
@@ -68,7 +68,7 @@ func (f *V2OrderFlow) publishOrder(report model.OrderStatusReport) {
 	}
 }
 
-func (f *V2OrderFlow) publishFill(fill model.FillReport) {
+func (f *OrderTracker) publishFill(fill model.FillReport) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
@@ -82,7 +82,7 @@ func (f *V2OrderFlow) publishFill(fill model.FillReport) {
 	}
 }
 
-func (f *V2OrderFlow) Close() {
+func (f *OrderTracker) Close() {
 	f.closeOnce.Do(func() {
 		f.mu.Lock()
 		f.closed = true

@@ -12,7 +12,7 @@ import (
 	"github.com/QuantProcessing/exchanges/venue"
 )
 
-var _ venue.ExecutionClient = (*v2ExecutionClient)(nil)
+var _ venue.ExecutionClient = (*executionClient)(nil)
 
 type binanceSpotExecutionClient interface {
 	PlaceOrder(ctx context.Context, p spot.PlaceOrderParams) (*spot.OrderResponse, error)
@@ -31,18 +31,18 @@ type binancePerpExecutionClient interface {
 	GetAccount(ctx context.Context) (*perp.AccountResponse, error)
 }
 
-type v2ExecutionClient struct {
+type executionClient struct {
 	accountID   model.AccountID
 	instruments venue.InstrumentProvider
-	normalizer  v2SymbolNormalizer
+	normalizer  symbolNormalizer
 	spot        binanceSpotExecutionClient
 	perp        binancePerpExecutionClient
 	events      chan model.ExecutionEvent
 	health      venue.ExecutionHealth
 }
 
-func newV2ExecutionClient(accountID model.AccountID, instruments venue.InstrumentProvider, spotClient binanceSpotExecutionClient, perpClient binancePerpExecutionClient) *v2ExecutionClient {
-	return &v2ExecutionClient{
+func newExecutionClient(accountID model.AccountID, instruments venue.InstrumentProvider, spotClient binanceSpotExecutionClient, perpClient binancePerpExecutionClient) *executionClient {
+	return &executionClient{
 		accountID:   accountID,
 		instruments: instruments,
 		spot:        spotClient,
@@ -51,23 +51,23 @@ func newV2ExecutionClient(accountID model.AccountID, instruments venue.Instrumen
 	}
 }
 
-func (c *v2ExecutionClient) AccountID() model.AccountID { return c.accountID }
+func (c *executionClient) AccountID() model.AccountID { return c.accountID }
 
-func (c *v2ExecutionClient) Venue() model.Venue { return model.VenueBinance }
+func (c *executionClient) Venue() model.Venue { return model.VenueBinance }
 
-func (c *v2ExecutionClient) Connect(context.Context) error {
+func (c *executionClient) Connect(context.Context) error {
 	c.health.Connected = true
 	return nil
 }
 
-func (c *v2ExecutionClient) Disconnect(context.Context) error {
+func (c *executionClient) Disconnect(context.Context) error {
 	c.health.Connected = false
 	return nil
 }
 
-func (c *v2ExecutionClient) Health() venue.ExecutionHealth { return c.health }
+func (c *executionClient) Health() venue.ExecutionHealth { return c.health }
 
-func (c *v2ExecutionClient) SubmitOrder(ctx context.Context, cmd model.SubmitOrder) error {
+func (c *executionClient) SubmitOrder(ctx context.Context, cmd model.SubmitOrder) error {
 	inst, raw, err := c.instrumentAndRaw(cmd.InstrumentID)
 	if err != nil {
 		return err
@@ -79,8 +79,8 @@ func (c *v2ExecutionClient) SubmitOrder(ctx context.Context, cmd model.SubmitOrd
 		}
 		resp, err := c.spot.PlaceOrder(ctx, spot.PlaceOrderParams{
 			Symbol:           raw,
-			Side:             v2BinanceSide(cmd.Side),
-			Type:             v2BinanceOrderType(cmd.Type),
+			Side:             binanceSide(cmd.Side),
+			Type:             binanceOrderType(cmd.Type),
 			Quantity:         cmd.Quantity.String(),
 			Price:            optionalDecimalString(cmd.Price),
 			NewClientOrderID: string(cmd.ClientID),
@@ -88,7 +88,7 @@ func (c *v2ExecutionClient) SubmitOrder(ctx context.Context, cmd model.SubmitOrd
 		if err != nil {
 			return err
 		}
-		c.emitOrder(v2SpotOrderReport(c.accountID, cmd.InstrumentID, resp))
+		c.emitOrder(spotOrderReport(c.accountID, cmd.InstrumentID, resp))
 		return nil
 	case model.InstrumentTypeCryptoPerp:
 		if c.perp == nil {
@@ -96,8 +96,8 @@ func (c *v2ExecutionClient) SubmitOrder(ctx context.Context, cmd model.SubmitOrd
 		}
 		resp, err := c.perp.PlaceOrder(ctx, perp.PlaceOrderParams{
 			Symbol:           raw,
-			Side:             v2BinanceSide(cmd.Side),
-			Type:             v2BinanceOrderType(cmd.Type),
+			Side:             binanceSide(cmd.Side),
+			Type:             binanceOrderType(cmd.Type),
 			Quantity:         cmd.Quantity.String(),
 			Price:            optionalDecimalString(cmd.Price),
 			NewClientOrderID: string(cmd.ClientID),
@@ -106,18 +106,18 @@ func (c *v2ExecutionClient) SubmitOrder(ctx context.Context, cmd model.SubmitOrd
 		if err != nil {
 			return err
 		}
-		c.emitOrder(v2PerpOrderReport(c.accountID, cmd.InstrumentID, resp))
+		c.emitOrder(perpOrderReport(c.accountID, cmd.InstrumentID, resp))
 		return nil
 	default:
 		return fmt.Errorf("%w: unsupported instrument type %s", model.ErrNotSupported, inst.Type)
 	}
 }
 
-func (c *v2ExecutionClient) ModifyOrder(context.Context, model.ModifyOrder) error {
+func (c *executionClient) ModifyOrder(context.Context, model.ModifyOrder) error {
 	return model.ErrNotSupported
 }
 
-func (c *v2ExecutionClient) CancelOrder(ctx context.Context, cmd model.CancelOrder) error {
+func (c *executionClient) CancelOrder(ctx context.Context, cmd model.CancelOrder) error {
 	inst, raw, err := c.instrumentAndRaw(cmd.InstrumentID)
 	if err != nil {
 		return err
@@ -133,7 +133,7 @@ func (c *v2ExecutionClient) CancelOrder(ctx context.Context, cmd model.CancelOrd
 			return err
 		}
 		if resp != nil {
-			c.emitOrder(v2SpotCancelReport(c.accountID, cmd.InstrumentID, resp))
+			c.emitOrder(spotCancelReport(c.accountID, cmd.InstrumentID, resp))
 		}
 		return nil
 	case model.InstrumentTypeCryptoPerp:
@@ -148,14 +148,14 @@ func (c *v2ExecutionClient) CancelOrder(ctx context.Context, cmd model.CancelOrd
 		if err != nil {
 			return err
 		}
-		c.emitOrder(v2PerpOrderReport(c.accountID, cmd.InstrumentID, resp))
+		c.emitOrder(perpOrderReport(c.accountID, cmd.InstrumentID, resp))
 		return nil
 	default:
 		return fmt.Errorf("%w: unsupported instrument type %s", model.ErrNotSupported, inst.Type)
 	}
 }
 
-func (c *v2ExecutionClient) CancelAllOrders(ctx context.Context, cmd model.CancelAllOrders) error {
+func (c *executionClient) CancelAllOrders(ctx context.Context, cmd model.CancelAllOrders) error {
 	inst, raw, err := c.instrumentAndRaw(cmd.InstrumentID)
 	if err != nil {
 		return err
@@ -169,13 +169,13 @@ func (c *v2ExecutionClient) CancelAllOrders(ctx context.Context, cmd model.Cance
 	return c.perp.CancelAllOpenOrders(ctx, perp.CancelAllOrdersParams{Symbol: raw})
 }
 
-func (c *v2ExecutionClient) QueryAccount(ctx context.Context) error {
+func (c *executionClient) QueryAccount(ctx context.Context) error {
 	if c.spot != nil {
 		resp, err := c.spot.GetAccount(ctx)
 		if err != nil {
 			return err
 		}
-		state, err := v2SpotAccountState(c.accountID, resp)
+		state, err := spotAccountState(c.accountID, resp)
 		if err != nil {
 			return err
 		}
@@ -186,7 +186,7 @@ func (c *v2ExecutionClient) QueryAccount(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		state, err := v2PerpAccountState(c.accountID, resp)
+		state, err := perpAccountState(c.accountID, resp)
 		if err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func (c *v2ExecutionClient) QueryAccount(ctx context.Context) error {
 	return nil
 }
 
-func (c *v2ExecutionClient) GenerateOrderStatusReports(ctx context.Context, q venue.OrderStatusQuery) ([]model.OrderStatusReport, error) {
+func (c *executionClient) GenerateOrderStatusReports(ctx context.Context, q venue.OrderStatusQuery) ([]model.OrderStatusReport, error) {
 	inst, raw, err := c.instrumentAndRaw(q.InstrumentID)
 	if err != nil {
 		return nil, err
@@ -208,7 +208,7 @@ func (c *v2ExecutionClient) GenerateOrderStatusReports(ctx context.Context, q ve
 		}
 		out := make([]model.OrderStatusReport, 0, len(orders))
 		for i := range orders {
-			out = append(out, v2SpotOrderReport(c.accountID, q.InstrumentID, &orders[i]))
+			out = append(out, spotOrderReport(c.accountID, q.InstrumentID, &orders[i]))
 		}
 		return out, nil
 	case model.InstrumentTypeCryptoPerp:
@@ -218,7 +218,7 @@ func (c *v2ExecutionClient) GenerateOrderStatusReports(ctx context.Context, q ve
 		}
 		out := make([]model.OrderStatusReport, 0, len(orders))
 		for i := range orders {
-			out = append(out, v2PerpOrderReport(c.accountID, q.InstrumentID, &orders[i]))
+			out = append(out, perpOrderReport(c.accountID, q.InstrumentID, &orders[i]))
 		}
 		return out, nil
 	default:
@@ -226,7 +226,7 @@ func (c *v2ExecutionClient) GenerateOrderStatusReports(ctx context.Context, q ve
 	}
 }
 
-func (c *v2ExecutionClient) GenerateFillReports(ctx context.Context, q venue.FillQuery) ([]model.FillReport, error) {
+func (c *executionClient) GenerateFillReports(ctx context.Context, q venue.FillQuery) ([]model.FillReport, error) {
 	inst, raw, err := c.instrumentAndRaw(q.InstrumentID)
 	if err != nil {
 		return nil, err
@@ -239,7 +239,7 @@ func (c *v2ExecutionClient) GenerateFillReports(ctx context.Context, q venue.Fil
 		}
 		out := make([]model.FillReport, 0, len(trades))
 		for _, trade := range trades {
-			out = append(out, v2SpotFillReport(c.accountID, q.InstrumentID, trade))
+			out = append(out, spotFillReport(c.accountID, q.InstrumentID, trade))
 		}
 		return out, nil
 	case model.InstrumentTypeCryptoPerp:
@@ -249,7 +249,7 @@ func (c *v2ExecutionClient) GenerateFillReports(ctx context.Context, q venue.Fil
 		}
 		out := make([]model.FillReport, 0, len(trades))
 		for _, trade := range trades {
-			out = append(out, v2PerpFillReport(c.accountID, q.InstrumentID, trade))
+			out = append(out, perpFillReport(c.accountID, q.InstrumentID, trade))
 		}
 		return out, nil
 	default:
@@ -257,13 +257,13 @@ func (c *v2ExecutionClient) GenerateFillReports(ctx context.Context, q venue.Fil
 	}
 }
 
-func (c *v2ExecutionClient) GeneratePositionStatusReports(context.Context, venue.PositionQuery) ([]model.PositionStatusReport, error) {
+func (c *executionClient) GeneratePositionStatusReports(context.Context, venue.PositionQuery) ([]model.PositionStatusReport, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2ExecutionClient) Events() <-chan model.ExecutionEvent { return c.events }
+func (c *executionClient) Events() <-chan model.ExecutionEvent { return c.events }
 
-func (c *v2ExecutionClient) instrumentAndRaw(id model.InstrumentID) (model.Instrument, string, error) {
+func (c *executionClient) instrumentAndRaw(id model.InstrumentID) (model.Instrument, string, error) {
 	if c.instruments == nil {
 		return model.Instrument{}, "", fmt.Errorf("%w: %s", model.ErrInstrumentNotLoaded, id.String())
 	}
@@ -278,7 +278,7 @@ func (c *v2ExecutionClient) instrumentAndRaw(id model.InstrumentID) (model.Instr
 	return inst, raw, nil
 }
 
-func (c *v2ExecutionClient) emitOrder(report model.OrderStatusReport) {
+func (c *executionClient) emitOrder(report model.OrderStatusReport) {
 	c.health.LastEventTime = report.EventTime
 	select {
 	case c.events <- model.ExecutionEvent{Order: &report}:
@@ -286,7 +286,7 @@ func (c *v2ExecutionClient) emitOrder(report model.OrderStatusReport) {
 	}
 }
 
-func (c *v2ExecutionClient) emitAccountState(state model.AccountState) {
+func (c *executionClient) emitAccountState(state model.AccountState) {
 	c.health.AccountReady = true
 	c.health.LastEventTime = state.EventTime
 	select {
@@ -295,14 +295,14 @@ func (c *v2ExecutionClient) emitAccountState(state model.AccountState) {
 	}
 }
 
-func v2BinanceSide(side model.OrderSide) string {
+func binanceSide(side model.OrderSide) string {
 	if side == model.OrderSideSell {
 		return "SELL"
 	}
 	return "BUY"
 }
 
-func v2BinanceOrderType(t model.OrderType) string {
+func binanceOrderType(t model.OrderType) string {
 	if t == model.OrderTypeLimit {
 		return "LIMIT"
 	}
@@ -317,7 +317,7 @@ func optionalDecimalString(d fmt.Stringer) string {
 	return s
 }
 
-func v2SpotOrderReport(accountID model.AccountID, id model.InstrumentID, resp *spot.OrderResponse) model.OrderStatusReport {
+func spotOrderReport(accountID model.AccountID, id model.InstrumentID, resp *spot.OrderResponse) model.OrderStatusReport {
 	if resp == nil {
 		return model.OrderStatusReport{AccountID: accountID, InstrumentID: id}
 	}
@@ -326,9 +326,9 @@ func v2SpotOrderReport(accountID model.AccountID, id model.InstrumentID, resp *s
 		InstrumentID: id,
 		OrderID:      model.OrderID(strconv.FormatInt(resp.OrderID, 10)),
 		ClientID:     model.ClientOrderID(resp.ClientOrderID),
-		Status:       v2OrderStatusFromBinance(resp.Status),
-		Side:         v2OrderSideFromBinance(resp.Side),
-		Type:         v2OrderTypeFromBinance(resp.Type),
+		Status:       orderStatusFromBinance(resp.Status),
+		Side:         orderSideFromBinance(resp.Side),
+		Type:         orderTypeFromBinance(resp.Type),
 		Quantity:     parseDecimal(resp.OrigQty),
 		FilledQty:    parseDecimal(resp.ExecutedQty),
 		AvgPrice:     parseDecimal(resp.Price),
@@ -336,15 +336,15 @@ func v2SpotOrderReport(accountID model.AccountID, id model.InstrumentID, resp *s
 	}
 }
 
-func v2SpotCancelReport(accountID model.AccountID, id model.InstrumentID, resp *spot.CancelOrderResponse) model.OrderStatusReport {
+func spotCancelReport(accountID model.AccountID, id model.InstrumentID, resp *spot.CancelOrderResponse) model.OrderStatusReport {
 	return model.OrderStatusReport{
 		AccountID:    accountID,
 		InstrumentID: id,
 		OrderID:      model.OrderID(strconv.FormatInt(resp.OrderID, 10)),
 		ClientID:     model.ClientOrderID(resp.ClientOrderID),
-		Status:       v2OrderStatusFromBinance(resp.Status),
-		Side:         v2OrderSideFromBinance(resp.Side),
-		Type:         v2OrderTypeFromBinance(resp.Type),
+		Status:       orderStatusFromBinance(resp.Status),
+		Side:         orderSideFromBinance(resp.Side),
+		Type:         orderTypeFromBinance(resp.Type),
 		Quantity:     parseDecimal(resp.OrigQty),
 		FilledQty:    parseDecimal(resp.ExecutedQty),
 		AvgPrice:     parseDecimal(resp.Price),
@@ -352,7 +352,7 @@ func v2SpotCancelReport(accountID model.AccountID, id model.InstrumentID, resp *
 	}
 }
 
-func v2PerpOrderReport(accountID model.AccountID, id model.InstrumentID, resp *perp.OrderResponse) model.OrderStatusReport {
+func perpOrderReport(accountID model.AccountID, id model.InstrumentID, resp *perp.OrderResponse) model.OrderStatusReport {
 	if resp == nil {
 		return model.OrderStatusReport{AccountID: accountID, InstrumentID: id}
 	}
@@ -361,9 +361,9 @@ func v2PerpOrderReport(accountID model.AccountID, id model.InstrumentID, resp *p
 		InstrumentID: id,
 		OrderID:      model.OrderID(strconv.FormatInt(resp.OrderID, 10)),
 		ClientID:     model.ClientOrderID(resp.ClientOrderID),
-		Status:       v2OrderStatusFromBinance(resp.Status),
-		Side:         v2OrderSideFromBinance(resp.Side),
-		Type:         v2OrderTypeFromBinance(resp.Type),
+		Status:       orderStatusFromBinance(resp.Status),
+		Side:         orderSideFromBinance(resp.Side),
+		Type:         orderTypeFromBinance(resp.Type),
 		Quantity:     parseDecimal(resp.OrigQty),
 		FilledQty:    parseDecimal(resp.ExecutedQty),
 		AvgPrice:     parseDecimal(resp.AvgPrice),
@@ -371,7 +371,7 @@ func v2PerpOrderReport(accountID model.AccountID, id model.InstrumentID, resp *p
 	}
 }
 
-func v2SpotFillReport(accountID model.AccountID, id model.InstrumentID, trade spot.Trade) model.FillReport {
+func spotFillReport(accountID model.AccountID, id model.InstrumentID, trade spot.Trade) model.FillReport {
 	side := model.OrderSideSell
 	if trade.IsBuyer {
 		side = model.OrderSideBuy
@@ -384,12 +384,12 @@ func v2SpotFillReport(accountID model.AccountID, id model.InstrumentID, trade sp
 		Side:         side,
 		Quantity:     parseDecimal(trade.Qty),
 		Price:        parseDecimal(trade.Price),
-		Fee:          v2MoneyFromCommission(trade.Commission, trade.CommissionAsset),
+		Fee:          moneyFromCommission(trade.Commission, trade.CommissionAsset),
 		EventTime:    timeFromUnixMilli(trade.Time),
 	}
 }
 
-func v2PerpFillReport(accountID model.AccountID, id model.InstrumentID, trade perp.Trade) model.FillReport {
+func perpFillReport(accountID model.AccountID, id model.InstrumentID, trade perp.Trade) model.FillReport {
 	side := model.OrderSideSell
 	if trade.IsBuyer {
 		side = model.OrderSideBuy
@@ -402,12 +402,12 @@ func v2PerpFillReport(accountID model.AccountID, id model.InstrumentID, trade pe
 		Side:         side,
 		Quantity:     parseDecimal(trade.Qty),
 		Price:        parseDecimal(trade.Price),
-		Fee:          v2MoneyFromCommission(trade.Commission, trade.CommissionAsset),
+		Fee:          moneyFromCommission(trade.Commission, trade.CommissionAsset),
 		EventTime:    timeFromUnixMilli(trade.Time),
 	}
 }
 
-func v2OrderStatusFromBinance(status string) model.OrderStatus {
+func orderStatusFromBinance(status string) model.OrderStatus {
 	switch status {
 	case "NEW":
 		return model.OrderStatusAccepted
@@ -426,14 +426,14 @@ func v2OrderStatusFromBinance(status string) model.OrderStatus {
 	}
 }
 
-func v2OrderSideFromBinance(side string) model.OrderSide {
+func orderSideFromBinance(side string) model.OrderSide {
 	if side == "SELL" {
 		return model.OrderSideSell
 	}
 	return model.OrderSideBuy
 }
 
-func v2OrderTypeFromBinance(t string) model.OrderType {
+func orderTypeFromBinance(t string) model.OrderType {
 	if t == "LIMIT" {
 		return model.OrderTypeLimit
 	}

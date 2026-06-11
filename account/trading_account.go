@@ -11,17 +11,17 @@ import (
 	"github.com/QuantProcessing/exchanges/venue"
 )
 
-type V2TradingAccountConfig struct {
+type TradingAccountConfig struct {
 	Instruments []model.InstrumentID
-	Cache       *V2Cache
-	Reconciler  *V2Reconciler
+	Cache       *Cache
+	Reconciler  *Reconciler
 }
 
-type V2TradingAccount struct {
+type TradingAccount struct {
 	exec       venue.ExecutionClient
-	cache      *V2Cache
-	reconciler *V2Reconciler
-	cfg        V2TradingAccountConfig
+	cache      *Cache
+	reconciler *Reconciler
+	cfg        TradingAccountConfig
 
 	mu             sync.RWMutex
 	started        bool
@@ -34,22 +34,22 @@ type V2TradingAccount struct {
 	wg             sync.WaitGroup
 }
 
-func NewV2TradingAccount(exec venue.ExecutionClient, cfg V2TradingAccountConfig) (*V2TradingAccount, error) {
+func NewTradingAccount(exec venue.ExecutionClient, cfg TradingAccountConfig) (*TradingAccount, error) {
 	if exec == nil {
 		return nil, fmt.Errorf("%w: nil execution client", model.ErrInvalidAccountState)
 	}
 	cache := cfg.Cache
 	if cache == nil {
-		cache = NewV2Cache()
+		cache = NewCache()
 	}
 	reconciler := cfg.Reconciler
 	if reconciler == nil {
-		reconciler = NewV2Reconciler(cache)
+		reconciler = NewReconciler(cache)
 	}
 	cfg.Instruments = append([]model.InstrumentID(nil), cfg.Instruments...)
 	cfg.Cache = cache
 	cfg.Reconciler = reconciler
-	return &V2TradingAccount{
+	return &TradingAccount{
 		exec:       exec,
 		cache:      cache,
 		reconciler: reconciler,
@@ -58,7 +58,7 @@ func NewV2TradingAccount(exec venue.ExecutionClient, cfg V2TradingAccountConfig)
 	}, nil
 }
 
-func (a *V2TradingAccount) Start(ctx context.Context) error {
+func (a *TradingAccount) Start(ctx context.Context) error {
 	a.mu.Lock()
 	if a.started || a.starting {
 		a.mu.Unlock()
@@ -100,7 +100,7 @@ func (a *V2TradingAccount) Start(ctx context.Context) error {
 	return nil
 }
 
-func (a *V2TradingAccount) Stop(ctx context.Context) error {
+func (a *TradingAccount) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	if !a.started && !a.starting {
 		a.mu.Unlock()
@@ -136,12 +136,12 @@ func (a *V2TradingAccount) Stop(ctx context.Context) error {
 	return err
 }
 
-func (a *V2TradingAccount) Ready() bool {
+func (a *TradingAccount) Ready() bool {
 	health := a.Health()
 	return health.Started && health.SnapshotLoaded && !health.Starting && !health.Closing
 }
 
-func (a *V2TradingAccount) Health() TradingAccountHealth {
+func (a *TradingAccount) Health() TradingAccountHealth {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return TradingAccountHealth{
@@ -154,27 +154,27 @@ func (a *V2TradingAccount) Health() TradingAccountHealth {
 	}
 }
 
-func (a *V2TradingAccount) Cache() *V2Cache {
+func (a *TradingAccount) Cache() *Cache {
 	return a.cache
 }
 
-func (a *V2TradingAccount) AccountState() (model.AccountState, bool) {
+func (a *TradingAccount) AccountState() (model.AccountState, bool) {
 	return a.cache.AccountState(a.exec.Venue(), a.exec.AccountID())
 }
 
-func (a *V2TradingAccount) FlowByOrderID(orderID model.OrderID) (*V2OrderFlow, bool) {
+func (a *TradingAccount) FlowByOrderID(orderID model.OrderID) (*OrderTracker, bool) {
 	return a.reconciler.FlowByOrderID(orderID)
 }
 
-func (a *V2TradingAccount) FlowByClientID(clientID model.ClientOrderID) (*V2OrderFlow, bool) {
+func (a *TradingAccount) FlowByClientID(clientID model.ClientOrderID) (*OrderTracker, bool) {
 	return a.reconciler.FlowByClientID(clientID)
 }
 
-func (a *V2TradingAccount) PositionsSnapshot() []model.PositionStatusReport {
+func (a *TradingAccount) PositionsSnapshot() []model.PositionStatusReport {
 	return a.reconciler.PositionsSnapshot()
 }
 
-func (a *V2TradingAccount) SubmitOrder(ctx context.Context, cmd model.SubmitOrder) (*V2OrderFlow, error) {
+func (a *TradingAccount) SubmitOrder(ctx context.Context, cmd model.SubmitOrder) (*OrderTracker, error) {
 	if cmd.ClientID == "" {
 		cmd.ClientID = model.NewClientOrderID()
 	}
@@ -185,15 +185,15 @@ func (a *V2TradingAccount) SubmitOrder(ctx context.Context, cmd model.SubmitOrde
 	return flow, nil
 }
 
-func (a *V2TradingAccount) CancelOrder(ctx context.Context, cmd model.CancelOrder) error {
+func (a *TradingAccount) CancelOrder(ctx context.Context, cmd model.CancelOrder) error {
 	return a.exec.CancelOrder(ctx, cmd)
 }
 
-func (a *V2TradingAccount) CancelAllOrders(ctx context.Context, cmd model.CancelAllOrders) error {
+func (a *TradingAccount) CancelAllOrders(ctx context.Context, cmd model.CancelAllOrders) error {
 	return a.exec.CancelAllOrders(ctx, cmd)
 }
 
-func (a *V2TradingAccount) reconcileSnapshot(ctx context.Context) error {
+func (a *TradingAccount) reconcileSnapshot(ctx context.Context) error {
 	if err := a.exec.QueryAccount(ctx); err != nil {
 		a.markStreamError(StreamBalances, err)
 		return err
@@ -264,7 +264,7 @@ func (a *V2TradingAccount) reconcileSnapshot(ctx context.Context) error {
 	return nil
 }
 
-func (a *V2TradingAccount) drainExecutionEvents() error {
+func (a *TradingAccount) drainExecutionEvents() error {
 	events := a.exec.Events()
 	for {
 		select {
@@ -281,7 +281,7 @@ func (a *V2TradingAccount) drainExecutionEvents() error {
 	}
 }
 
-func (a *V2TradingAccount) runEvents(ctx context.Context) {
+func (a *TradingAccount) runEvents(ctx context.Context) {
 	defer a.wg.Done()
 	events := a.exec.Events()
 	for {
@@ -299,7 +299,7 @@ func (a *V2TradingAccount) runEvents(ctx context.Context) {
 	}
 }
 
-func (a *V2TradingAccount) applyExecutionEvent(ev model.ExecutionEvent) error {
+func (a *TradingAccount) applyExecutionEvent(ev model.ExecutionEvent) error {
 	if err := a.reconciler.ApplyEvent(ev); err != nil {
 		return err
 	}
@@ -322,7 +322,7 @@ func streamNameForExecutionEvent(ev model.ExecutionEvent) StreamName {
 	}
 }
 
-func (a *V2TradingAccount) failStart(error) {
+func (a *TradingAccount) failStart(error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.started = false
@@ -330,7 +330,7 @@ func (a *V2TradingAccount) failStart(error) {
 	a.closing = false
 }
 
-func (a *V2TradingAccount) markStreamReady(name StreamName) {
+func (a *TradingAccount) markStreamReady(name StreamName) {
 	a.updateStreamHealth(name, func(health StreamHealth) StreamHealth {
 		if health.Status == StreamStatusUnsupported {
 			return health
@@ -344,7 +344,7 @@ func (a *V2TradingAccount) markStreamReady(name StreamName) {
 	})
 }
 
-func (a *V2TradingAccount) markStreamUnsupported(name StreamName, err error) {
+func (a *TradingAccount) markStreamUnsupported(name StreamName, err error) {
 	a.updateStreamHealth(name, func(health StreamHealth) StreamHealth {
 		health.Status = StreamStatusUnsupported
 		health.Supported = false
@@ -357,7 +357,7 @@ func (a *V2TradingAccount) markStreamUnsupported(name StreamName, err error) {
 	})
 }
 
-func (a *V2TradingAccount) markStreamError(name StreamName, err error) {
+func (a *TradingAccount) markStreamError(name StreamName, err error) {
 	a.updateStreamHealth(name, func(health StreamHealth) StreamHealth {
 		health.Status = StreamStatusError
 		health.Supported = true
@@ -370,7 +370,7 @@ func (a *V2TradingAccount) markStreamError(name StreamName, err error) {
 	})
 }
 
-func (a *V2TradingAccount) markStreamEvent(name StreamName, dropped uint64) {
+func (a *TradingAccount) markStreamEvent(name StreamName, dropped uint64) {
 	a.updateStreamHealth(name, func(health StreamHealth) StreamHealth {
 		health.Events++
 		health.DroppedEvents += dropped
@@ -383,7 +383,7 @@ func (a *V2TradingAccount) markStreamEvent(name StreamName, dropped uint64) {
 	})
 }
 
-func (a *V2TradingAccount) updateStreamHealth(name StreamName, update func(StreamHealth) StreamHealth) {
+func (a *TradingAccount) updateStreamHealth(name StreamName, update func(StreamHealth) StreamHealth) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.streams == nil {
@@ -396,7 +396,7 @@ func (a *V2TradingAccount) updateStreamHealth(name StreamName, update func(Strea
 	a.streams[name] = update(health)
 }
 
-func (a *V2TradingAccount) markStartingStreamsReadyLocked() {
+func (a *TradingAccount) markStartingStreamsReadyLocked() {
 	if a.streams == nil {
 		a.streams = initialStreamHealth()
 	}
@@ -410,7 +410,7 @@ func (a *V2TradingAccount) markStartingStreamsReadyLocked() {
 	}
 }
 
-func (a *V2TradingAccount) markStreamsStoppedLocked() {
+func (a *TradingAccount) markStreamsStoppedLocked() {
 	if a.streams == nil {
 		a.streams = initialStreamHealth()
 	}

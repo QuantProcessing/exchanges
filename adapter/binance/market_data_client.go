@@ -11,7 +11,7 @@ import (
 	"github.com/QuantProcessing/exchanges/venue"
 )
 
-var _ venue.MarketDataClient = (*v2MarketDataClient)(nil)
+var _ venue.MarketDataClient = (*marketDataClient)(nil)
 
 type binanceSpotMarketDataClient interface {
 	BookTicker(ctx context.Context, symbol string) (*spot.BookTickerResponse, error)
@@ -24,22 +24,22 @@ type binancePerpMarketDataClient interface {
 	Depth(ctx context.Context, symbol string, limit int) (*perp.DepthResponse, error)
 }
 
-type v2MarketDataClient struct {
+type marketDataClient struct {
 	instruments venue.InstrumentProvider
-	normalizer  v2SymbolNormalizer
+	normalizer  symbolNormalizer
 	spot        binanceSpotMarketDataClient
 	perp        binancePerpMarketDataClient
 }
 
-func newV2MarketDataClient(instruments venue.InstrumentProvider, spotClient binanceSpotMarketDataClient, perpClient binancePerpMarketDataClient) *v2MarketDataClient {
-	return &v2MarketDataClient{
+func newMarketDataClient(instruments venue.InstrumentProvider, spotClient binanceSpotMarketDataClient, perpClient binancePerpMarketDataClient) *marketDataClient {
+	return &marketDataClient{
 		instruments: instruments,
 		spot:        spotClient,
 		perp:        perpClient,
 	}
 }
 
-func (c *v2MarketDataClient) FetchTicker(ctx context.Context, id model.InstrumentID) (model.Ticker, error) {
+func (c *marketDataClient) FetchTicker(ctx context.Context, id model.InstrumentID) (model.Ticker, error) {
 	inst, err := c.loadedInstrument(id)
 	if err != nil {
 		return model.Ticker{}, err
@@ -80,7 +80,7 @@ func (c *v2MarketDataClient) FetchTicker(ctx context.Context, id model.Instrumen
 		if err != nil {
 			return model.Ticker{}, err
 		}
-		bids, asks := v2PerpBookLevels(depth)
+		bids, asks := perpBookLevels(depth)
 		out := model.Ticker{
 			InstrumentID: id,
 			Last:         parseDecimal(ticker.LastPrice),
@@ -98,7 +98,7 @@ func (c *v2MarketDataClient) FetchTicker(ctx context.Context, id model.Instrumen
 	}
 }
 
-func (c *v2MarketDataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, limit int) (model.OrderBook, error) {
+func (c *marketDataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, limit int) (model.OrderBook, error) {
 	inst, err := c.loadedInstrument(id)
 	if err != nil {
 		return model.OrderBook{}, err
@@ -118,8 +118,8 @@ func (c *v2MarketDataClient) FetchOrderBook(ctx context.Context, id model.Instru
 		}
 		return model.OrderBook{
 			InstrumentID: id,
-			Bids:         v2StringBookLevels(depth.Bids),
-			Asks:         v2StringBookLevels(depth.Asks),
+			Bids:         stringBookLevels(depth.Bids),
+			Asks:         stringBookLevels(depth.Asks),
 			EventTime:    time.Now(),
 		}, nil
 	case model.InstrumentTypeCryptoPerp:
@@ -130,7 +130,7 @@ func (c *v2MarketDataClient) FetchOrderBook(ctx context.Context, id model.Instru
 		if err != nil {
 			return model.OrderBook{}, err
 		}
-		bids, asks := v2PerpBookLevels(depth)
+		bids, asks := perpBookLevels(depth)
 		return model.OrderBook{
 			InstrumentID: id,
 			Bids:         bids,
@@ -142,31 +142,31 @@ func (c *v2MarketDataClient) FetchOrderBook(ctx context.Context, id model.Instru
 	}
 }
 
-func (c *v2MarketDataClient) FetchTrades(context.Context, model.InstrumentID, venue.TradeQuery) ([]model.Trade, error) {
+func (c *marketDataClient) FetchTrades(context.Context, model.InstrumentID, venue.TradeQuery) ([]model.Trade, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2MarketDataClient) FetchBars(context.Context, model.InstrumentID, model.BarSpec, venue.BarQuery) ([]model.Bar, error) {
+func (c *marketDataClient) FetchBars(context.Context, model.InstrumentID, model.BarSpec, venue.BarQuery) ([]model.Bar, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2MarketDataClient) SubscribeTicker(context.Context, model.InstrumentID, venue.TickerHandler) (venue.Subscription, error) {
+func (c *marketDataClient) SubscribeTicker(context.Context, model.InstrumentID, venue.TickerHandler) (venue.Subscription, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2MarketDataClient) SubscribeOrderBook(context.Context, model.InstrumentID, int, venue.OrderBookHandler) (venue.Subscription, error) {
+func (c *marketDataClient) SubscribeOrderBook(context.Context, model.InstrumentID, int, venue.OrderBookHandler) (venue.Subscription, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2MarketDataClient) SubscribeTrades(context.Context, model.InstrumentID, venue.TradeHandler) (venue.Subscription, error) {
+func (c *marketDataClient) SubscribeTrades(context.Context, model.InstrumentID, venue.TradeHandler) (venue.Subscription, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2MarketDataClient) SubscribeBars(context.Context, model.InstrumentID, model.BarSpec, venue.BarHandler) (venue.Subscription, error) {
+func (c *marketDataClient) SubscribeBars(context.Context, model.InstrumentID, model.BarSpec, venue.BarHandler) (venue.Subscription, error) {
 	return nil, model.ErrNotSupported
 }
 
-func (c *v2MarketDataClient) loadedInstrument(id model.InstrumentID) (model.Instrument, error) {
+func (c *marketDataClient) loadedInstrument(id model.InstrumentID) (model.Instrument, error) {
 	if c.instruments == nil {
 		return model.Instrument{}, fmt.Errorf("%w: %s", model.ErrInstrumentNotLoaded, id.String())
 	}
@@ -177,14 +177,14 @@ func (c *v2MarketDataClient) loadedInstrument(id model.InstrumentID) (model.Inst
 	return inst, nil
 }
 
-func v2PerpBookLevels(depth *perp.DepthResponse) ([]model.OrderBookLevel, []model.OrderBookLevel) {
+func perpBookLevels(depth *perp.DepthResponse) ([]model.OrderBookLevel, []model.OrderBookLevel) {
 	if depth == nil {
 		return nil, nil
 	}
-	return v2StringBookLevels(depth.Bids), v2StringBookLevels(depth.Asks)
+	return stringBookLevels(depth.Bids), stringBookLevels(depth.Asks)
 }
 
-func v2StringBookLevels(levels [][]string) []model.OrderBookLevel {
+func stringBookLevels(levels [][]string) []model.OrderBookLevel {
 	out := make([]model.OrderBookLevel, 0, len(levels))
 	for _, level := range levels {
 		if len(level) < 2 {

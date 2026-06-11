@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type V2ModelSuiteConfig struct {
+type ModelContractSuiteConfig struct {
 	Instrument model.Instrument
 	Account    model.AccountState
 }
 
-func RunV2ModelSuite(t *testing.T, cfg V2ModelSuiteConfig) {
+func RunModelContractSuite(t *testing.T, cfg ModelContractSuiteConfig) {
 	t.Helper()
 
 	t.Run("InstrumentID", func(t *testing.T) {
@@ -38,7 +38,7 @@ func RunV2ModelSuite(t *testing.T, cfg V2ModelSuiteConfig) {
 	})
 
 	t.Run("AccountStateReplacement", func(t *testing.T) {
-		cache := account.NewV2Cache()
+		cache := account.NewCache()
 		require.NoError(t, cache.ApplyAccountState(cfg.Account))
 		got, ok := cache.AccountState(cfg.Account.Venue, cfg.Account.AccountID)
 		require.True(t, ok)

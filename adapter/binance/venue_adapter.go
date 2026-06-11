@@ -9,20 +9,20 @@ import (
 	"github.com/QuantProcessing/exchanges/venue"
 )
 
-type V2Options struct {
+type VenueOptions struct {
 	Options
 	AccountID model.AccountID
 }
 
-type V2Adapter struct {
-	instruments *v2InstrumentProvider
-	marketData  *v2MarketDataClient
-	execution   *v2ExecutionClient
+type VenueAdapter struct {
+	instruments *instrumentProvider
+	marketData  *marketDataClient
+	execution   *executionClient
 }
 
-var _ venue.Adapter = (*V2Adapter)(nil)
+var _ venue.Adapter = (*VenueAdapter)(nil)
 
-func NewV2Adapter(_ context.Context, opts V2Options) (*V2Adapter, error) {
+func NewVenueAdapter(_ context.Context, opts VenueOptions) (*VenueAdapter, error) {
 	if err := opts.validateCredentials(); err != nil {
 		return nil, err
 	}
@@ -32,39 +32,39 @@ func NewV2Adapter(_ context.Context, opts V2Options) (*V2Adapter, error) {
 	}
 	spotClient := spot.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
 	perpClient := perp.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
-	instruments := newV2InstrumentProvider(spotClient, perpClient)
-	return &V2Adapter{
+	instruments := newInstrumentProvider(spotClient, perpClient)
+	return &VenueAdapter{
 		instruments: instruments,
-		marketData:  newV2MarketDataClient(instruments, spotClient, perpClient),
-		execution:   newV2ExecutionClient(accountID, instruments, spotClient, perpClient),
+		marketData:  newMarketDataClient(instruments, spotClient, perpClient),
+		execution:   newExecutionClient(accountID, instruments, spotClient, perpClient),
 	}, nil
 }
 
-func (a *V2Adapter) Venue() model.Venue {
+func (a *VenueAdapter) Venue() model.Venue {
 	return model.VenueBinance
 }
 
-func (a *V2Adapter) Instruments() venue.InstrumentProvider {
+func (a *VenueAdapter) Instruments() venue.InstrumentProvider {
 	return a.instruments
 }
 
-func (a *V2Adapter) MarketData() venue.MarketDataClient {
+func (a *VenueAdapter) MarketData() venue.MarketDataClient {
 	return a.marketData
 }
 
-func (a *V2Adapter) Execution() venue.ExecutionClient {
+func (a *VenueAdapter) Execution() venue.ExecutionClient {
 	return a.execution
 }
 
-func (a *V2Adapter) Capabilities() venue.DeclaredCapabilities {
-	return V2DeclaredCapabilities()
+func (a *VenueAdapter) Capabilities() venue.DeclaredCapabilities {
+	return DeclaredCapabilities()
 }
 
-func (a *V2Adapter) Close() error {
+func (a *VenueAdapter) Close() error {
 	return nil
 }
 
-func V2DeclaredCapabilities() venue.DeclaredCapabilities {
+func DeclaredCapabilities() venue.DeclaredCapabilities {
 	return venue.DeclaredCapabilities{
 		Venue:        model.VenueBinance,
 		AccountTypes: []model.AccountType{model.AccountTypeCash, model.AccountTypeMargin},

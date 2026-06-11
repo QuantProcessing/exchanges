@@ -11,16 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type V2LifecycleSuiteConfig struct {
+type AccountLifecycleSuiteConfig struct {
 	Execution   venue.ExecutionClient
 	Instruments []model.InstrumentID
 }
 
-func RunV2LifecycleSuite(t *testing.T, cfg V2LifecycleSuiteConfig) {
+func RunAccountLifecycleSuite(t *testing.T, cfg AccountLifecycleSuiteConfig) {
 	t.Helper()
 	require.NotNil(t, cfg.Execution, "Execution is required")
 
-	acct, err := account.NewV2TradingAccount(cfg.Execution, account.V2TradingAccountConfig{
+	acct, err := account.NewTradingAccount(cfg.Execution, account.TradingAccountConfig{
 		Instruments: cfg.Instruments,
 	})
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func RunV2LifecycleSuite(t *testing.T, cfg V2LifecycleSuiteConfig) {
 	})
 }
 
-func AssertV2OrderFlowTerminal(t *testing.T, flow *account.V2OrderFlow, want model.OrderStatus) {
+func AssertOrderTrackerTerminal(t *testing.T, flow *account.OrderTracker, want model.OrderStatus) {
 	t.Helper()
 	require.NotNil(t, flow)
 	require.Eventually(t, func() bool {

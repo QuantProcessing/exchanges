@@ -10,16 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2ContractSuites(t *testing.T) {
+func TestContractSuites(t *testing.T) {
 	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
-	provider := newV2InstrumentProviderForTest([]v2InstrumentSeed{
+	provider := newInstrumentProviderForTest([]instrumentSeed{
 		{RawSymbol: "BTCUSDT", Product: venue.ProductHintPerp, Base: model.BTC, Quote: model.USDT},
 	})
 	require.NoError(t, provider.LoadAll(context.Background()))
 	inst, ok := provider.Get(instID)
 	require.True(t, ok)
 
-	testsuite.RunV2ModelSuite(t, testsuite.V2ModelSuiteConfig{
+	testsuite.RunModelContractSuite(t, testsuite.ModelContractSuiteConfig{
 		Instrument: inst,
 		Account: model.AccountState{
 			AccountID: "acct",
@@ -29,16 +29,16 @@ func TestV2ContractSuites(t *testing.T) {
 		},
 	})
 
-	testsuite.RunV2VenueSuite(t, testsuite.V2VenueSuiteConfig{
+	testsuite.RunVenueContractSuite(t, testsuite.VenueContractSuiteConfig{
 		Provider:                 provider,
-		MarketData:               newV2MarketDataClient(provider, nil, &fakeV2PerpMarketData{}),
+		MarketData:               newMarketDataClient(provider, nil, &fakePerpMarketData{}),
 		InstrumentID:             instID,
 		ExpectTradesUnsupported:  true,
 		ExpectStreamsUnsupported: true,
 	})
 
-	testsuite.RunV2LifecycleSuite(t, testsuite.V2LifecycleSuiteConfig{
-		Execution:   newV2ExecutionClient("acct", provider, nil, &fakeV2PerpExecution{}),
+	testsuite.RunAccountLifecycleSuite(t, testsuite.AccountLifecycleSuiteConfig{
+		Execution:   newExecutionClient("acct", provider, nil, &fakePerpExecution{}),
 		Instruments: []model.InstrumentID{instID},
 	})
 }

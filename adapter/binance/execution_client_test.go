@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2ExecutionSubmitOrderRoutesSpot(t *testing.T) {
-	provider := newV2InstrumentProviderForTest([]v2InstrumentSeed{
+func TestExecutionSubmitOrderRoutesSpot(t *testing.T) {
+	provider := newInstrumentProviderForTest([]instrumentSeed{
 		{RawSymbol: "BTCUSDT", Product: venue.ProductHintSpot, Base: model.BTC, Quote: model.USDT},
 	})
 	require.NoError(t, provider.LoadAll(context.Background()))
-	spotClient := &fakeV2SpotExecution{}
-	client := newV2ExecutionClient("acct", provider, spotClient, nil)
+	spotClient := &fakeSpotExecution{}
+	client := newExecutionClient("acct", provider, spotClient, nil)
 
 	err := client.SubmitOrder(context.Background(), model.SubmitOrder{
 		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
@@ -35,13 +35,13 @@ func TestV2ExecutionSubmitOrderRoutesSpot(t *testing.T) {
 	require.Equal(t, "client-1", spotClient.place.NewClientOrderID)
 }
 
-func TestV2ExecutionSubmitOrderRoutesPerp(t *testing.T) {
-	provider := newV2InstrumentProviderForTest([]v2InstrumentSeed{
+func TestExecutionSubmitOrderRoutesPerp(t *testing.T) {
+	provider := newInstrumentProviderForTest([]instrumentSeed{
 		{RawSymbol: "BTCUSDT", Product: venue.ProductHintPerp, Base: model.BTC, Quote: model.USDT},
 	})
 	require.NoError(t, provider.LoadAll(context.Background()))
-	perpClient := &fakeV2PerpExecution{}
-	client := newV2ExecutionClient("acct", provider, nil, perpClient)
+	perpClient := &fakePerpExecution{}
+	client := newExecutionClient("acct", provider, nil, perpClient)
 
 	err := client.SubmitOrder(context.Background(), model.SubmitOrder{
 		InstrumentID: model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
@@ -62,8 +62,8 @@ func TestV2ExecutionSubmitOrderRoutesPerp(t *testing.T) {
 	require.True(t, perpClient.place.ReduceOnly)
 }
 
-func TestV2ExecutionSubmitOrderRejectsUnknownInstrument(t *testing.T) {
-	client := newV2ExecutionClient("acct", newV2InstrumentProviderForTest(nil), nil, nil)
+func TestExecutionSubmitOrderRejectsUnknownInstrument(t *testing.T) {
+	client := newExecutionClient("acct", newInstrumentProviderForTest(nil), nil, nil)
 	err := client.SubmitOrder(context.Background(), model.SubmitOrder{
 		InstrumentID: model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
 		Side:         model.OrderSideBuy,
@@ -73,11 +73,11 @@ func TestV2ExecutionSubmitOrderRejectsUnknownInstrument(t *testing.T) {
 	require.ErrorIs(t, err, model.ErrInstrumentNotLoaded)
 }
 
-type fakeV2SpotExecution struct {
+type fakeSpotExecution struct {
 	place spot.PlaceOrderParams
 }
 
-func (f *fakeV2SpotExecution) PlaceOrder(ctx context.Context, p spot.PlaceOrderParams) (*spot.OrderResponse, error) {
+func (f *fakeSpotExecution) PlaceOrder(ctx context.Context, p spot.PlaceOrderParams) (*spot.OrderResponse, error) {
 	f.place = p
 	return &spot.OrderResponse{
 		Symbol:        p.Symbol,
@@ -91,27 +91,27 @@ func (f *fakeV2SpotExecution) PlaceOrder(ctx context.Context, p spot.PlaceOrderP
 	}, nil
 }
 
-func (f *fakeV2SpotExecution) CancelOrder(context.Context, string, int64, string) (*spot.CancelOrderResponse, error) {
+func (f *fakeSpotExecution) CancelOrder(context.Context, string, int64, string) (*spot.CancelOrderResponse, error) {
 	return nil, nil
 }
 
-func (f *fakeV2SpotExecution) GetOpenOrders(context.Context, string) ([]spot.OrderResponse, error) {
+func (f *fakeSpotExecution) GetOpenOrders(context.Context, string) ([]spot.OrderResponse, error) {
 	return nil, nil
 }
 
-func (f *fakeV2SpotExecution) MyTrades(context.Context, string, int, int64, int64, int64) ([]spot.Trade, error) {
+func (f *fakeSpotExecution) MyTrades(context.Context, string, int, int64, int64, int64) ([]spot.Trade, error) {
 	return nil, nil
 }
 
-func (f *fakeV2SpotExecution) GetAccount(context.Context) (*spot.AccountResponse, error) {
+func (f *fakeSpotExecution) GetAccount(context.Context) (*spot.AccountResponse, error) {
 	return &spot.AccountResponse{}, nil
 }
 
-type fakeV2PerpExecution struct {
+type fakePerpExecution struct {
 	place perp.PlaceOrderParams
 }
 
-func (f *fakeV2PerpExecution) PlaceOrder(ctx context.Context, p perp.PlaceOrderParams) (*perp.OrderResponse, error) {
+func (f *fakePerpExecution) PlaceOrder(ctx context.Context, p perp.PlaceOrderParams) (*perp.OrderResponse, error) {
 	f.place = p
 	return &perp.OrderResponse{
 		Symbol:        p.Symbol,
@@ -126,22 +126,22 @@ func (f *fakeV2PerpExecution) PlaceOrder(ctx context.Context, p perp.PlaceOrderP
 	}, nil
 }
 
-func (f *fakeV2PerpExecution) CancelOrder(context.Context, perp.CancelOrderParams) (*perp.OrderResponse, error) {
+func (f *fakePerpExecution) CancelOrder(context.Context, perp.CancelOrderParams) (*perp.OrderResponse, error) {
 	return nil, nil
 }
 
-func (f *fakeV2PerpExecution) CancelAllOpenOrders(context.Context, perp.CancelAllOrdersParams) error {
+func (f *fakePerpExecution) CancelAllOpenOrders(context.Context, perp.CancelAllOrdersParams) error {
 	return nil
 }
 
-func (f *fakeV2PerpExecution) GetOpenOrders(context.Context, string) ([]perp.OrderResponse, error) {
+func (f *fakePerpExecution) GetOpenOrders(context.Context, string) ([]perp.OrderResponse, error) {
 	return nil, nil
 }
 
-func (f *fakeV2PerpExecution) MyTrades(context.Context, string, int, int64, int64, int64) ([]perp.Trade, error) {
+func (f *fakePerpExecution) MyTrades(context.Context, string, int, int64, int64, int64) ([]perp.Trade, error) {
 	return nil, nil
 }
 
-func (f *fakeV2PerpExecution) GetAccount(context.Context) (*perp.AccountResponse, error) {
+func (f *fakePerpExecution) GetAccount(context.Context) (*perp.AccountResponse, error) {
 	return &perp.AccountResponse{}, nil
 }

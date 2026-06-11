@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2TradingAccountStartReconcilesBeforeConnect(t *testing.T) {
+func TestTradingAccountStartReconcilesBeforeConnect(t *testing.T) {
 	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
-	exec := newFakeV2Execution()
-	exec.accountState = v2TestAccountState(t)
+	exec := newFakeExecution()
+	exec.accountState = testAccountState(t)
 	exec.orderReports = []model.OrderStatusReport{{
 		AccountID:    exec.accountID,
 		InstrumentID: instID,
@@ -48,7 +48,7 @@ func TestV2TradingAccountStartReconcilesBeforeConnect(t *testing.T) {
 		EventTime:    time.Now(),
 	}}
 
-	acct, err := NewV2TradingAccount(exec, V2TradingAccountConfig{Instruments: []model.InstrumentID{instID}})
+	acct, err := NewTradingAccount(exec, TradingAccountConfig{Instruments: []model.InstrumentID{instID}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, acct.Stop(context.Background())) })
 
@@ -85,14 +85,14 @@ func TestV2TradingAccountStartReconcilesBeforeConnect(t *testing.T) {
 	require.Equal(t, StreamStatusReady, health.Streams[StreamBalances].Status)
 }
 
-func TestV2TradingAccountStartTreatsUnsupportedReportsAsOptional(t *testing.T) {
+func TestTradingAccountStartTreatsUnsupportedReportsAsOptional(t *testing.T) {
 	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
-	exec := newFakeV2Execution()
-	exec.accountState = v2TestAccountState(t)
+	exec := newFakeExecution()
+	exec.accountState = testAccountState(t)
 	exec.fillErr = model.ErrNotSupported
 	exec.positionErr = model.ErrNotSupported
 
-	acct, err := NewV2TradingAccount(exec, V2TradingAccountConfig{Instruments: []model.InstrumentID{instID}})
+	acct, err := NewTradingAccount(exec, TradingAccountConfig{Instruments: []model.InstrumentID{instID}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, acct.Stop(context.Background())) })
 
@@ -105,12 +105,12 @@ func TestV2TradingAccountStartTreatsUnsupportedReportsAsOptional(t *testing.T) {
 	require.Equal(t, StreamStatusReady, health.Streams[StreamOrders].Status)
 }
 
-func TestV2TradingAccountAppliesLiveExecutionEvents(t *testing.T) {
+func TestTradingAccountAppliesLiveExecutionEvents(t *testing.T) {
 	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
-	exec := newFakeV2Execution()
-	exec.accountState = v2TestAccountState(t)
+	exec := newFakeExecution()
+	exec.accountState = testAccountState(t)
 
-	acct, err := NewV2TradingAccount(exec, V2TradingAccountConfig{Instruments: []model.InstrumentID{instID}})
+	acct, err := NewTradingAccount(exec, TradingAccountConfig{Instruments: []model.InstrumentID{instID}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, acct.Stop(context.Background())) })
 	require.NoError(t, acct.Start(context.Background()))
@@ -148,7 +148,7 @@ func TestV2TradingAccountAppliesLiveExecutionEvents(t *testing.T) {
 	require.GreaterOrEqual(t, health.Streams[StreamFills].Events, uint64(1))
 }
 
-func v2TestAccountState(t *testing.T) *model.AccountState {
+func testAccountState(t *testing.T) *model.AccountState {
 	t.Helper()
 	total := model.Money{Amount: decimal.RequireFromString("10"), Currency: model.USDT}
 	free := model.Money{Amount: decimal.RequireFromString("8"), Currency: model.USDT}
@@ -164,7 +164,7 @@ func v2TestAccountState(t *testing.T) *model.AccountState {
 	}
 }
 
-type fakeV2Execution struct {
+type fakeExecution struct {
 	mu              sync.Mutex
 	accountID       model.AccountID
 	venueID         model.Venue
@@ -179,21 +179,21 @@ type fakeV2Execution struct {
 	positionErr     error
 }
 
-var _ venue.ExecutionClient = (*fakeV2Execution)(nil)
+var _ venue.ExecutionClient = (*fakeExecution)(nil)
 
-func newFakeV2Execution() *fakeV2Execution {
-	return &fakeV2Execution{
+func newFakeExecution() *fakeExecution {
+	return &fakeExecution{
 		accountID: "binance-main",
 		venueID:   model.VenueBinance,
 		events:    make(chan model.ExecutionEvent, 64),
 	}
 }
 
-func (f *fakeV2Execution) AccountID() model.AccountID { return f.accountID }
+func (f *fakeExecution) AccountID() model.AccountID { return f.accountID }
 
-func (f *fakeV2Execution) Venue() model.Venue { return f.venueID }
+func (f *fakeExecution) Venue() model.Venue { return f.venueID }
 
-func (f *fakeV2Execution) Connect(context.Context) error {
+func (f *fakeExecution) Connect(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.connected = true
@@ -201,32 +201,32 @@ func (f *fakeV2Execution) Connect(context.Context) error {
 	return nil
 }
 
-func (f *fakeV2Execution) Disconnect(context.Context) error {
+func (f *fakeExecution) Disconnect(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.connected = false
 	return nil
 }
 
-func (f *fakeV2Execution) Health() venue.ExecutionHealth {
+func (f *fakeExecution) Health() venue.ExecutionHealth {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return venue.ExecutionHealth{Connected: f.connected, AccountReady: f.connected}
 }
 
-func (f *fakeV2Execution) SubmitOrder(context.Context, model.SubmitOrder) error { return nil }
+func (f *fakeExecution) SubmitOrder(context.Context, model.SubmitOrder) error { return nil }
 
-func (f *fakeV2Execution) ModifyOrder(context.Context, model.ModifyOrder) error {
+func (f *fakeExecution) ModifyOrder(context.Context, model.ModifyOrder) error {
 	return model.ErrNotSupported
 }
 
-func (f *fakeV2Execution) CancelOrder(context.Context, model.CancelOrder) error { return nil }
+func (f *fakeExecution) CancelOrder(context.Context, model.CancelOrder) error { return nil }
 
-func (f *fakeV2Execution) CancelAllOrders(context.Context, model.CancelAllOrders) error {
+func (f *fakeExecution) CancelAllOrders(context.Context, model.CancelAllOrders) error {
 	return nil
 }
 
-func (f *fakeV2Execution) QueryAccount(context.Context) error {
+func (f *fakeExecution) QueryAccount(context.Context) error {
 	f.record("query_account")
 	if f.accountState != nil {
 		f.emit(model.ExecutionEvent{AccountState: f.accountState})
@@ -234,12 +234,12 @@ func (f *fakeV2Execution) QueryAccount(context.Context) error {
 	return nil
 }
 
-func (f *fakeV2Execution) GenerateOrderStatusReports(_ context.Context, q venue.OrderStatusQuery) ([]model.OrderStatusReport, error) {
+func (f *fakeExecution) GenerateOrderStatusReports(_ context.Context, q venue.OrderStatusQuery) ([]model.OrderStatusReport, error) {
 	f.record("order_reports:" + q.InstrumentID.String())
 	return f.orderReports, nil
 }
 
-func (f *fakeV2Execution) GenerateFillReports(_ context.Context, q venue.FillQuery) ([]model.FillReport, error) {
+func (f *fakeExecution) GenerateFillReports(_ context.Context, q venue.FillQuery) ([]model.FillReport, error) {
 	f.record("fill_reports:" + q.InstrumentID.String())
 	if f.fillErr != nil {
 		return nil, f.fillErr
@@ -247,7 +247,7 @@ func (f *fakeV2Execution) GenerateFillReports(_ context.Context, q venue.FillQue
 	return f.fillReports, nil
 }
 
-func (f *fakeV2Execution) GeneratePositionStatusReports(_ context.Context, q venue.PositionQuery) ([]model.PositionStatusReport, error) {
+func (f *fakeExecution) GeneratePositionStatusReports(_ context.Context, q venue.PositionQuery) ([]model.PositionStatusReport, error) {
 	f.record("position_reports:" + q.InstrumentID.String())
 	if f.positionErr != nil {
 		return nil, f.positionErr
@@ -255,25 +255,25 @@ func (f *fakeV2Execution) GeneratePositionStatusReports(_ context.Context, q ven
 	return f.positionReports, nil
 }
 
-func (f *fakeV2Execution) Events() <-chan model.ExecutionEvent { return f.events }
+func (f *fakeExecution) Events() <-chan model.ExecutionEvent { return f.events }
 
-func (f *fakeV2Execution) emit(ev model.ExecutionEvent) {
+func (f *fakeExecution) emit(ev model.ExecutionEvent) {
 	f.events <- ev
 }
 
-func (f *fakeV2Execution) record(call string) {
+func (f *fakeExecution) record(call string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, call)
 }
 
-func (f *fakeV2Execution) callsSnapshot() []string {
+func (f *fakeExecution) callsSnapshot() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
 }
 
-func TestV2TradingAccountRejectsNilExecutionClient(t *testing.T) {
-	_, err := NewV2TradingAccount(nil, V2TradingAccountConfig{})
+func TestTradingAccountRejectsNilExecutionClient(t *testing.T) {
+	_, err := NewTradingAccount(nil, TradingAccountConfig{})
 	require.True(t, errors.Is(err, model.ErrInvalidAccountState))
 }

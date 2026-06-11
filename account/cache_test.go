@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestV2CacheStoresInstrument(t *testing.T) {
-	cache := NewV2Cache()
+func TestCacheStoresInstrument(t *testing.T) {
+	cache := NewCache()
 	inst := model.Instrument{
 		ID:        model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
 		RawSymbol: "BTCUSDT",
@@ -26,8 +26,8 @@ func TestV2CacheStoresInstrument(t *testing.T) {
 	require.Equal(t, inst.ID, got.ID)
 }
 
-func TestV2CacheAppliesAccountStateReplacement(t *testing.T) {
-	cache := NewV2Cache()
+func TestCacheAppliesAccountStateReplacement(t *testing.T) {
+	cache := NewCache()
 	total := model.Money{Amount: decimal.NewFromInt(10), Currency: model.USDT}
 	free := model.Money{Amount: decimal.NewFromInt(8), Currency: model.USDT}
 	bal, err := model.BalanceFromTotalAndFree(total, free)

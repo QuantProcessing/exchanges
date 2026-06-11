@@ -1,2 +1,2 @@
-// Package venue defines V2 adapter contracts implemented by concrete exchange adapters.
+// Package venue defines adapter contracts implemented by concrete exchange adapters.
 package venue

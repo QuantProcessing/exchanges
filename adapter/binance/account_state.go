@@ -11,7 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-func v2SpotAccountState(accountID model.AccountID, resp *spot.AccountResponse) (model.AccountState, error) {
+func spotAccountState(accountID model.AccountID, resp *spot.AccountResponse) (model.AccountState, error) {
 	if resp == nil {
 		return model.AccountState{}, fmt.Errorf("%w: nil spot account response", model.ErrInvalidAccountState)
 	}
@@ -39,7 +39,7 @@ func v2SpotAccountState(accountID model.AccountID, resp *spot.AccountResponse) (
 	return state, nil
 }
 
-func v2PerpAccountState(accountID model.AccountID, resp *perp.AccountResponse) (model.AccountState, error) {
+func perpAccountState(accountID model.AccountID, resp *perp.AccountResponse) (model.AccountState, error) {
 	if resp == nil {
 		return model.AccountState{}, fmt.Errorf("%w: nil perp account response", model.ErrInvalidAccountState)
 	}
@@ -51,7 +51,7 @@ func v2PerpAccountState(accountID model.AccountID, resp *perp.AccountResponse) (
 		EventTime: timeFromUnixMilli(resp.UpdateTime),
 		InitTime:  time.Now(),
 	}
-	n := v2SymbolNormalizer{}
+	n := symbolNormalizer{}
 	for _, a := range resp.Assets {
 		ccy := model.Currency(a.Asset)
 		total := model.Money{Amount: parseDecimal(a.MarginBalance), Currency: ccy}
@@ -106,14 +106,14 @@ func timeFromUnixMilli(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-func v2MoneyFromCommission(amount, currency string) model.Money {
+func moneyFromCommission(amount, currency string) model.Money {
 	if currency == "" {
 		return model.Money{}
 	}
 	return model.Money{Amount: parseDecimal(amount), Currency: model.Currency(currency)}
 }
 
-func v2PositionSideFromQty(qty decimal.Decimal) model.PositionSide {
+func positionSideFromQty(qty decimal.Decimal) model.PositionSide {
 	switch {
 	case qty.IsPositive():
 		return model.PositionSideLong
