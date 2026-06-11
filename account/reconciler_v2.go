@@ -1,0 +1,197 @@
+package account
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/QuantProcessing/exchanges/model"
+)
+
+type V2Reconciler struct {
+	cache           *V2Cache
+	mu              sync.RWMutex
+	flowsByOrderID  map[model.OrderID]*V2OrderFlow
+	flowsByClientID map[model.ClientOrderID]*V2OrderFlow
+	positions       map[v2PositionKey]model.PositionStatusReport
+}
+
+type v2PositionKey struct {
+	accountID    model.AccountID
+	instrumentID model.InstrumentID
+	positionID   model.PositionID
+	side         model.PositionSide
+}
+
+func NewV2Reconciler(cache *V2Cache) *V2Reconciler {
+	if cache == nil {
+		cache = NewV2Cache()
+	}
+	return &V2Reconciler{
+		cache:           cache,
+		flowsByOrderID:  make(map[model.OrderID]*V2OrderFlow),
+		flowsByClientID: make(map[model.ClientOrderID]*V2OrderFlow),
+		positions:       make(map[v2PositionKey]model.PositionStatusReport),
+	}
+}
+
+func (r *V2Reconciler) ApplyEvent(ev model.ExecutionEvent) error {
+	if ev.AccountState != nil {
+		if err := r.ApplyAccountState(*ev.AccountState); err != nil {
+			return err
+		}
+	}
+	if ev.Order != nil {
+		if err := r.ApplyOrderStatusReport(*ev.Order); err != nil {
+			return err
+		}
+	}
+	if ev.Fill != nil {
+		if err := r.ApplyFillReport(*ev.Fill); err != nil {
+			return err
+		}
+	}
+	if ev.Position != nil {
+		if err := r.ApplyPositionStatusReport(*ev.Position); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *V2Reconciler) ApplyAccountState(state model.AccountState) error {
+	if err := r.cache.ApplyAccountState(state); err != nil {
+		return err
+	}
+	for _, pos := range state.Positions {
+		if err := r.ApplyPositionStatusReport(pos); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *V2Reconciler) ApplyOrderStatusReport(report model.OrderStatusReport) error {
+	if report.AccountID == "" {
+		return fmt.Errorf("%w: missing order account id", model.ErrInvalidAccountState)
+	}
+	if err := report.InstrumentID.Validate(); err != nil {
+		return err
+	}
+	flow := r.flowForOrderLocked(report.OrderID, report.ClientID)
+	flow.publishOrder(report)
+	return nil
+}
+
+func (r *V2Reconciler) ApplyFillReport(report model.FillReport) error {
+	if report.AccountID == "" {
+		return fmt.Errorf("%w: missing fill account id", model.ErrInvalidAccountState)
+	}
+	if err := report.InstrumentID.Validate(); err != nil {
+		return err
+	}
+	flow := r.flowForOrderLocked(report.OrderID, report.ClientID)
+	flow.publishFill(report)
+	return nil
+}
+
+func (r *V2Reconciler) ApplyPositionStatusReport(report model.PositionStatusReport) error {
+	if report.AccountID == "" {
+		return fmt.Errorf("%w: missing position account id", model.ErrInvalidAccountState)
+	}
+	if err := report.InstrumentID.Validate(); err != nil {
+		return err
+	}
+	key := v2PositionKey{
+		accountID:    report.AccountID,
+		instrumentID: report.InstrumentID,
+		positionID:   report.PositionID,
+		side:         report.Side,
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.positions[key] = report
+	return nil
+}
+
+func (r *V2Reconciler) EnsureFlowForClientID(clientID model.ClientOrderID) *V2OrderFlow {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if flow, ok := r.flowsByClientID[clientID]; ok {
+		return flow
+	}
+	flow := newV2OrderFlow(nil)
+	if clientID != "" {
+		r.flowsByClientID[clientID] = flow
+	}
+	return flow
+}
+
+func (r *V2Reconciler) FlowByOrderID(orderID model.OrderID) (*V2OrderFlow, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	flow, ok := r.flowsByOrderID[orderID]
+	return flow, ok
+}
+
+func (r *V2Reconciler) FlowByClientID(clientID model.ClientOrderID) (*V2OrderFlow, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	flow, ok := r.flowsByClientID[clientID]
+	return flow, ok
+}
+
+func (r *V2Reconciler) PositionsSnapshot() []model.PositionStatusReport {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]model.PositionStatusReport, 0, len(r.positions))
+	for _, pos := range r.positions {
+		out = append(out, pos)
+	}
+	return out
+}
+
+func (r *V2Reconciler) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[*V2OrderFlow]struct{}, len(r.flowsByOrderID)+len(r.flowsByClientID))
+	for _, flow := range r.flowsByOrderID {
+		seen[flow] = struct{}{}
+	}
+	for _, flow := range r.flowsByClientID {
+		seen[flow] = struct{}{}
+	}
+	for flow := range seen {
+		flow.Close()
+	}
+}
+
+func (r *V2Reconciler) flowForOrderLocked(orderID model.OrderID, clientID model.ClientOrderID) *V2OrderFlow {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if orderID != "" {
+		if flow, ok := r.flowsByOrderID[orderID]; ok {
+			if clientID != "" {
+				r.flowsByClientID[clientID] = flow
+			}
+			return flow
+		}
+	}
+	if clientID != "" {
+		if flow, ok := r.flowsByClientID[clientID]; ok {
+			if orderID != "" {
+				r.flowsByOrderID[orderID] = flow
+			}
+			return flow
+		}
+	}
+
+	flow := newV2OrderFlow(nil)
+	if orderID != "" {
+		r.flowsByOrderID[orderID] = flow
+	}
+	if clientID != "" {
+		r.flowsByClientID[clientID] = flow
+	}
+	return flow
+}
