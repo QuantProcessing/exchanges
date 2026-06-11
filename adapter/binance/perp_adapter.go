@@ -1,0 +1,854 @@
+package binance
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/sdk/binance/perp"
+
+	"github.com/shopspring/decimal"
+)
+
+// Adapter Binance 交易所适配器
+type Adapter struct {
+	*exchanges.BaseAdapter
+	client        *perp.Client
+	wsMarket      *perp.WsMarketClient
+	wsAccount     *perp.WsAccountClient
+	wsAPI         *perp.WsAPIClient
+	apiKey        string
+	secretKey     string
+	quoteCurrency string // "USDT" or "USDC"
+
+	// OrderBook management cancellations
+	cancelMu sync.Mutex
+	cancels  map[string]context.CancelFunc
+
+	// Cached fee rates (per-symbol)
+	feeCache sync.Map // symbol -> *exchanges.FeeRate
+
+	privateOrderStreamsOnce sync.Once
+	privateOrderStreams     *privateOrderStreams[perp.OrderUpdateEvent]
+}
+
+// NewAdapter 创建 Binance 适配器
+func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
+	quote, err := opts.quoteCurrency()
+	if err != nil {
+		return nil, err
+	}
+	return newPerpAdapterWithClient(ctx, opts, quote, perp.NewClient().WithCredentials(opts.APIKey, opts.SecretKey))
+}
+
+func newPerpAdapterWithClient(ctx context.Context, opts Options, quote exchanges.QuoteCurrency, client *perp.Client) (*Adapter, error) {
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
+	}
+	wsMarket := perp.NewWsMarketClient(ctx)
+	wsAccount := perp.NewWsAccountClient(ctx, opts.APIKey, opts.SecretKey)
+	wsAPI := perp.NewWsAPIClient(ctx)
+
+	base := exchanges.NewBaseAdapter("BINANCE", exchanges.MarketTypePerp, opts.logger())
+
+	a := &Adapter{
+		BaseAdapter:   base,
+		client:        client,
+		wsMarket:      wsMarket,
+		wsAccount:     wsAccount,
+		wsAPI:         wsAPI,
+		apiKey:        opts.APIKey,
+		secretKey:     opts.SecretKey,
+		quoteCurrency: string(quote),
+		cancels:       make(map[string]context.CancelFunc),
+	}
+
+	// Initialize metadata
+	if err := a.RefreshSymbolDetails(context.Background()); err != nil {
+		return nil, fmt.Errorf("binance init: %w", err)
+	}
+	// TODO: logger.Info("Initialized Binance Adapter")
+
+	return a, nil
+}
+
+func (a *Adapter) WsAccountConnected(ctx context.Context) error {
+	if a.wsAccount.Conn == nil {
+		if err := a.wsAccount.Connect(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Adapter) WsMarketConnected(ctx context.Context) error {
+	if a.wsMarket.Conn == nil {
+		if err := a.wsMarket.Connect(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Adapter) WsOrderConnected(ctx context.Context) error {
+	if a.wsAPI.Conn == nil {
+		if err := a.wsAPI.Connect(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Adapter) Close() error {
+	a.wsMarket.Close()
+	a.wsAccount.Close()
+	a.wsAPI.Close()
+	return nil
+}
+
+// ================= Account & Trading =================
+
+// GetAccount 获取账户信息
+func (a *Adapter) FetchAccount(ctx context.Context) (_ *exchanges.Account, retErr error) {
+	res, err := a.client.GetAccount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("binance get account failed: %w", err)
+	}
+
+	account := &exchanges.Account{
+		Positions: []exchanges.Position{},
+		Orders:    []exchanges.Order{},
+	}
+
+	// Balance
+	var availBalance decimal.Decimal
+	for _, asset := range res.Assets {
+		if asset.Asset == a.quoteCurrency {
+			availBalance = parseDecimal(asset.AvailableBalance)
+			break
+		}
+	}
+
+	totalWallet := parseDecimal(res.TotalWalletBalance)
+	totalUnrealized := parseDecimal(res.TotalUnrealizedProfit)
+
+	account.TotalBalance = totalWallet.Add(totalUnrealized)
+	account.UnrealizedPnL = totalUnrealized
+	account.AvailableBalance = availBalance
+
+	// Positions
+	for _, p := range res.Positions {
+		amt := parseDecimal(p.PositionAmt)
+		if amt.IsZero() {
+			continue
+		}
+
+		entryPrice := parseDecimal(p.EntryPrice)
+		unrealizedPnL := parseDecimal(p.UnrealizedProfit)
+		leverage := parseDecimal(p.Leverage)
+		maintMargin := parseDecimal(p.MaintMargin)
+
+		side := exchanges.PositionSideLong
+		if amt.IsNegative() {
+			side = exchanges.PositionSideShort
+		}
+
+		account.Positions = append(account.Positions, exchanges.Position{
+			InstrumentType:    exchanges.InstrumentTypePerp,
+			Symbol:            a.ExtractSymbol(p.Symbol),
+			Side:              side,
+			Quantity:          amt,
+			EntryPrice:        entryPrice,
+			UnrealizedPnL:     unrealizedPnL,
+			Leverage:          leverage,
+			MaintenanceMargin: maintMargin,
+			MarginType:        boolToMarginType(p.Isolated),
+		})
+	}
+
+	return account, nil
+}
+
+func (a *Adapter) FetchBalance(ctx context.Context) (decimal.Decimal, error) {
+	acc, err := a.FetchAccount(ctx)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return acc.TotalBalance, nil
+}
+
+func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, error) {
+	acc, err := a.FetchAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return acc.Positions, nil
+}
+
+func (a *Adapter) mapOrderType(t exchanges.OrderType) string {
+	switch t {
+	case exchanges.OrderTypeLimit:
+		return "LIMIT"
+	case exchanges.OrderTypeMarket:
+		return "MARKET"
+	case exchanges.OrderTypeStopLossLimit:
+		return "STOP"
+	case exchanges.OrderTypeStopLossMarket:
+		return "STOP_MARKET"
+	case exchanges.OrderTypeTakeProfitLimit:
+		return "TAKE_PROFIT"
+	case exchanges.OrderTypeTakeProfitMarket:
+		return "TAKE_PROFIT_MARKET"
+	case exchanges.OrderTypePostOnly:
+		return "LIMIT"
+	default:
+		return string(t)
+	}
+}
+
+func (a *Adapter) mapTimeInForce(params *exchanges.OrderParams) string {
+	if params.Type == exchanges.OrderTypePostOnly {
+		return "GTX"
+	}
+
+	if params.Type == exchanges.OrderTypeLimit {
+		switch params.TimeInForce {
+		case exchanges.TimeInForceGTC:
+			return "GTC"
+		case exchanges.TimeInForceIOC:
+			return "IOC"
+		case exchanges.TimeInForceFOK:
+			return "FOK"
+		case exchanges.TimeInForcePO:
+			return "GTX"
+		default:
+			return "GTC"
+		}
+	}
+	return ""
+}
+
+func isBinanceOrderLookupMiss(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "order") &&
+		(strings.Contains(msg, "does not exist") ||
+			strings.Contains(msg, "unknown order") ||
+			strings.Contains(msg, "not found"))
+}
+
+func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) (retErr error) {
+	_, err := a.client.ChangeLeverage(ctx, symbol, leverage)
+	return err
+}
+
+func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (_ *exchanges.FeeRate, retErr error) {
+	if v, ok := a.feeCache.Load(symbol); ok {
+		return v.(*exchanges.FeeRate), nil
+	}
+	formattedSymbol := a.FormatSymbol(symbol)
+	feeRate, err := a.client.GetFeeRate(ctx, formattedSymbol)
+	if err != nil {
+		return nil, err
+	}
+	res := &exchanges.FeeRate{
+		Maker: parseDecimal(feeRate.MakerCommissionRate), // 0.0002 = 0.02%
+		Taker: parseDecimal(feeRate.TakerCommissionRate),
+	}
+	a.feeCache.Store(symbol, res)
+	return res, nil
+}
+
+func (a *Adapter) FetchSymbolDetails(ctx context.Context, symbol string) (*exchanges.SymbolDetails, error) {
+	details, err := a.GetSymbolDetail(symbol)
+	if err != nil {
+		return nil, fmt.Errorf("symbol not found in cache: %s", symbol)
+	}
+	return details, nil
+}
+
+// ================= WebSocket =================
+
+func (a *Adapter) WatchOrders(ctx context.Context, callback exchanges.OrderUpdateCallback) error {
+	return a.privateStreams().watchOrders(func() error {
+		return a.WsAccountConnected(ctx)
+	}, callback)
+}
+
+func (a *Adapter) WatchPositions(ctx context.Context, callback exchanges.PositionUpdateCallback) error {
+	if err := a.WsAccountConnected(ctx); err != nil {
+		return err
+	}
+
+	a.wsAccount.SubscribeAccountUpdate(func(e *perp.AccountUpdateEvent) {
+		for _, p := range e.UpdateData.Positions {
+			pos := a.normalizePositionUpdate(p)
+			callback(pos)
+		}
+	})
+	return nil
+}
+
+func (a *Adapter) WatchTicker(ctx context.Context, symbol string, callback exchanges.TickerCallback) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+
+	return a.wsMarket.SubscribeBookTicker(formattedSymbol, func(e *perp.WsBookTickerEvent) error {
+		t := &exchanges.Ticker{
+			Symbol:    symbol,
+			Bid:       parseDecimal(e.BestBidPrice),
+			Ask:       parseDecimal(e.BestAskPrice),
+			Timestamp: time.Now().UnixMilli(),
+		}
+		if e.EventTime > 0 {
+			t.Timestamp = e.EventTime
+		}
+		callback(t)
+		return nil
+	})
+}
+
+func (a *Adapter) subscribeOrderBookInternal(ctx context.Context, symbol string, depth int, callback exchanges.OrderBookCallback) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+
+	a.cancelMu.Lock()
+	if a.cancels == nil {
+		a.cancels = make(map[string]context.CancelFunc)
+	}
+
+	// 如果已经存在订阅，先取消
+	if cancel, ok := a.cancels[formattedSymbol]; ok {
+		cancel()
+	}
+
+	// 创建新的 OrderBook 实例
+	ob := NewPerpOrderBook(symbol)
+	a.SetLocalOrderBook(formattedSymbol, ob)
+
+	ctxCancel, cancel := context.WithCancel(context.Background())
+	a.cancels[formattedSymbol] = cancel
+	a.cancelMu.Unlock()
+
+	// 用于触发快照同步的通道
+	// 大小设为 1，避免阻塞
+	snapshotTrigger := make(chan struct{}, 1)
+
+	// 启动快照同步协程
+	go func() {
+		retryDelay := time.Second // exponential backoff: 1s → 2s → 4s → ... → 30s cap
+		const maxDelay = 30 * time.Second
+
+		for {
+			select {
+			case <-ctxCancel.Done():
+				return
+			case <-snapshotTrigger:
+				// 如果已经初始化完成了，就不再请求快照
+				if ob.IsInitialized() {
+					retryDelay = time.Second // reset on success
+					continue
+				}
+
+				// 获取1000档深度快照
+				// limit=1000 compliant with explicit instruction "Step 3"
+				snapshotDepth, err := a.client.Depth(ctxCancel, formattedSymbol, 1000)
+				if err != nil {
+					// TODO: logger.Error("Failed to fetch snapshot", "symbol", symbol, "error", err, "retryIn", retryDelay)
+					// 失败后指数退避重试
+					select {
+					case <-time.After(retryDelay):
+						if retryDelay < maxDelay {
+							retryDelay *= 2
+							if retryDelay > maxDelay {
+								retryDelay = maxDelay
+							}
+						}
+						select {
+						case snapshotTrigger <- struct{}{}:
+						default:
+						}
+					case <-ctxCancel.Done():
+						return
+					}
+					continue
+				}
+
+				// 应用快照
+				// 将深度快照中的内容更新到本地orderbook副本中
+				if err := ob.ApplySnapshot(snapshotDepth); err != nil {
+					// TODO: logger.Warn("Failed to apply snapshot", "symbol", symbol, "error", err, "retryIn", retryDelay)
+					// 重新触发
+					select {
+					case <-time.After(retryDelay):
+						if retryDelay < maxDelay {
+							retryDelay *= 2
+							if retryDelay > maxDelay {
+								retryDelay = maxDelay
+							}
+						}
+						select {
+						case snapshotTrigger <- struct{}{}:
+						default:
+						}
+					case <-ctxCancel.Done():
+						return
+					}
+				} else {
+					retryDelay = time.Second // reset on success
+					// TODO: logger.Info("Orderbook initialized with snapshot", "symbol", symbol, "lastUpdateId", snapshotDepth.LastUpdateID)
+				}
+			}
+		}
+	}()
+
+	// 订阅 WS 增量更新 (100ms)
+	err := a.wsMarket.SubscribeIncrementOrderBook(formattedSymbol, "100ms", func(e *perp.WsDepthEvent) error {
+		// 检查上下文是否已取消
+		select {
+		case <-ctxCancel.Done():
+			return nil
+		default:
+		}
+
+		// 处理更新
+		err := ob.ProcessUpdate(e)
+		if err != nil {
+			// 只有初始化后出现的错误（如丢包 gap）才需要警告
+			// 未初始化时的 buffer 行为在 ProcessUpdate 内部处理
+			if ob.IsInitialized() {
+				// TODO: logger.Warn("Orderbook sync detected gap/error", "symbol", symbol, "error", err)
+			}
+
+			// 触发重新同步/初始化
+			select {
+			case snapshotTrigger <- struct{}{}:
+			default:
+			}
+			return nil
+		}
+
+		// 如果尚未初始化（还在 buffer 阶段），则不推送回调
+		if !ob.IsInitialized() {
+			// 再次确保触发快照（针对刚订阅时的状态）
+			// 虽然 go routine 刚启动时触发了，但为了稳健性
+			select {
+			case snapshotTrigger <- struct{}{}:
+			default:
+			}
+			return nil
+		}
+
+		// 如果提供了 callback，则推送数据
+		if callback != nil {
+			bids, asks := ob.GetDepth(depth)
+
+			res := &exchanges.OrderBook{
+				Symbol:    symbol,
+				Timestamp: e.EventTime,
+				Bids:      bids,
+				Asks:      asks,
+			}
+
+			callback(res)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		cancel() // 订阅失败，清理资源
+		a.cancelMu.Lock()
+		a.RemoveLocalOrderBook(formattedSymbol)
+		delete(a.cancels, formattedSymbol)
+		a.cancelMu.Unlock()
+		return err
+	}
+
+	return nil
+}
+
+func (a *Adapter) WatchKlines(ctx context.Context, symbol string, interval exchanges.Interval, callback exchanges.KlineCallback) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsMarket.SubscribeKline(formattedSymbol, string(interval), func(e *perp.WsKlineEvent) error {
+		k := &exchanges.Kline{
+			Symbol:    symbol,
+			Interval:  exchanges.Interval(e.Kline.Interval),
+			Timestamp: e.Kline.StartTime,
+			Open:      parseDecimal(e.Kline.OpenPrice),
+			High:      parseDecimal(e.Kline.HighPrice),
+			Low:       parseDecimal(e.Kline.LowPrice),
+			Close:     parseDecimal(e.Kline.ClosePrice),
+			Volume:    parseDecimal(e.Kline.Volume),
+			QuoteVol:  parseDecimal(e.Kline.QuoteVolume),
+		}
+		callback(k)
+		return nil
+	})
+}
+
+func (a *Adapter) WatchTrades(ctx context.Context, symbol string, callback exchanges.TradeCallback) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsMarket.SubscribeAggTrade(formattedSymbol, func(e *perp.WsAggTradeEvent) error {
+		side := exchanges.TradeSideBuy
+		if e.IsBuyerMaker {
+			side = exchanges.TradeSideSell
+		}
+
+		t := &exchanges.Trade{
+			ID:        fmt.Sprintf("%d", e.AggTradeID),
+			Symbol:    symbol,
+			Price:     parseDecimal(e.Price),
+			Quantity:  parseDecimal(e.Quantity),
+			Side:      side,
+			Timestamp: e.EventTime,
+		}
+		callback(t)
+		return nil
+	})
+}
+
+func (a *Adapter) StopWatchOrders(ctx context.Context) error {
+	_ = ctx
+	if a.privateOrderStreams != nil {
+		a.privateOrderStreams.stopOrders()
+	}
+	return nil
+}
+
+func (a *Adapter) WatchFills(ctx context.Context, callback exchanges.FillCallback) error {
+	return a.privateStreams().watchFills(func() error {
+		return a.WsAccountConnected(ctx)
+	}, callback)
+}
+
+func (a *Adapter) StopWatchFills(ctx context.Context) error {
+	_ = ctx
+	if a.privateOrderStreams != nil {
+		a.privateOrderStreams.stopFills()
+	}
+	return nil
+}
+
+func (a *Adapter) StopWatchPositions(ctx context.Context) error {
+	return nil
+}
+
+func (a *Adapter) StopWatchTicker(ctx context.Context, symbol string) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	return a.wsMarket.UnsubscribeBookTicker(formattedSymbol)
+}
+
+func (a *Adapter) StopWatchOrderBook(ctx context.Context, symbol string) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+
+	a.cancelMu.Lock()
+	if cancel, ok := a.cancels[formattedSymbol]; ok {
+		cancel()
+		delete(a.cancels, formattedSymbol)
+	}
+	a.RemoveLocalOrderBook(formattedSymbol)
+	a.cancelMu.Unlock()
+
+	return a.wsMarket.UnsubscribeIncrementOrderBook(formattedSymbol, "100ms")
+}
+
+func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	return a.wsMarket.UnsubscribeKline(formattedSymbol, string(interval))
+}
+
+func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error {
+	formattedSymbol := a.FormatSymbol(symbol)
+	return a.wsMarket.UnsubscribeAggTrade(formattedSymbol)
+}
+
+// ================= Internal Methods =================
+
+func (a *Adapter) RefreshSymbolDetails(ctx context.Context) error {
+	info, err := a.client.ExchangeInfo(ctx)
+	if err != nil {
+		return err
+	}
+
+	symbols := make(map[string]*exchanges.SymbolDetails)
+
+	for _, s := range info.Symbols {
+		if s.ContractType != "PERPETUAL" {
+			continue
+		}
+		market := exchanges.ParseMarketRef(s.Symbol, exchanges.QuoteCurrency(a.quoteCurrency), exchanges.MarketTypePerp)
+		if market.Base == "" || !isSupportedBinanceQuote(market.Quote) {
+			continue
+		}
+		details := &exchanges.SymbolDetails{
+			Symbol:            market.Symbol(),
+			PricePrecision:    int32(s.PricePrecision),
+			QuantityPrecision: int32(s.QuantityPrecision),
+		}
+
+		for _, filter := range s.Filters {
+			ftype, ok := filter["filterType"].(string)
+			if !ok {
+				continue
+			}
+
+			switch ftype {
+			case "PRICE_FILTER":
+				if tickSzStr, ok := filter["tickSize"].(string); ok {
+					details.PricePrecision = exchanges.CountDecimalPlaces(tickSzStr)
+				}
+			case "LOT_SIZE":
+				if minQtyStr, ok := filter["minQty"].(string); ok {
+					details.MinQuantity = parseDecimal(minQtyStr)
+				}
+				if stepSzStr, ok := filter["stepSize"].(string); ok {
+					details.QuantityPrecision = exchanges.CountDecimalPlaces(stepSzStr)
+				}
+			case "MIN_NOTIONAL":
+				if notionalStr, ok := filter["notional"].(string); ok {
+					details.MinNotional = parseDecimal(notionalStr)
+				}
+			}
+		}
+
+		symbols[market.Symbol()] = details
+		if string(market.Quote) == a.quoteCurrency {
+			symbols[market.Base] = details
+		}
+	}
+
+	a.SetSymbolDetails(symbols)
+	return nil
+}
+
+func (a *Adapter) normalizeOrderResponse(resp *perp.OrderResponse) (*exchanges.Order, error) {
+	price := parseDecimal(resp.Price)
+	qty := parseDecimal(resp.OrigQty)
+	filled := parseDecimal(resp.ExecutedQty)
+
+	status := exchanges.OrderStatusPending
+	switch resp.Status {
+	case "NEW":
+		status = exchanges.OrderStatusNew
+	case "FILLED":
+		status = exchanges.OrderStatusFilled
+	case "PARTIALLY_FILLED":
+		status = exchanges.OrderStatusPartiallyFilled
+	case "CANCELED":
+		status = exchanges.OrderStatusCancelled
+	case "REJECTED":
+		status = exchanges.OrderStatusRejected
+	}
+
+	side := exchanges.OrderSideBuy
+	if resp.Side == "SELL" {
+		side = exchanges.OrderSideSell
+	}
+
+	return &exchanges.Order{
+		OrderID:        fmt.Sprintf("%d", resp.OrderID),
+		Symbol:         a.ExtractSymbol(resp.Symbol),
+		Side:           side,
+		Type:           exchanges.OrderType(resp.Type),
+		Quantity:       qty,
+		Price:          price,
+		Status:         status,
+		FilledQuantity: filled,
+		Timestamp:      resp.UpdateTime,
+		ClientOrderID:  resp.ClientOrderID,
+	}, nil
+}
+
+func (a *Adapter) normalizeOrderUpdate(e *perp.OrderUpdateEvent) *exchanges.Order {
+	price := parseDecimal(e.Order.OriginalPrice)
+	qty := parseDecimal(e.Order.OriginalQty)
+	filled := parseDecimal(e.Order.AccumulatedFilledQty)
+
+	status := exchanges.OrderStatusPending
+	switch e.Order.OrderStatus {
+	case "NEW":
+		status = exchanges.OrderStatusNew
+	case "FILLED":
+		status = exchanges.OrderStatusFilled
+	case "PARTIALLY_FILLED":
+		status = exchanges.OrderStatusPartiallyFilled
+	case "CANCELED":
+		status = exchanges.OrderStatusCancelled
+	case "REJECTED":
+		status = exchanges.OrderStatusRejected
+	case "EXPIRED":
+		status = exchanges.OrderStatusCancelled
+	}
+
+	side := exchanges.OrderSideBuy
+	if e.Order.Side == "SELL" {
+		side = exchanges.OrderSideSell
+	}
+
+	return &exchanges.Order{
+		OrderID:        fmt.Sprintf("%d", e.Order.OrderID),
+		Symbol:         a.ExtractSymbol(e.Order.Symbol),
+		Side:           side,
+		Type:           exchanges.OrderType(e.Order.OrderType),
+		Quantity:       qty,
+		Price:          price,
+		OrderPrice:     price,
+		Status:         status,
+		FilledQuantity: filled,
+		Timestamp:      e.Order.TradeTime,
+		ClientOrderID:  e.Order.ClientOrderID,
+	}
+}
+
+func (a *Adapter) privateStreams() *privateOrderStreams[perp.OrderUpdateEvent] {
+	a.privateOrderStreamsOnce.Do(func() {
+		a.privateOrderStreams = newPrivateOrderStreams(
+			func(handler func(*perp.OrderUpdateEvent)) {
+				a.wsAccount.SubscribeOrderUpdate(handler)
+			},
+			a.normalizeOrderUpdate,
+			a.mapOrderFill,
+		)
+	})
+	return a.privateOrderStreams
+}
+
+func (a *Adapter) mapOrderFill(e *perp.OrderUpdateEvent) *exchanges.Fill {
+	if e == nil || e.Order.ExecutionType != "TRADE" {
+		return nil
+	}
+
+	qty := parseDecimal(e.Order.LastFilledQty)
+	if qty.IsZero() {
+		return nil
+	}
+
+	side := exchanges.OrderSideBuy
+	if e.Order.Side == "SELL" {
+		side = exchanges.OrderSideSell
+	}
+
+	tradeID := ""
+	if e.Order.TradeID > 0 {
+		tradeID = fmt.Sprintf("%d", e.Order.TradeID)
+	}
+
+	ts := e.Order.TradeTime
+	if ts == 0 {
+		ts = e.TransactionTime
+	}
+	if ts == 0 {
+		ts = e.EventTime
+	}
+
+	return &exchanges.Fill{
+		TradeID:       tradeID,
+		OrderID:       fmt.Sprintf("%d", e.Order.OrderID),
+		ClientOrderID: e.Order.ClientOrderID,
+		Symbol:        a.ExtractSymbol(e.Order.Symbol),
+		Side:          side,
+		Price:         parseDecimal(e.Order.LastFilledPrice),
+		Quantity:      qty,
+		Fee:           parseDecimal(e.Order.Commission),
+		FeeAsset:      e.Order.CommissionAsset,
+		IsMaker:       e.Order.IsMaker,
+		Timestamp:     ts,
+	}
+}
+
+func (a *Adapter) normalizePositionUpdate(p struct {
+	Symbol              string `json:"s"`
+	PositionAmount      string `json:"pa"`
+	EntryPrice          string `json:"ep"`
+	AccumulatedRealized string `json:"cr"`
+	UnrealizedPnL       string `json:"up"`
+	MarginType          string `json:"mt"`
+	IsolatedWallet      string `json:"iw"`
+	PositionSide        string `json:"ps"`
+}) *exchanges.Position {
+	amt := parseDecimal(p.PositionAmount)
+	entry := parseDecimal(p.EntryPrice)
+	unPnL := parseDecimal(p.UnrealizedPnL)
+
+	side := exchanges.PositionSideLong
+	if amt.IsNegative() {
+		side = exchanges.PositionSideShort
+	}
+
+	return &exchanges.Position{
+		InstrumentType: exchanges.InstrumentTypePerp,
+		Symbol:         a.ExtractSymbol(p.Symbol),
+		Side:           side,
+		Quantity:       amt,
+		EntryPrice:     entry,
+		UnrealizedPnL:  unPnL,
+		MarginType:     p.MarginType,
+	}
+}
+
+func (a *Adapter) FormatSymbol(symbol string) string {
+	return FormatSymbolWithQuote(symbol, a.quoteCurrency)
+}
+
+func (a *Adapter) ExtractSymbol(symbol string) string {
+	return ExtractSymbolWithQuote(symbol, a.quoteCurrency)
+}
+
+// GetLocalOrderBook retrieves locally maintained order book
+func (a *Adapter) GetLocalOrderBook(symbol string, depth int) *exchanges.OrderBook {
+	formattedSymbol := a.FormatSymbol(symbol)
+
+	ob, ok := a.GetLocalOrderBookImplementation(formattedSymbol)
+	if !ok {
+		return nil
+	}
+
+	perpOb := ob.(*PerpOrderBook)
+	if !perpOb.IsInitialized() {
+		return nil
+	}
+
+	bids, asks := perpOb.GetDepth(depth)
+	return &exchanges.OrderBook{
+		Symbol:    symbol,
+		Timestamp: perpOb.Timestamp(),
+		Bids:      bids,
+		Asks:      asks,
+	}
+}
+
+func (a *Adapter) SubscribeAllMiniTicker(ctx context.Context, callback func([]*perp.WsMiniTickerEvent)) error {
+	if err := a.WsMarketConnected(ctx); err != nil {
+		return err
+	}
+	return a.wsMarket.SubscribeAllMiniTicker(func(events []*perp.WsMiniTickerEvent) error {
+		callback(events)
+		return nil
+	})
+}
+
+// WatchOrderBook subscribes to orderbook updates and waits for the book to be ready.
+func (a *Adapter) WatchOrderBook(ctx context.Context, symbol string, depth int, cb exchanges.OrderBookCallback) error {
+	if err := a.subscribeOrderBookInternal(ctx, symbol, depth, cb); err != nil {
+		return err
+	}
+	formattedSymbol := a.FormatSymbol(symbol)
+	return a.BaseAdapter.WaitOrderBookReady(ctx, formattedSymbol)
+}

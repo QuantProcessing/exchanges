@@ -7,15 +7,15 @@ Read that first; this doc only covers what's *different* for option markets.
 
 Three CEXes have public options APIs the library targets today:
 
-- **Binance** (`eapi.binance.com`) — reference implementation, see `binance/option_adapter.go`
-- **OKX** (`/api/v5/...` with `instType=OPTION`) — skeleton in `okx/option_adapter.go`
-- **Bybit** (v5 `category=option`) — skeleton in `bybit/option_adapter.go`
+- **Binance** (`eapi.binance.com`) — reference implementation, see `adapter/binance/option_adapter.go`
+- **OKX** (`/api/v5/...` with `instType=OPTION`) — skeleton in `adapter/okx/option_adapter.go`
+- **Bybit** (v5 `category=option`) — skeleton in `adapter/bybit/option_adapter.go`
 
 CEXes without an options product (Bitget, Aster, Nado, Lighter, Hyperliquid, StandX, GRVT, EdgeX, Backpack) MUST NOT have option adapters — don't add stubs.
 
 ## Capability matrix
 
-Pick a level explicitly and wire the matching shared suites in `<venue>/option_adapter_test.go`:
+Pick a level explicitly and wire the matching shared suites in `adapter/<venue>/option_adapter_test.go`:
 
 | Claim                              | Required surface                                                                                                  | Required suites                                                  |
 |------------------------------------|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
@@ -40,9 +40,9 @@ These are checked by `RunOptionTradingAccountSuite`. Adapters failing them are b
 
 ## Architecture rules (deltas from perp)
 
-- SDK layer (`<venue>/sdk/option/`): owns signing, wire structs, REST/WS lifecycle. Never bleed wire-format structs into the adapter return surface.
-- Adapter file (`<venue>/option_adapter.go`): implements `exchanges.OptionExchange` + the relevant `Exchange` / `Streamable` methods. For surfaces that don't fit option semantics (e.g. `FetchTicker` with a base symbol), return `ErrNotSupported`.
-- Register only fully-implemented adapters in `<venue>/register.go`. Skeleton adapters returning `ErrNotSupported` for everything stay **unregistered** to prevent accidental wiring.
+- SDK layer (`sdk/<venue>/option/`): owns signing, wire structs, REST/WS lifecycle. Never bleed wire-format structs into the adapter return surface.
+- Adapter file (`adapter/<venue>/option_adapter.go`): implements `exchanges.OptionExchange` + the relevant `Exchange` / `Streamable` methods. For surfaces that don't fit option semantics (e.g. `FetchTicker` with a base symbol), return `ErrNotSupported`.
+- Register only fully-implemented adapters in `adapter/<venue>/register.go`. Skeleton adapters returning `ErrNotSupported` for everything stay **unregistered** to prevent accidental wiring.
 - `GetMarketType()` returns `exchanges.MarketTypeOption`.
 
 ## Symbol semantics (important)
@@ -65,7 +65,7 @@ BINANCE_OPTION_TEST_UNDERLYING=BTC
 BINANCE_OPTION_TEST_INSTRUMENT=
 ```
 
-`<venue>/option_adapter_test.go` invokes `RunOptionTradingAccountSuite`. The suite gates the live-trading phase behind `cfg.LiveTestInstrument != nil` — keep that field empty in CI to run read-only compliance only.
+`adapter/<venue>/option_adapter_test.go` invokes `RunOptionTradingAccountSuite`. The suite gates the live-trading phase behind `cfg.LiveTestInstrument != nil` — keep that field empty in CI to run read-only compliance only.
 
 ## Red flags
 
@@ -77,8 +77,8 @@ BINANCE_OPTION_TEST_INSTRUMENT=
 
 ## Reference files
 
-- `binance/option_adapter.go` — fully working REST adapter
-- `binance/sdk/option/` — wire structs, signing, REST client
+- `adapter/binance/option_adapter.go` — fully working REST adapter
+- `sdk/binance/option/` — wire structs, signing, REST client
 - `account/option_trading_account.go` — `OptionTradingAccount`, `OptionOrderParams`, `PortfolioGreeks()`
 - `testsuite/option_trading_account_suite.go` — compliance + lifecycle suite
 - `option_models.go` — `InstrumentType`, `OptionInstrument`, `Greeks`, `OptionPositionData`, `OptionMark`, `OptionChainOpts`

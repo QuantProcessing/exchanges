@@ -62,9 +62,6 @@ Create:
 - `docs/superpowers/gaps/official-api-parity-bitget.md` - Bitget spot/futures endpoint matrix.
 - `docs/superpowers/gaps/official-api-parity-hyperliquid.md` - Hyperliquid spot/perp endpoint matrix.
 - `docs/superpowers/gaps/official-api-parity-lighter.md` - Lighter spot/perp endpoint matrix.
-- `sdkparity/manifest.go` - lightweight parser for local parity markdown tables used by tests.
-- `sdkparity/manifest_test.go` - parser tests.
-- `official_api_parity_test.go` - root-level guard that every matrix row has an allowed status and every `implemented-*` row names a local symbol.
 
 Modify:
 
@@ -89,211 +86,12 @@ Use three layers:
 
 Do not force every official endpoint into `Exchange`. Most official endpoints should remain in `sdk/` until there is a strong cross-exchange abstraction.
 
-## Task 1: Create The Parity Matrix Framework
+## Task 1: Create The Parity Matrix Documents
 
 **Files:**
 - Create: `docs/superpowers/gaps/official-api-parity.md`
-- Create: `sdkparity/manifest.go`
-- Create: `sdkparity/manifest_test.go`
-- Create: `official_api_parity_test.go`
 
-- [ ] **Step 1: Write parser tests**
-
-Create `sdkparity/manifest_test.go` with these cases:
-
-```go
-package sdkparity
-
-import (
-	"strings"
-	"testing"
-)
-
-func TestParseMarkdownTable(t *testing.T) {
-	input := strings.NewReader(`
-| Exchange | Product | Method | Path | Status | Local Symbol |
-| --- | --- | --- | --- | --- | --- |
-| BINANCE | spot | GET | /api/v3/depth | implemented-sdk | binance/sdk/spot.Client.Depth |
-| BINANCE | spot | POST | /api/v3/order/oco | intentionally-unsupported |  |
-`)
-
-	rows, err := Parse(input)
-	if err != nil {
-		t.Fatalf("Parse returned error: %v", err)
-	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
-	}
-	if rows[0].Exchange != "BINANCE" || rows[0].Path != "/api/v3/depth" {
-		t.Fatalf("unexpected first row: %#v", rows[0])
-	}
-	if rows[1].Status != StatusIntentionallyUnsupported {
-		t.Fatalf("unexpected second status: %q", rows[1].Status)
-	}
-}
-
-func TestParseRejectsImplementedWithoutLocalSymbol(t *testing.T) {
-	input := strings.NewReader(`
-| Exchange | Product | Method | Path | Status | Local Symbol |
-| --- | --- | --- | --- | --- | --- |
-| OKX | swap | POST | /api/v5/trade/order | implemented-sdk |  |
-`)
-
-	_, err := Parse(input)
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
-}
-```
-
-- [ ] **Step 2: Run tests and confirm they fail**
-
-Run: `go test ./sdkparity`
-
-Expected: `package github.com/QuantProcessing/exchanges/sdkparity is not in std` or compile failure because `sdkparity` does not exist.
-
-- [ ] **Step 3: Implement the parser**
-
-Create `sdkparity/manifest.go`:
-
-```go
-package sdkparity
-
-import (
-	"bufio"
-	"fmt"
-	"io"
-	"strings"
-)
-
-type Status string
-
-const (
-	StatusMissingSDK               Status = "missing-sdk"
-	StatusMissingAdapter           Status = "missing-adapter"
-	StatusImplementedSDK           Status = "implemented-sdk"
-	StatusImplementedAdapter       Status = "implemented-adapter"
-	StatusImplementedRaw           Status = "implemented-raw"
-	StatusIntentionallyUnsupported Status = "intentionally-unsupported"
-	StatusBlockedByOfficialAPI     Status = "blocked-by-official-api"
-	StatusDeprecatedOfficial       Status = "deprecated-official"
-)
-
-type Row struct {
-	Exchange    string
-	Product     string
-	Method      string
-	Path        string
-	Status      Status
-	LocalSymbol string
-}
-
-func Parse(r io.Reader) ([]Row, error) {
-	scanner := bufio.NewScanner(r)
-	var rows []Row
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "|") || strings.Contains(line, "---") || strings.Contains(line, "Exchange | Product") {
-			continue
-		}
-		cells := splitMarkdownRow(line)
-		if len(cells) < 6 {
-			continue
-		}
-		row := Row{
-			Exchange:    cells[0],
-			Product:     cells[1],
-			Method:      cells[2],
-			Path:        cells[3],
-			Status:      Status(cells[4]),
-			LocalSymbol: cells[5],
-		}
-		if err := row.Validate(); err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (r Row) Validate() error {
-	switch r.Status {
-	case StatusImplementedSDK, StatusImplementedAdapter, StatusImplementedRaw:
-		if strings.TrimSpace(r.LocalSymbol) == "" {
-			return fmt.Errorf("%s %s %s is %s but has no local symbol", r.Exchange, r.Method, r.Path, r.Status)
-		}
-	case StatusMissingSDK, StatusMissingAdapter, StatusIntentionallyUnsupported, StatusBlockedByOfficialAPI, StatusDeprecatedOfficial:
-	default:
-		return fmt.Errorf("%s %s %s has invalid status %q", r.Exchange, r.Method, r.Path, r.Status)
-	}
-	return nil
-}
-
-func splitMarkdownRow(line string) []string {
-	line = strings.Trim(line, "|")
-	parts := strings.Split(line, "|")
-	cells := make([]string, 0, len(parts))
-	for _, part := range parts {
-		cells = append(cells, strings.TrimSpace(part))
-	}
-	return cells
-}
-```
-
-- [ ] **Step 4: Run parser tests**
-
-Run: `go test ./sdkparity`
-
-Expected: `ok github.com/QuantProcessing/exchanges/sdkparity`.
-
-- [ ] **Step 5: Add the root parity guard**
-
-Create `official_api_parity_test.go`:
-
-```go
-package exchanges_test
-
-import (
-	"os"
-	"path/filepath"
-	"testing"
-
-	"github.com/QuantProcessing/exchanges/sdkparity"
-)
-
-func TestOfficialAPIParityMatricesAreClassified(t *testing.T) {
-	files, err := filepath.Glob("docs/superpowers/gaps/official-api-parity-*.md")
-	if err != nil {
-		t.Fatalf("glob parity files: %v", err)
-	}
-	if len(files) == 0 {
-		t.Fatal("expected at least one exchange parity file")
-	}
-
-	for _, file := range files {
-		t.Run(filepath.Base(file), func(t *testing.T) {
-			f, err := os.Open(file)
-			if err != nil {
-				t.Fatalf("open parity file: %v", err)
-			}
-			defer f.Close()
-
-			rows, err := sdkparity.Parse(f)
-			if err != nil {
-				t.Fatalf("parse parity file: %v", err)
-			}
-			if len(rows) == 0 {
-				t.Fatal("expected at least one endpoint row")
-			}
-		})
-	}
-}
-```
-
-- [ ] **Step 6: Create the master parity rules document**
+- [ ] **Step 1: Create the master parity rules document**
 
 Create `docs/superpowers/gaps/official-api-parity.md`:
 
@@ -320,13 +118,11 @@ The alignment project is complete only when there are zero `missing-sdk` and zer
 Accessed date for the initial source pass: 2026-06-10.
 ```
 
-- [ ] **Step 7: Run the root guard and confirm it fails until exchange files exist**
+- [ ] **Step 2: Review matrix rows before implementation**
 
-Run: `go test ./... -run TestOfficialAPIParityMatricesAreClassified`
+Expected: every in-scope official endpoint has an explicit row, status, and local symbol when implemented.
 
-Expected: failure with `expected at least one exchange parity file`.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 3: Commit**
 
 Commit message:
 
@@ -338,7 +134,7 @@ Rejected: Tracking gaps only in prose | It cannot be mechanically checked for un
 Confidence: high
 Scope-risk: narrow
 Directive: Keep parity files updated in the same commit as any SDK endpoint addition or removal.
-Tested: go test ./sdkparity
+Tested: Manual review of parity matrix structure.
 Not-tested: Full exchange matrices are added in follow-up tasks.
 ```
 
@@ -506,11 +302,9 @@ Source: https://apidocs.lighter.xyz/reference
 | LIGHTER | spot | GET | /api/v1/spotAvgEntryPrices | implemented-sdk | lighter/sdk.WebsocketClient.SubscribeAccountSpotAvgEntryPrices |
 ```
 
-- [ ] **Step 7: Run matrix validation**
+- [ ] **Step 7: Review matrix validation**
 
-Run: `go test ./... -run TestOfficialAPIParityMatricesAreClassified`
-
-Expected: pass after every `implemented-*` row names a local symbol and every row uses an allowed status.
+Expected: every `implemented-*` row names a local symbol and every row uses an allowed status.
 
 - [ ] **Step 8: Commit**
 
@@ -524,7 +318,7 @@ Rejected: Implementing exchange gaps from memory | It would miss endpoints and m
 Confidence: medium
 Scope-risk: moderate
 Directive: Update the relevant parity row in the same commit as every SDK endpoint implementation.
-Tested: go test ./... -run TestOfficialAPIParityMatricesAreClassified
+Tested: Manual review of parity matrix classifications.
 Not-tested: Live exchange behavior; this commit is documentation and classification only.
 ```
 
@@ -1439,7 +1233,7 @@ Not-tested: Opt-in live write tests unless credentials and explicit flags are pr
 
 ## Verification Checklist
 
-- `go test ./sdkparity`
+- manual review of parity matrix classifications
 - `go test ./binance/sdk/... ./binance`
 - `go test ./okx/sdk ./okx`
 - `go test ./bybit/sdk ./bybit`

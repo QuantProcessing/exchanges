@@ -94,10 +94,10 @@ markets when the venue supports them:
 │    account.PerpTradingAccount / PortfolioAccount    │
 ├─────────────────────────────────────────────────────┤
 │  Adapter Layer (capability interfaces)              │  ← Unified convenience
-│    binance.Adapter / okx.Adapter / bybit.Adapter    │
+│    adapter/binance.Adapter / adapter/okx.Adapter    │
 ├─────────────────────────────────────────────────────┤
 │  SDK Layer (low-level REST + WebSocket clients)      │  ← Exchange-specific
-│    binance/sdk/ / okx/sdk/ / bybit/sdk/             │
+│    sdk/binance/ / sdk/okx/ / sdk/bybit/             │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -119,7 +119,7 @@ import (
     "fmt"
 
     exchanges "github.com/QuantProcessing/exchanges"
-    "github.com/QuantProcessing/exchanges/binance"
+    "github.com/QuantProcessing/exchanges/adapter/binance"
     "github.com/shopspring/decimal"
 )
 
@@ -523,7 +523,7 @@ Backpack requires a numeric `clientId` in the valid `uint32` range. If you want 
 Use the package helper instead:
 
 ```go
-import "github.com/QuantProcessing/exchanges/backpack"
+import "github.com/QuantProcessing/exchanges/adapter/backpack"
 
 params := &exchanges.OrderParams{
     Symbol:   "BTC",
@@ -692,24 +692,27 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
 ├── local_orderbook.go      Local orderbook cache and sync helpers
 ├── log.go                  Logger interface + NopLogger
+├── sdk/                    Venue-native REST & WebSocket clients
+│   ├── binance/            Binance SDK
+│   │   ├── perp/           Perpetual futures API
+│   │   ├── spot/           Spot API
+│   │   └── option/         Options API
+│   ├── okx/                OKX SDK
+│   └── ...                 Other venue SDKs
+├── adapter/                Normalized exchange adapters
+│   ├── binance/            Binance adapter package
+│   │   ├── options.go      Options{APIKey, SecretKey, QuoteCurrency, Logger}
+│   │   ├── perp_adapter.go Perp adapter (Exchange + PerpExchange)
+│   │   └── spot_adapter.go Spot adapter (Exchange + SpotExchange)
+│   ├── okx/                OKX adapter
+│   └── ...                 Other venue adapters
 ├── account/                Public account runtime helpers
 │   ├── trading_account.go  TradingAccount runtime entrypoint
 │   ├── order_flow.go       OrderFlow lifecycle stream + latest snapshot helper
 │   └── ...                 Internal runtime synchronization helpers
+├── config/                 Config-driven adapter construction
 ├── testsuite/              Adapter compliance test suite
-├── binance/                Binance adapter + SDK
-│   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}
-│   ├── perp_adapter.go     Perp adapter (Exchange + PerpExchange)
-│   ├── spot_adapter.go     Spot adapter (Exchange + SpotExchange)
-│   └── sdk/                Low-level REST & WebSocket clients
-├── okx/                    OKX (same structure)
-├── aster/                  Aster
-├── nado/                   Nado
-├── lighter/                Lighter
-├── hyperliquid/            Hyperliquid
-├── standx/                 StandX
-├── grvt/                   GRVT (build tag: grvt)
-└── edgex/                  EdgeX (build tag: edgex)
+└── internal/               Private shared implementation helpers
 ```
 
 ## Testing

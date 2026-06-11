@@ -46,7 +46,7 @@ Accessed: 2026-06-11
 | BINANCE | usd-m | POST | /fapi/v1/batchOrders | implemented-raw | binance/sdk/perp.Client.Post |
 | BINANCE | usd-m | PUT | /fapi/v1/batchOrders | implemented-raw | binance/sdk/perp.Client.Put |
 | BINANCE | usd-m | DELETE | /fapi/v1/batchOrders | implemented-raw | binance/sdk/perp.Client.Delete |
-| BINANCE | margin | GET | /sapi/v1/margin/account | planned-sdk | SDK-first account product; do not add to core adapter |
+| BINANCE | margin | GET | /sapi/v1/margin/account | missing-sdk | SDK-first account product; do not add to core adapter |
 | BINANCE | portfolio-margin | GET | /papi/v1/balance | implemented-sdk | binance/sdk/portfolio.Client.GetBalances |
 | BINANCE | portfolio-margin | GET | /papi/v1/account | implemented-sdk | binance/sdk/portfolio.Client.GetAccount |
 | BINANCE | sub-account | GET | /sapi/v4/sub-account/assets | implemented-sdk | binance/sdk/subaccount.Client.GetAssetsV4 |

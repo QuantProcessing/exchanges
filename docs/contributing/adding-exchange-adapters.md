@@ -1,6 +1,7 @@
 # Adding Exchange Adapters
 
-This document is the repository-owned guide for adding a new exchange package or expanding adapter capability in this codebase.
+This document is the repository-owned guide for adding a new SDK package,
+adding a new adapter package, or expanding adapter capability in this codebase.
 
 Use it for:
 
@@ -23,6 +24,20 @@ This guide replaces the older repo-local `adding-exchange-adapters` skill as the
    - `trading-account-capable`
 
 If peer selection or capability classification is missing, stop and do that first.
+
+## Public Entry Layers
+
+This repository exposes three user-facing layers. Keep the import paths aligned
+with the layer the user is choosing:
+
+- `github.com/QuantProcessing/exchanges` is the normalized root contract.
+- `github.com/QuantProcessing/exchanges/sdk/<exchange>` is the venue-native SDK
+  entry point.
+- `github.com/QuantProcessing/exchanges/adapter/<exchange>` is the normalized
+  adapter entry point.
+- `github.com/QuantProcessing/exchanges/account` is the TradingAccount runtime.
+
+Do not place new exchange implementation code at the repository root.
 
 ## Capability Matrix
 
@@ -58,9 +73,9 @@ trigger/algo orders, and venue-specific risk controls must remain optional
 capability surfaces unless a separate design establishes them as core
 cross-exchange primitives.
 
-## Architecture And `sdk/` Boundaries
+## Architecture And SDK Boundaries
 
-Create a dedicated `sdk/` layer when any of these are true:
+Create or extend `sdk/<exchange>` when any of these are true:
 
 - the exchange needs signing or auth token management
 - low-level REST APIs split across multiple surface groups
@@ -70,8 +85,8 @@ Create a dedicated `sdk/` layer when any of these are true:
 
 Choose the `sdk/` shape from the nearest peer:
 
-- flat `sdk/` when one compact client shape covers the exchange
-- `sdk/perp` plus `sdk/spot` when low-level APIs diverge materially by market
+- flat `sdk/<exchange>` when one compact client shape covers the exchange
+- `sdk/<exchange>/perp` plus `sdk/<exchange>/spot` when low-level APIs diverge materially by market
 - shared helpers only when there is real reuse
 
 Adapter-layer responsibilities:
@@ -88,7 +103,8 @@ Do not keep these in adapter files:
 - wire-format request or response structs
 - WebSocket connection lifecycle internals
 
-Rule of thumb: `sdk/` speaks exchange-native protocol, adapters speak the shared repository contract.
+Rule of thumb: `sdk/<exchange>` speaks exchange-native protocol,
+`adapter/<exchange>` speaks the shared repository contract.
 
 ## Official API Parity
 
@@ -104,7 +120,7 @@ Rules:
 - do not leave `missing-sdk` or `missing-adapter` rows when declaring a parity slice complete
 - do not add adapter interfaces for venue-specific endpoints without a design note like `docs/superpowers/gaps/adapter-exposure-policy.md`
 
-Run `go test . -run TestOfficialAPIParityMatricesAreClassified` after matrix changes.
+Review the updated parity matrix during code review after matrix changes.
 
 ## SDK Test Layout
 
@@ -131,8 +147,8 @@ Rules:
 Example:
 
 ```text
-binance/sdk/spot/order.go
-binance/sdk/spot/order_test.go
+sdk/binance/spot/order.go
+sdk/binance/spot/order_test.go
 ```
 
 ```go
@@ -274,10 +290,10 @@ Start from the smallest authoritative set:
 - `testsuite/lifecycle_suite.go`
 - `testsuite/trading_account_suite.go`
 - `testsuite/helpers.go`
-- `<exchange>/options.go`
-- `<exchange>/register.go`
-- `<exchange>/perp_adapter.go`
-- `<exchange>/spot_adapter.go`
-- `<exchange>/adapter_test.go`
+- `adapter/<exchange>/options.go`
+- `adapter/<exchange>/register.go`
+- `adapter/<exchange>/perp_adapter.go`
+- `adapter/<exchange>/spot_adapter.go`
+- `adapter/<exchange>/adapter_test.go`
 
 For final review before merge, also use `docs/superpowers/checklists/exchange-adapter-review.md`.

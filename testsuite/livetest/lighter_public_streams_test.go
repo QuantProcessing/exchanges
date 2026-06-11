@@ -6,8 +6,8 @@ import (
 	"time"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/adapter/lighter"
 	"github.com/QuantProcessing/exchanges/internal/testenv"
-	"github.com/QuantProcessing/exchanges/lighter"
 	"github.com/stretchr/testify/require"
 )
 
