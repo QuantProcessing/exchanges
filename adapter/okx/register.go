@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
@@ -50,5 +52,16 @@ func init() {
 		default:
 			return nil, fmt.Errorf("okx: unsupported market type %q", mt)
 		}
+	})
+	venue.Register(model.VenueOKX, func(ctx context.Context, opts map[string]string) (venue.Adapter, error) {
+		return NewVenueAdapter(ctx, VenueOptions{
+			Options: Options{
+				APIKey:        opts["api_key"],
+				SecretKey:     opts["secret_key"],
+				Passphrase:    opts["passphrase"],
+				QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
+			},
+			AccountID: model.AccountID(opts["account_id"]),
+		})
 	})
 }

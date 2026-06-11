@@ -84,8 +84,8 @@ Adapter 支持 quote-aware 的市场标识。`"BTC"` 这类基础符号仍会使
 │  TradingAccount / OrderTracker                      │  ← 生命周期运行时
 │    account.TradingAccount / account.OrderTracker    │
 ├─────────────────────────────────────────────────────┤
-│  适配器层 (capability interfaces)                    │  ← 统一便利能力
-│    adapter/binance.Adapter / adapter/okx.Adapter    │
+│  Venue Adapter 层 (capability interfaces)            │  ← 统一便利能力
+│    venue.Adapter 实现：binance, okx                  │
 ├─────────────────────────────────────────────────────┤
 │  SDK 层 (底层 REST + WebSocket 客户端)                │  ← 交易所特定
 │    sdk/binance/ / sdk/okx/ / sdk/bybit/             │

@@ -94,7 +94,7 @@ markets when the venue supports them:
 │    account.TradingAccount / account.OrderTracker    │
 ├─────────────────────────────────────────────────────┤
 │  Venue Adapter Layer (capability interfaces)        │  ← Unified convenience
-│    venue.Adapter / adapter/binance.VenueAdapter     │
+│    venue.Adapter implementations: binance, okx      │
 ├─────────────────────────────────────────────────────┤
 │  SDK Layer (low-level REST + WebSocket clients)      │  ← Exchange-specific
 │    sdk/binance/ / sdk/okx/ / sdk/bybit/             │
