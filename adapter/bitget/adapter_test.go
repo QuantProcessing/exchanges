@@ -167,13 +167,6 @@ func TestPerpAdapter_Lifecycle_WS(t *testing.T) {
 	t.Skip("generic lifecycle suite targets the primary non-WS path; explicit Bitget WS writes are covered by dedicated tests")
 }
 
-func TestPerpAdapter_TradingAccount(t *testing.T) {
-	adp := setupPerpAdapter(t)
-	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
-		Symbol: requireEnvSymbol(t, "BITGET_PERP_TEST_SYMBOL"),
-	})
-}
-
 func TestSpotAdapter_Compliance(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"))
@@ -210,11 +203,4 @@ func TestSpotAdapter_Lifecycle(t *testing.T) {
 
 func TestSpotAdapter_Lifecycle_WS(t *testing.T) {
 	t.Skip("generic lifecycle suite targets the primary non-WS path; explicit Bitget WS writes are covered by dedicated tests")
-}
-
-func TestSpotAdapter_TradingAccount(t *testing.T) {
-	adp := setupSpotAdapter(t)
-	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
-		Symbol: requireEnvSymbol(t, "BITGET_SPOT_TEST_SYMBOL"),
-	})
 }

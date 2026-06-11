@@ -25,8 +25,8 @@
 //     clients aligned with official exchange APIs.
 //   - Adapter packages (adapter/binance, adapter/okx, ...): normalized
 //     cross-exchange convenience implementations of the root interfaces.
-//   - Account package (account): TradingAccount, OrderFlow, stream health, and
-//     portfolio-level lifecycle runtime.
+//   - Account package (account): TradingAccount, OrderTracker, stream health,
+//     and lifecycle state runtime.
 //   - Testsuite package: adapter compliance test suite.
 //
 // # Logger

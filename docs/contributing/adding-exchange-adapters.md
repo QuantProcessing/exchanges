@@ -46,7 +46,7 @@ Do not place new exchange implementation code at the repository root.
 | `public-data-only` | `RunAdapterComplianceTests` | Private/account/trading surfaces return `exchanges.ErrNotSupported` |
 | `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` |
 | `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it |
-| `trading-account-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunTradingAccountSuite`, and `RunLifecycleSuite` when lifecycle support is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate |
+| `account-lifecycle-capable` | `RunModelContractSuite`, `RunVenueContractSuite`, `RunAccountLifecycleSuite` | Instrument-aware `venue.ExecutionClient` with account snapshot and startup reconciliation |
 
 `FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate contracts. Preserve that distinction in both implementation and tests.
 
@@ -227,9 +227,9 @@ Responsibility split:
 2. `WatchOrders` supplies order lifecycle deltas
 3. `WatchFills` enriches execution detail when supported
 4. `WatchPositions` supplies position deltas when supported
-5. `TradingAccount` owns caching, fan-out, tracked `OrderFlow` updates, stream health, and periodic reconciliation
+5. `TradingAccount` owns caching, stream health, startup reconciliation, and tracked `OrderTracker` updates
 
-If the exchange lacks a usable private order stream, do not claim `lifecycle-capable` or `trading-account-capable`.
+If the exchange lacks a usable private order stream, do not claim legacy root `lifecycle-capable`. If the instrument-aware execution client cannot provide startup account reconciliation, do not claim `account-lifecycle-capable`.
 
 ## Live Test Wiring
 
@@ -282,13 +282,16 @@ Start from the smallest authoritative set:
 - `errors.go`
 - `utils.go`
 - `registry.go`
-- `trading_account.go`
-- `trading_account_state.go`
-- `order_flow.go`
+- `account/trading_account.go`
+- `account/cache.go`
+- `account/order_tracker.go`
+- `venue/interfaces.go`
+- `testsuite/model_contract_suite.go`
+- `testsuite/venue_contract_suite.go`
+- `testsuite/account_lifecycle_suite.go`
 - `testsuite/compliance.go`
 - `testsuite/order_suite.go`
 - `testsuite/lifecycle_suite.go`
-- `testsuite/trading_account_suite.go`
 - `testsuite/helpers.go`
 - `adapter/<exchange>/options.go`
 - `adapter/<exchange>/register.go`

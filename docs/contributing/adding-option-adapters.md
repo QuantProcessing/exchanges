@@ -15,19 +15,21 @@ CEXes without an options product (Bitget, Aster, Nado, Lighter, Hyperliquid, Sta
 
 ## Capability matrix
 
-Pick a level explicitly and wire the matching shared suites in `adapter/<venue>/option_adapter_test.go`:
+Pick a level explicitly and wire tests that match the claim. The old option
+TradingAccount suite has been removed; option adapters currently need focused
+adapter tests until an instrument-aware option venue suite exists.
 
 | Claim                              | Required surface                                                                                                  | Required suites                                                  |
 |------------------------------------|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
-| `option-public-data-only`          | `FetchOptionChain` + `FetchExpirations` + `FetchOptionMark` + `FetchGreeks` + instrument format round-trip        | `RunOptionTradingAccountSuite` (read-only, `LiveTestInstrument == nil`) |
-| `option-trading-capable`           | + REST `PlaceOrder` / `CancelOrder` / `FetchOrderByID` / `FetchOpenOrders`                                        | + suite with `LiveTestInstrument` set (place + cancel passive)   |
-| `option-trading-account-capable`   | + `FetchOptionPositions` + `WatchOrders` + `WatchFills` (or explicit `ErrNotSupported`) + `WatchPositions`        | + full suite + lifecycle drill on the run                        |
+| `option-public-data-only`          | `FetchOptionChain` + `FetchExpirations` + `FetchOptionMark` + `FetchGreeks` + instrument format round-trip        | Focused adapter/unit tests for chain, marks, Greeks, and formatting |
+| `option-trading-capable`           | + REST `PlaceOrder` / `CancelOrder` / `FetchOrderByID` / `FetchOpenOrders`                                        | + gated live passive place/cancel tests                          |
+| `option-account-state-capable`     | + `FetchOptionPositions` and explicit stream support or `ErrNotSupported` for private option streams              | + focused position and unsupported-stream tests                  |
 
 Surfaces a venue genuinely lacks MUST return `exchanges.ErrNotSupported` — never a silent no-op.
 
 ## Mandatory invariants
 
-These are checked by `RunOptionTradingAccountSuite`. Adapters failing them are broken:
+These invariants must be covered by focused adapter tests. Adapters failing them are broken:
 
 1. **Instrument-ID round-trip**: `FormatInstrument(parsed) == FormatInstrument(orig)` for any chain entry. Use the typed `*OptionInstrument` everywhere internally; the wire string is for transport only.
 2. **Underlying normalization**: `OptionInstrument.Underlying` is the base symbol (`"BTC"`), not the venue's spot pair (`"BTCUSDT"`). The adapter strips the quote suffix when parsing.
@@ -65,7 +67,7 @@ BINANCE_OPTION_TEST_UNDERLYING=BTC
 BINANCE_OPTION_TEST_INSTRUMENT=
 ```
 
-`adapter/<venue>/option_adapter_test.go` invokes `RunOptionTradingAccountSuite`. The suite gates the live-trading phase behind `cfg.LiveTestInstrument != nil` — keep that field empty in CI to run read-only compliance only.
+Option live tests must be explicitly gated by exchange-specific enable flags and credentials. Keep default CI/read-only coverage focused on public data, formatting, position mapping, and unsupported-surface behavior.
 
 ## Red flags
 
@@ -79,7 +81,6 @@ BINANCE_OPTION_TEST_INSTRUMENT=
 
 - `adapter/binance/option_adapter.go` — fully working REST adapter
 - `sdk/binance/option/` — wire structs, signing, REST client
-- `account/option_trading_account.go` — `OptionTradingAccount`, `OptionOrderParams`, `PortfolioGreeks()`
-- `testsuite/option_trading_account_suite.go` — compliance + lifecycle suite
+- `adapter/binance/option_adapter_unit_test.go` — focused option adapter behavior tests
 - `option_models.go` — `InstrumentType`, `OptionInstrument`, `Greeks`, `OptionPositionData`, `OptionMark`, `OptionChainOpts`
 - `exchange.go` — `OptionExchange` interface declaration

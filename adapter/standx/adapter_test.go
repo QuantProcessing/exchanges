@@ -40,8 +40,3 @@ func TestPerpAdapter_OrderQuerySemantics(t *testing.T) {
 		SupportsOrderHistory:   false,
 	})
 }
-
-func TestPerpAdapter_TradingAccount(t *testing.T) {
-	adp := setupPerpAdapter(t)
-	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{Symbol: "ETH"})
-}

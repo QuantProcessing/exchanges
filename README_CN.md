@@ -81,8 +81,8 @@ Adapter 支持 quote-aware 的市场标识。`"BTC"` 这类基础符号仍会使
 ┌─────────────────────────────────────────────────────┐
 │  你的策略 / 应用                                      │
 ├─────────────────────────────────────────────────────┤
-│  TradingAccount / PortfolioAccount                  │  ← 生命周期运行时
-│    account.PerpTradingAccount / PortfolioAccount    │
+│  TradingAccount / OrderTracker                      │  ← 生命周期运行时
+│    account.TradingAccount / account.OrderTracker    │
 ├─────────────────────────────────────────────────────┤
 │  适配器层 (capability interfaces)                    │  ← 统一便利能力
 │    adapter/binance.Adapter / adapter/okx.Adapter    │
@@ -94,7 +94,7 @@ Adapter 支持 quote-aware 的市场标识。`"BTC"` 这类基础符号仍会使
 
 - **SDK 层**：轻量 REST/WebSocket 客户端，对齐官方交易所 API。需要原生交易所能力时直接使用这一层。
 - **适配器层**：提供稳定的跨交易所便利能力，包括行情、订单、账户快照和可选 capability。
-- **TradingAccount 层**：管理交易生命周期，包括快照、私有流、OrderFlow、stream health 和组合账户。
+- **TradingAccount 层**：基于 instrument-aware execution client 管理交易生命周期，包括账户快照、私有流、OrderTracker、stream health、余额和持仓。
 
 ---
 
@@ -315,40 +315,59 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 }
 ```
 
-### TradingAccount + OrderFlow（统一状态管理）
+### TradingAccount + OrderTracker（统一状态管理）
 
 ```go
-import "github.com/QuantProcessing/exchanges/account"
+import (
+    _ "github.com/QuantProcessing/exchanges/adapter/binance"
+    "github.com/QuantProcessing/exchanges/account"
+    "github.com/QuantProcessing/exchanges/model"
+    "github.com/QuantProcessing/exchanges/venue"
+    "github.com/shopspring/decimal"
+)
 
-// TradingAccount 现在位于公开的 account 子包。
-// Place 会返回一个 OrderFlow，方便你查看融合快照和单笔订单成交流。
-acct := account.NewTradingAccount(adp, nil)
-if err := acct.Start(ctx); err != nil {
-    panic(err)
-}
-defer acct.Close()
-
-flow, err := acct.Place(ctx, &exchanges.OrderParams{
-    Symbol:   "BTC",
-    Side:     exchanges.OrderSideBuy,
-    Type:     exchanges.OrderTypeMarket,
-    Quantity: decimal.NewFromFloat(0.001),
+adapter, err := venue.Open(ctx, model.VenueBinance, map[string]string{
+    "api_key":    "your-api-key",
+    "secret_key": "your-secret-key",
+    "account_id": "binance-main",
 })
 if err != nil {
     panic(err)
 }
-defer flow.Close()
+defer adapter.Close()
+
+instrumentID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+acct, err := account.NewTradingAccount(adapter.Execution(), account.TradingAccountConfig{
+    Instruments: []model.InstrumentID{instrumentID},
+})
+if err != nil {
+    panic(err)
+}
+if err := acct.Start(ctx); err != nil {
+    panic(err)
+}
+defer acct.Stop(ctx)
+
+tracker, err := acct.SubmitOrder(ctx, model.SubmitOrder{
+    InstrumentID: instrumentID,
+    Side:         model.OrderSideBuy,
+    Type:         model.OrderTypeMarket,
+    Quantity:     decimal.RequireFromString("0.001"),
+})
+if err != nil {
+    panic(err)
+}
+defer tracker.Close()
 
 for {
     select {
-    case order, ok := <-flow.C():
+    case order, ok := <-tracker.C():
         if !ok {
             return
         }
-        fmt.Printf("订单=%s 状态=%s 已成交=%s 最近成交=%s@%s\n",
-            order.OrderID, order.Status, order.FilledQuantity,
-            order.LastFillQuantity, order.LastFillPrice)
-    case fill, ok := <-flow.Fills():
+        fmt.Printf("订单=%s 状态=%s 已成交=%s\n",
+            order.OrderID, order.Status, order.FilledQty)
+    case fill, ok := <-tracker.Fills():
         if !ok {
             return
         }
@@ -356,25 +375,26 @@ for {
     }
 }
 
-latest := flow.Latest()
-fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
+if latest, ok := tracker.Latest(); ok {
+    fmt.Printf("最新快照: %s %s\n", latest.OrderID, latest.Status)
+}
 ```
 
-`OrderFlow.C()` 现在返回单笔订单的融合快照。订单生命周期字段来自 `WatchOrders`，当交易所支持私有成交流时，还会把 `WatchFills` 推导出的 `FilledQuantity`、`LastFillQuantity`、`LastFillPrice`、`AverageFillPrice` 一并带上。
+`OrderTracker.C()` 返回单笔订单的标准化状态报告。
 
-`OrderFlow.Fills()` 仍然提供同一笔订单的原始成交明细流。要逐笔执行细节时读 `Fills()`；要在策略控制流里消费统一快照时读 `C()`。
+`OrderTracker.Fills()` 提供同一笔订单的标准化成交明细流。需要逐笔执行细节时读 `Fills()`；策略控制流只关心订单状态快照时读 `C()`。
 
-如果某个 adapter 不支持 `WatchFills`，`OrderFlow.C()` 会退化为原来的仅订单流行为，而 `OrderFlow.Fills()` 会保持为空。
+如果某个 adapter 不支持成交报告，启动时会把 fills stream 标记为 unsupported，`OrderTracker.Fills()` 会保持为空。
 
 `TradingAccount.Health()` 会暴露 stream 就绪状态、不支持状态、事件计数和慢订阅者丢弃计数；详见 [Stream Health](./docs/stream-health.md)。
 
-cross-exchanges-arb 等下游消费者应基于已经包含 `TradingAccount + OrderFlow` 的发布版本迁移，并先重新跑自己的集成验证。
+cross-exchanges-arb 等下游消费者应基于已经包含 `TradingAccount + OrderTracker` 的发布版本迁移，并先重新跑自己的集成验证。
 
-> TradingAccount 是当前发布面向外部的账户运行时入口，位于 `github.com/QuantProcessing/exchanges/account`。新的集成应基于 `TradingAccount + OrderFlow`。
+> TradingAccount 是当前发布面向外部的账户运行时入口，位于 `github.com/QuantProcessing/exchanges/account`。新的集成应基于 `TradingAccount + OrderTracker`。
 
 ## Migration Order
 
-1. 升级到包含 `TradingAccount + OrderFlow` 的发布版本。
+1. 升级到包含 `TradingAccount + OrderTracker` 的发布版本。
 2. 重新运行你现有的 adapter 集成测试。
 3. 只有在新 tag 发布后，才迁移下游应用。
 
@@ -695,7 +715,7 @@ exchanges/                  根包 — 接口、模型、错误、工具函数
 │   └── ...                 其他交易所适配器
 ├── account/                公开的账户运行时子包
 │   ├── trading_account.go  TradingAccount 运行时入口
-│   ├── order_flow.go       OrderFlow 生命周期流 + 最新快照辅助
+│   ├── order_tracker.go    OrderTracker 生命周期报告 + 成交流
 │   └── ...                 内部运行时同步辅助
 ├── config/                 基于配置构造 adapter
 ├── testsuite/              适配器一致性测试套件

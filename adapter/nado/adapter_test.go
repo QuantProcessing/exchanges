@@ -7,7 +7,6 @@ import (
 
 	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/testsuite"
-	"github.com/shopspring/decimal"
 )
 
 func setupPerpAdapter(t *testing.T) *Adapter {
@@ -87,14 +86,4 @@ func TestSpotAdapter_Lifecycle(t *testing.T) {
 func TestPerpAdapter_Lifecycle(t *testing.T) {
 	adp := setupPerpAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{Symbol: "ETH"})
-}
-
-func TestPerpAdapter_TradingAccount(t *testing.T) {
-	adp := setupPerpAdapter(t)
-	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
-		Symbol:               "ETH",
-		MarketQuantity:       decimal.RequireFromString("0.002"),
-		PassiveLimitQuantity: decimal.RequireFromString("0.061"),
-		AllowNegativeBalance: true,
-	})
 }

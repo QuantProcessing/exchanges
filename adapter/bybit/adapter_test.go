@@ -118,13 +118,6 @@ func TestPerpAdapter_Lifecycle(t *testing.T) {
 	})
 }
 
-func TestPerpAdapter_TradingAccount(t *testing.T) {
-	adp := setupPerpAdapter(t)
-	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
-		Symbol: requireEnvSymbol(t, "BYBIT_PERP_TEST_SYMBOL"),
-	})
-}
-
 func TestSpotAdapter_Compliance(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunAdapterComplianceTests(t, adp, requireEnvSymbol(t, "BYBIT_SPOT_TEST_SYMBOL"))
@@ -151,13 +144,6 @@ func TestSpotAdapter_OrderQuerySemantics(t *testing.T) {
 func TestSpotAdapter_Lifecycle(t *testing.T) {
 	adp := setupSpotAdapter(t)
 	testsuite.RunLifecycleSuite(t, adp, testsuite.LifecycleConfig{
-		Symbol: requireEnvSymbol(t, "BYBIT_SPOT_TEST_SYMBOL"),
-	})
-}
-
-func TestSpotAdapter_TradingAccount(t *testing.T) {
-	adp := setupSpotAdapter(t)
-	testsuite.RunTradingAccountSuite(t, adp, testsuite.TradingAccountConfig{
 		Symbol: requireEnvSymbol(t, "BYBIT_SPOT_TEST_SYMBOL"),
 	})
 }

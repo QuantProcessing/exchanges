@@ -50,17 +50,17 @@ standardized facade over the SDK for common trading workflows.
 ### 3. TradingAccount Layer: Lifecycle Runtime
 
 The public `account/` package owns high-level trading lifecycle behavior:
-snapshots, streams, order/fill fusion, local order state, balances/positions,
-and `OrderFlow`.
+snapshots, streams, normalized order/fill reports, local order state,
+balances/positions, and `OrderTracker`.
 
 - TradingAccount should depend only on lifecycle-critical adapter capabilities:
-  account snapshot, order placement/cancel/query, `WatchOrders`, optional
-  `WatchFills`, and market-specific balance/position streams.
+  account snapshot, order placement/cancel/query, order reports, optional fill
+  reports, and market-specific balance/position reports.
 - TradingAccount must not require funding, open interest, historical market
   analytics, or venue-specific admin APIs.
-- `WatchOrders` is the readiness gate for lifecycle-capable and
-  TradingAccount-ready adapters. `WatchFills` improves execution detail but is
-  optional when unsupported behavior is explicit and tested.
+- The new account readiness gate is startup reconciliation over
+  `venue.ExecutionClient`. Legacy root adapter lifecycle support still requires
+  a real `WatchOrders`.
 - Multi-exchange, multi-quote, or portfolio-level lifecycle management should be
   built above individual TradingAccount instances rather than by overloading a
   single adapter with unrelated state.
