@@ -13,6 +13,16 @@ var ErrUnknownVenue = errors.New("unknown venue")
 
 type Constructor func(ctx context.Context, cfg map[string]string) (Adapter, error)
 
+var defaultRegistry = NewRegistry()
+
+func Register(v model.Venue, ctor Constructor) {
+	defaultRegistry.Register(v, ctor)
+}
+
+func Open(ctx context.Context, v model.Venue, cfg map[string]string) (Adapter, error) {
+	return defaultRegistry.Open(ctx, v, cfg)
+}
+
 type Registry struct {
 	mu    sync.RWMutex
 	ctors map[model.Venue]Constructor
