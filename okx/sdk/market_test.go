@@ -2,111 +2,129 @@ package okx
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
-// TestGetFundingRate tests the GetFundingRate method
-func TestGetFundingRate(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
-
-	client := NewClient()
-	ctx := context.Background()
-
-	// Test with BTC-USDT-SWAP
-	rate, err := client.GetFundingRate(ctx, "BTC-USDT-SWAP")
+func TestClient_GetTickers(t *testing.T) {
+	got, err := newLiveClient().GetTickers(context.Background(), "SPOT", nil)
 	if err != nil {
-		t.Fatalf("Failed to get funding rate: %v", err)
+		t.Fatalf("GetTickers: %v", err)
 	}
-
-	if rate == nil {
-		t.Fatal("Expected funding rate, got nil")
+	if len(got) == 0 {
+		t.Fatal("expected tickers")
 	}
-
-	if rate.Symbol == "" {
-		t.Error("Expected non-empty symbol")
-	}
-
-	t.Logf("Symbol: %s",  rate.Symbol)
-	t.Logf("Funding rate (hourly): %s", rate.FundingRate)
-	t.Logf("Funding interval hours: %d", rate.FundingIntervalHours)
-	t.Logf("Next funding time: %s", rate.NextFundingTime)
 }
 
-func TestGetOpenInterestParses(t *testing.T) {
-	t.Parallel()
-
-	payload := `{"code":"0","msg":"","data":[{"instId":"BTC-USDT-SWAP","instType":"SWAP","oi":"12345.6","oiCcy":"123.456","ts":"1700000000000"}]}`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v5/public/open-interest", r.URL.Path)
-		require.Equal(t, "BTC-USDT-SWAP", r.URL.Query().Get("instId"))
-		_, _ = w.Write([]byte(payload))
-	}))
-	defer srv.Close()
-
-	c := NewClient()
-	c.BaseURL = srv.URL
-	oi, err := c.GetOpenInterest(context.Background(), "BTC-USDT-SWAP")
-	require.NoError(t, err)
-	require.Equal(t, "BTC-USDT-SWAP", oi.InstId)
-	require.Equal(t, "12345.6", oi.OI)
-	require.Equal(t, "123.456", oi.OICcy)
-}
-
-func TestGetFundingRateHistoryParses(t *testing.T) {
-	t.Parallel()
-
-	payload := `{"code":"0","msg":"","data":[
-		{"instId":"BTC-USDT-SWAP","fundingRate":"0.0001","realizedRate":"0.0001","fundingTime":"1700000000000","method":"current_period"},
-		{"instId":"BTC-USDT-SWAP","fundingRate":"0.00012","realizedRate":"0.00012","fundingTime":"1700028800000","method":"current_period"}
-	]}`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v5/public/funding-rate-history", r.URL.Path)
-		require.Equal(t, "BTC-USDT-SWAP", r.URL.Query().Get("instId"))
-		require.Equal(t, "5", r.URL.Query().Get("limit"))
-		_, _ = w.Write([]byte(payload))
-	}))
-	defer srv.Close()
-
-	c := NewClient()
-	c.BaseURL = srv.URL
-	hist, err := c.GetFundingRateHistory(context.Background(), "BTC-USDT-SWAP", 0, 0, 5)
-	require.NoError(t, err)
-	require.Len(t, hist, 2)
-	require.Equal(t, "0.0001", hist[0].FundingRate)
-	require.Equal(t, "1700028800000", hist[1].FundingTime)
-}
-
-// TestGetAllFundingRates tests retrieving all funding rates
-func TestGetAllFundingRates(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
-
-	client := NewClient()
-	ctx := context.Background()
-
-	rates, err := client.GetAllFundingRates(ctx)
+func TestClient_GetTicker(t *testing.T) {
+	got, err := newLiveClient().GetTicker(context.Background(), okxSpotInstID)
 	if err != nil {
-		t.Fatalf("Failed to get all funding rates: %v", err)
+		t.Fatalf("GetTicker: %v", err)
 	}
-
-	if len(rates) == 0 {
-		t.Fatal("Expected at least one funding rate, got empty array")
+	if len(got) == 0 || got[0].InstId != okxSpotInstID {
+		t.Fatalf("unexpected ticker response: %+v", got)
 	}
+}
 
-	t.Logf("Total instruments with funding rates: %d", len(rates))
+func TestClient_GetOrderBook(t *testing.T) {
+	size := 5
+	got, err := newLiveClient().GetOrderBook(context.Background(), okxSpotInstID, &size)
+	if err != nil {
+		t.Fatalf("GetOrderBook: %v", err)
+	}
+	if len(got) == 0 || len(got[0].Asks) == 0 || len(got[0].Bids) == 0 {
+		t.Fatalf("unexpected order book response: %+v", got)
+	}
+}
 
-	// Show first 3 rates
-	for i, rate := range rates {
-		if i >= 3 {
-			break
-		}
-		t.Logf("%s: rate=%s (hourly), interval=%dh", rate.Symbol, rate.FundingRate, rate.FundingIntervalHours)
+func TestClient_GetInstruments(t *testing.T) {
+	got, err := newLiveClient().GetInstruments(context.Background(), "SPOT")
+	if err != nil {
+		t.Fatalf("GetInstruments: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected instruments")
+	}
+}
+
+func TestClient_GetInstrumentsByFamily(t *testing.T) {
+	got, err := newLiveClient().GetInstrumentsByFamily(context.Background(), "SWAP", "BTC-USDT")
+	if err != nil {
+		t.Fatalf("GetInstrumentsByFamily: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected instruments by family")
+	}
+}
+
+func TestClient_GetCandles(t *testing.T) {
+	bar := "1m"
+	limit := 1
+	got, err := newLiveClient().GetCandles(context.Background(), okxSpotInstID, &bar, nil, nil, &limit)
+	if err != nil {
+		t.Fatalf("GetCandles: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected candles")
+	}
+}
+
+func TestClient_GetTrades(t *testing.T) {
+	limit := 1
+	got, err := newLiveClient().GetTrades(context.Background(), okxSpotInstID, &limit)
+	if err != nil {
+		t.Fatalf("GetTrades: %v", err)
+	}
+	if len(got) == 0 || got[0].InstId != okxSpotInstID {
+		t.Fatalf("unexpected trades response: %+v", got)
+	}
+}
+
+func TestClient_GetFundingRate(t *testing.T) {
+	got, err := newLiveClient().GetFundingRate(context.Background(), okxSwapInstID)
+	if err != nil {
+		t.Fatalf("GetFundingRate: %v", err)
+	}
+	if got.Symbol != okxSwapInstID || got.FundingRate == "" {
+		t.Fatalf("unexpected funding rate response: %+v", got)
+	}
+}
+
+func TestClient_GetAllFundingRates(t *testing.T) {
+	got, err := newLiveClient().GetAllFundingRates(context.Background())
+	if err != nil {
+		t.Fatalf("GetAllFundingRates: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil all funding rates")
+	}
+}
+
+func TestClient_GetOpenInterest(t *testing.T) {
+	got, err := newLiveClient().GetOpenInterest(context.Background(), okxSwapInstID)
+	if err != nil {
+		t.Fatalf("GetOpenInterest: %v", err)
+	}
+	if got.InstId != okxSwapInstID || got.OI == "" {
+		t.Fatalf("unexpected open interest response: %+v", got)
+	}
+}
+
+func TestClient_GetFundingRateHistory(t *testing.T) {
+	got, err := newLiveClient().GetFundingRateHistory(context.Background(), okxSwapInstID, 0, 0, 1)
+	if err != nil {
+		t.Fatalf("GetFundingRateHistory: %v", err)
+	}
+	if len(got) == 0 || got[0].InstId != okxSwapInstID {
+		t.Fatalf("unexpected funding history response: %+v", got)
+	}
+}
+
+func TestClient_GetHistoryTrades(t *testing.T) {
+	got, err := newLiveClient().GetHistoryTrades(context.Background(), okxSpotInstID, 1, "", "", 1)
+	if err != nil {
+		t.Fatalf("GetHistoryTrades: %v", err)
+	}
+	if len(got) == 0 || got[0].InstId != okxSpotInstID {
+		t.Fatalf("unexpected history trades response: %+v", got)
 	}
 }

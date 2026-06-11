@@ -1,0 +1,289 @@
+package spot
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func requireWSNotConnected(t *testing.T, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), "not connected") && !strings.Contains(err.Error(), "not established") {
+		t.Fatalf("expected websocket not connected error, got %v", err)
+	}
+}
+
+func TestCancelReplaceOrderResponse_MarshalJSON(t *testing.T) {
+	data, err := json.Marshal(CancelReplaceOrderResponse{
+		CancelResult:     "SUCCESS",
+		NewOrderStatus:   "SUCCESS",
+		CancelResponse:   &CancelOrderResponse{Symbol: "BTCUSDT", OrderID: 1},
+		NewOrderResponse: &OrderResponse{Symbol: "BTCUSDT", OrderID: 2},
+	})
+	if err != nil {
+		t.Fatalf("MarshalJSON returned error: %v", err)
+	}
+	if !strings.Contains(string(data), `"cancelResult":"SUCCESS"`) || !strings.Contains(string(data), `"newOrderResult":"SUCCESS"`) {
+		t.Fatalf("unexpected marshal output: %s", data)
+	}
+}
+
+func TestWSClient_Connect(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	client.Close()
+
+	if err := client.Connect(); err == nil || !strings.Contains(err.Error(), "client is closed") {
+		t.Fatalf("expected closed client error, got %v", err)
+	}
+}
+
+func TestWSClient_WriteJSON(t *testing.T) {
+	err := NewWSClient(context.Background(), "wss://example.test/ws").WriteJSON(map[string]string{"op": "ping"})
+	requireWSNotConnected(t, err)
+}
+
+func TestWSClient_Close(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	client.Close()
+	if !client.isClosed {
+		t.Fatal("expected client to be marked closed")
+	}
+}
+
+func TestWSClient_Subscribe(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	err := client.Subscribe("btcusdt@trade", func([]byte) error { return nil })
+	requireWSNotConnected(t, err)
+	if client.subs["btcusdt@trade"].callback == nil {
+		t.Fatal("expected subscription callback to be registered before send")
+	}
+}
+
+func TestWSClient_Unsubscribe(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	client.subs["btcusdt@trade"] = Subscription{id: 1, callback: func([]byte) error { return nil }}
+
+	err := client.Unsubscribe("btcusdt@trade")
+	requireWSNotConnected(t, err)
+	if _, ok := client.subs["btcusdt@trade"]; ok {
+		t.Fatal("expected subscription to be removed")
+	}
+}
+
+func TestWSClient_SetHandler(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	client.SetHandler("executionReport", func([]byte) error { return nil })
+	if client.subs["executionReport"].id != 0 || client.subs["executionReport"].callback == nil {
+		t.Fatalf("unexpected handler registration: %+v", client.subs["executionReport"])
+	}
+}
+
+func TestWSClient_CallSubscription(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	called := false
+	client.SetHandler("event", func(data []byte) error {
+		called = string(data) == `{"ok":true}`
+		return nil
+	})
+
+	client.CallSubscription("event", []byte(`{"ok":true}`))
+
+	if !called {
+		t.Fatal("expected subscription callback to be called")
+	}
+}
+
+func TestWsMarketClient_SubscribeIncrementOrderBook(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeIncrementOrderBook("btcusdt", "100ms", func(*WsDepthEvent) error { return nil }))
+	if client.subs["btcusdt@depth@100ms"].callback == nil {
+		t.Fatal("expected depth subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeLimitOrderBook(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeLimitOrderBook("BTCUSDT", 5, "", func(*DepthEvent) error { return nil }))
+	if client.subs["btcusdt@depth5@100ms"].callback == nil {
+		t.Fatal("expected limit depth subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeBookTicker(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeBookTicker("BTCUSDT", func(*BookTickerEvent) error { return nil }))
+	if client.subs["btcusdt@bookTicker"].callback == nil {
+		t.Fatal("expected book ticker subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeAggTrade(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeAggTrade("BTCUSDT", func(*AggTradeEvent) error { return nil }))
+	if client.subs["btcusdt@aggTrade"].callback == nil {
+		t.Fatal("expected aggregate trade subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeTrade(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeTrade("BTCUSDT", func(*TradeEvent) error { return nil }))
+	if client.subs["btcusdt@trade"].callback == nil {
+		t.Fatal("expected trade subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeKline(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeKline("BTCUSDT", "1m", func(*KlineEvent) error { return nil }))
+	if client.subs["btcusdt@kline_1m"].callback == nil {
+		t.Fatal("expected kline subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeAllMiniTicker(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	requireWSNotConnected(t, client.SubscribeAllMiniTicker(func([]*WsMiniTickerEvent) error { return nil }))
+	if client.subs["!miniTicker@arr"].callback == nil {
+		t.Fatal("expected all mini ticker subscription")
+	}
+}
+
+func TestWsMarketClient_UnsubscribeDepth(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@depth"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeDepth("BTCUSDT"))
+}
+
+func TestWsMarketClient_UnsubscribeLimitOrderBook(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@depth5@100ms"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeLimitOrderBook("BTCUSDT", 5, ""))
+}
+
+func TestWsMarketClient_UnsubscribeBookTicker(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@bookTicker"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeBookTicker("BTCUSDT"))
+}
+
+func TestWsMarketClient_UnsubscribeAggTrade(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@aggTrade"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeAggTrade("BTCUSDT"))
+}
+
+func TestWsMarketClient_UnsubscribeTrade(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@trade"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeTrade("BTCUSDT"))
+}
+
+func TestWsMarketClient_UnsubscribeKline(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@kline_1m"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeKline("BTCUSDT", "1m"))
+}
+
+func TestWsAccountClient_SubscribeExecutionReport(t *testing.T) {
+	client := NewWsAccountClient(NewWsAPIClient(context.Background()), "api-key", "secret")
+	client.SubscribeExecutionReport(func(*ExecutionReportEvent) {})
+	if len(client.executionReportCallbacks) != 1 {
+		t.Fatalf("expected callback registration, got %d", len(client.executionReportCallbacks))
+	}
+}
+
+func TestWsAccountClient_SubscribeAccountPosition(t *testing.T) {
+	client := NewWsAccountClient(NewWsAPIClient(context.Background()), "api-key", "secret")
+	client.SubscribeAccountPosition(func(*AccountPositionEvent) {})
+	if len(client.accountPositionCallbacks) != 1 {
+		t.Fatalf("expected callback registration, got %d", len(client.accountPositionCallbacks))
+	}
+}
+
+func TestWsAccountClient_IsConnected(t *testing.T) {
+	client := NewWsAccountClient(NewWsAPIClient(context.Background()), "api-key", "secret")
+	if client.IsConnected() {
+		t.Fatal("expected new account client to be disconnected")
+	}
+}
+
+func TestWsAccountClient_Connect(t *testing.T) {
+	api := NewWsAPIClient(context.Background()).WithURL(":// bad url")
+	client := NewWsAccountClient(api, "api-key", "secret")
+	if err := client.Connect(); err == nil {
+		t.Fatal("expected WS API connect to fail")
+	}
+}
+
+func TestWsAccountClient_Close(t *testing.T) {
+	client := NewWsAccountClient(NewWsAPIClient(context.Background()), "api-key", "secret")
+	client.Close()
+}
+
+func TestWsAPIClient_WithURL(t *testing.T) {
+	client := NewWsAPIClient(context.Background())
+	if client.WithURL("wss://example.test/api") != client || client.URL != "wss://example.test/api" {
+		t.Fatalf("unexpected URL: %s", client.URL)
+	}
+}
+
+func TestWsAPIClient_SetEventHandler(t *testing.T) {
+	client := NewWsAPIClient(context.Background())
+	called := false
+	client.SetEventHandler(func(data []byte) { called = string(data) == `{"e":"executionReport"}` })
+	client.handleMessage([]byte(`{"e":"executionReport"}`))
+	if !called {
+		t.Fatal("expected event handler to receive pushed message")
+	}
+}
+
+func TestWsAPIClient_Connect(t *testing.T) {
+	client := NewWsAPIClient(context.Background()).WithURL(":// bad url")
+	if err := client.Connect(); err == nil {
+		t.Fatal("expected invalid URL to fail")
+	}
+}
+
+func TestWsAPIClient_IsConnected(t *testing.T) {
+	if NewWsAPIClient(context.Background()).IsConnected() {
+		t.Fatal("expected new WS API client to be disconnected")
+	}
+}
+
+func TestWsAPIClient_SendRequest(t *testing.T) {
+	client := NewWsAPIClient(context.Background())
+	_, err := client.SendRequest("req-1", map[string]string{"method": "ping"})
+	requireWSNotConnected(t, err)
+	if _, ok := client.PendingRequests["req-1"]; ok {
+		t.Fatal("expected pending request to be removed after send failure")
+	}
+}
+
+func TestWsAPIClient_Close(t *testing.T) {
+	client := NewWsAPIClient(context.Background())
+	client.Close()
+	if !client.isClosed {
+		t.Fatal("expected WS API client to be closed")
+	}
+}
+
+func TestWsAPIClient_PlaceOrderWS(t *testing.T) {
+	_, err := NewWsAPIClient(context.Background()).PlaceOrderWS("api-key", "secret", PlaceOrderParams{
+		Symbol: "BTCUSDT", Side: "BUY", Type: "LIMIT", TimeInForce: "GTC", Quantity: "1", Price: "100",
+	}, "req-1")
+	requireWSNotConnected(t, err)
+}
+
+func TestWsAPIClient_ModifyOrderWS(t *testing.T) {
+	_, err := NewWsAPIClient(context.Background()).ModifyOrderWS("api-key", "secret", CancelReplaceOrderParams{
+		Symbol: "BTCUSDT", Side: "BUY", Type: "LIMIT", CancelReplaceMode: "STOP_ON_FAILURE", Quantity: "1", Price: "101",
+	}, "req-1")
+	requireWSNotConnected(t, err)
+}
+
+func TestWsAPIClient_CancelOrderWS(t *testing.T) {
+	_, err := NewWsAPIClient(context.Background()).CancelOrderWS("api-key", "secret", "BTCUSDT", 1, "", "req-1")
+	requireWSNotConnected(t, err)
+}

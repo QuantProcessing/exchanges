@@ -15,6 +15,7 @@ import (
 // to reduce), no Slippage flag (handled per-adapter if at all).
 type SpotOrderParams struct {
 	Symbol      string
+	Market      exchanges.MarketRef
 	Side        exchanges.OrderSide
 	Type        exchanges.OrderType
 	Quantity    decimal.Decimal
@@ -30,6 +31,7 @@ func (p *SpotOrderParams) toGeneric() *exchanges.OrderParams {
 	}
 	return &exchanges.OrderParams{
 		Symbol:      p.Symbol,
+		Market:      p.Market,
 		Side:        p.Side,
 		Type:        p.Type,
 		Quantity:    p.Quantity,
@@ -236,6 +238,7 @@ func (a *SpotTradingAccount) refreshBalances(ctx context.Context, runGen uint64)
 			a.markStreamEvent(StreamBalances, dropped)
 		}
 	}
+	a.markStreamReady(StreamBalances)
 	return nil
 }
 

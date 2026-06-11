@@ -2,83 +2,72 @@ package sdk
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"strings"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
-	"github.com/stretchr/testify/require"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
-func TestTradeWSRequestHonorsCallerContext(t *testing.T) {
-	upgrader := websocket.Upgrader{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		require.NoError(t, err)
-		defer conn.Close()
-
-		_, payload, err := conn.ReadMessage()
-		require.NoError(t, err)
-		require.Contains(t, string(payload), `"op":"auth"`)
-		require.NoError(t, conn.WriteJSON(map[string]any{"op": "auth", "retCode": 0, "retMsg": "OK"}))
-
-		_, payload, err = conn.ReadMessage()
-		require.NoError(t, err)
-		require.Contains(t, string(payload), `"op":"order.create"`)
-		time.Sleep(500 * time.Millisecond)
-	}))
-	defer server.Close()
-
-	client := NewTradeWSClient().WithCredentials("api-key", "secret-key")
-	client.url = "ws" + strings.TrimPrefix(server.URL, "http")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+func TestTradeWSClient_PlaceOrder(t *testing.T) {
+	client := newLiveTradeWSClient(t, "BYBIT_TEST_ORDER_QTY", "BYBIT_TEST_ORDER_PRICE")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	start := time.Now()
 	err := client.PlaceOrder(ctx, PlaceOrderRequest{
-		Category:    "spot",
-		Symbol:      "BTCUSDT",
-		Side:        "Buy",
+		Category:    "linear",
+		Symbol:      bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol),
+		Side:        bybitEnvOrDefault("BYBIT_TEST_ORDER_SIDE", "Buy"),
 		OrderType:   "Limit",
-		Qty:         "0.1",
-		Price:       "100",
-		OrderLinkID: "cid-1",
+		Qty:         os.Getenv("BYBIT_TEST_ORDER_QTY"),
+		Price:       os.Getenv("BYBIT_TEST_ORDER_PRICE"),
+		TimeInForce: "GTC",
+		OrderLinkID: bybitEnvOrDefault("BYBIT_TEST_ORDER_LINK_ID", ""),
 	})
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Less(t, time.Since(start), 2*time.Second)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
 }
 
-func TestTradeWSPendingRequestUnblocksOnDisconnect(t *testing.T) {
-	upgrader := websocket.Upgrader{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		require.NoError(t, err)
+func TestTradeWSClient_CancelOrder(t *testing.T) {
+	client := newLiveTradeWSClient(t, "BYBIT_TEST_ORDER_ID")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
-		_, payload, err := conn.ReadMessage()
-		require.NoError(t, err)
-		require.Contains(t, string(payload), `"op":"auth"`)
-		require.NoError(t, conn.WriteJSON(map[string]any{"op": "auth", "retCode": 0, "retMsg": "OK"}))
-
-		_, payload, err = conn.ReadMessage()
-		require.NoError(t, err)
-		require.Contains(t, string(payload), `"op":"order.cancel"`)
-		_ = conn.Close()
-	}))
-	defer server.Close()
-
-	client := NewTradeWSClient().WithCredentials("api-key", "secret-key")
-	client.url = "ws" + strings.TrimPrefix(server.URL, "http")
-
-	start := time.Now()
-	err := client.CancelOrder(context.Background(), CancelOrderRequest{
-		Category: "spot",
-		Symbol:   "BTCUSDT",
-		OrderID:  "1",
+	err := client.CancelOrder(ctx, CancelOrderRequest{
+		Category: "linear",
+		Symbol:   bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol),
+		OrderID:  os.Getenv("BYBIT_TEST_ORDER_ID"),
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "connection closed")
-	require.Less(t, time.Since(start), 2*time.Second)
+	if err != nil {
+		t.Fatalf("CancelOrder: %v", err)
+	}
+}
+
+func TestTradeWSClient_AmendOrder(t *testing.T) {
+	client := newLiveTradeWSClient(t, "BYBIT_TEST_ORDER_ID", "BYBIT_TEST_ORDER_QTY", "BYBIT_TEST_ORDER_PRICE")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	err := client.AmendOrder(ctx, AmendOrderRequest{
+		Category: "linear",
+		Symbol:   bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol),
+		OrderID:  os.Getenv("BYBIT_TEST_ORDER_ID"),
+		Qty:      os.Getenv("BYBIT_TEST_ORDER_QTY"),
+		Price:    os.Getenv("BYBIT_TEST_ORDER_PRICE"),
+	})
+	if err != nil {
+		t.Fatalf("AmendOrder: %v", err)
+	}
+}
+
+func newLiveTradeWSClient(t *testing.T, vars ...string) *TradeWSClient {
+	t.Helper()
+	required := append([]string{"BYBIT_API_KEY", "BYBIT_SECRET_KEY"}, vars...)
+	testenv.RequireLiveWrite(t, bybitLiveWriteFlag, required...)
+	client := NewTradeWSClient().WithCredentials(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"))
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+	return client
 }

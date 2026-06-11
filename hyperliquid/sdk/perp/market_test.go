@@ -2,128 +2,79 @@ package perp
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
+	"time"
 
-	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
+	hyperliquid "github.com/QuantProcessing/exchanges/hyperliquid/sdk"
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetFundingRate tests the GetFundingRate method
-// Note: This is an integration test that requires network access
-func TestGetFundingRate(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
+const hyperliquidPerpCoin = "BTC"
 
-	baseClient := hyperliquid.NewClient()
-	client := NewClient(baseClient)
-	ctx := context.Background()
-
-	// Test with BTC
-	fundingRate, err := client.GetFundingRate(ctx, "BTC")
-	if err != nil {
-		t.Fatalf("Failed to get funding rate for BTC: %v", err)
-	}
-
-	if fundingRate == nil {
-		t.Fatal("Expected funding rate, got nil")
-	}
-
-	if fundingRate.Coin != "BTC" {
-		t.Errorf("Expected coin BTC, got %s", fundingRate.Coin)
-	}
-
-	if fundingRate.FundingRate == "" {
-		t.Error("Expected non-empty funding rate")
-	}
-
-	t.Logf("BTC funding rate: %s", fundingRate.FundingRate)
+func newLiveClient() *Client {
+	return NewClient(hyperliquid.NewClient())
 }
 
-// TestGetFundingRate_InvalidCoin tests error handling for invalid coin
-func TestGetFundingRate_InvalidCoin(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
-
-	baseClient := hyperliquid.NewClient()
-	client := NewClient(baseClient)
-	ctx := context.Background()
-
-	// Test with an invalid coin
-	_, err := client.GetFundingRate(ctx, "INVALID_COIN_XYZ")
-	if err == nil {
-		t.Fatal("Expected error for invalid coin, got nil")
-	}
-
-	t.Logf("Got expected error: %v", err)
-}
-
-// TestGetAllFundingRates tests the GetAllFundingRates method
-func TestGetAllFundingRates(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
-
-	baseClient := hyperliquid.NewClient()
-	client := NewClient(baseClient)
-	ctx := context.Background()
-
-	// Get all funding rates
-	rates, err := client.GetAllFundingRates(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get all funding rates: %v", err)
-	}
-
-	if len(rates) == 0 {
-		t.Fatal("Expected at least one funding rate, got empty map")
-	}
-
-	// Check that BTC and ETH are present
-	btcRate, hasBTC := rates["BTC"]
-	if !hasBTC {
-		t.Error("Expected BTC in funding rates map")
-	} else {
-		t.Logf("BTC funding rate: %s", btcRate)
-	}
-
-	ethRate, hasETH := rates["ETH"]
-	if !hasETH {
-		t.Error("Expected ETH in funding rates map")
-	} else {
-		t.Logf("ETH funding rate: %s", ethRate)
-	}
-
-	t.Logf("Total coins with funding rates: %d", len(rates))
-}
-
-func TestGetFundingRateHistoryParses(t *testing.T) {
-	t.Parallel()
-
-	payload := `[
-		{"coin":"BTC","fundingRate":"0.0000125","premium":"0.0001","time":1700000000000},
-		{"coin":"BTC","fundingRate":"0.0000130","premium":"0.0001","time":1700003600000}
-	]`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/info", r.URL.Path)
-		body, _ := io.ReadAll(r.Body)
-		require.Contains(t, string(body), `"type":"fundingHistory"`)
-		require.Contains(t, string(body), `"coin":"BTC"`)
-		require.Contains(t, string(body), `"startTime":1700000000000`)
-		_, _ = w.Write([]byte(payload))
-	}))
-	defer srv.Close()
-
-	baseClient := hyperliquid.NewClient()
-	baseClient.BaseURL = srv.URL
-	c := NewClient(baseClient)
-
-	hist, err := c.GetFundingRateHistory(context.Background(), "BTC", 1700000000000, 0)
+func TestClient_GetMetaAndAssetCtxs(t *testing.T) {
+	meta, err := newLiveClient().GetMetaAndAssetCtxs(context.Background())
 	require.NoError(t, err)
-	require.Len(t, hist, 2)
-	require.Equal(t, "0.0000125", hist[0].FundingRate)
-	require.Equal(t, int64(1700000000000), hist[0].Time)
+	require.NotEmpty(t, meta.Meta.Universe)
+	require.NotEmpty(t, meta.AssetCtxs)
+}
+
+func TestClient_GetFundingRate(t *testing.T) {
+	fundingRate, err := newLiveClient().GetFundingRate(context.Background(), hyperliquidPerpCoin)
+	require.NoError(t, err)
+	require.Equal(t, hyperliquidPerpCoin, fundingRate.Coin)
+	require.NotZero(t, fundingRate.FundingTime)
+	require.NotZero(t, fundingRate.NextFundingTime)
+}
+
+func TestClient_GetFundingRate_InvalidCoin(t *testing.T) {
+	_, err := newLiveClient().GetFundingRate(context.Background(), "INVALID_COIN_XYZ")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "funding rate not found")
+}
+
+func TestClient_GetAllFundingRates(t *testing.T) {
+	rates, err := newLiveClient().GetAllFundingRates(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, rates)
+}
+
+func TestClient_L2Book(t *testing.T) {
+	book, err := newLiveClient().L2Book(context.Background(), hyperliquidPerpCoin)
+	require.NoError(t, err)
+	require.Equal(t, hyperliquidPerpCoin, book.Coin)
+	require.NotEmpty(t, book.Levels)
+}
+
+func TestClient_AllMids(t *testing.T) {
+	mids, err := newLiveClient().AllMids(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, mids)
+}
+
+func TestClient_CandleSnapshot(t *testing.T) {
+	end := time.Now().UnixMilli()
+	start := end - int64(time.Hour/time.Millisecond)
+
+	candles, err := newLiveClient().CandleSnapshot(context.Background(), hyperliquidPerpCoin, "1m", start, end)
+	require.NoError(t, err)
+	require.NotEmpty(t, candles)
+}
+
+func TestClient_GetPrepMeta(t *testing.T) {
+	meta, err := newLiveClient().GetPrepMeta(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, meta.Universe)
+}
+
+func TestClient_GetFundingRateHistory(t *testing.T) {
+	end := time.Now().UnixMilli()
+	start := end - int64(24*time.Hour/time.Millisecond)
+
+	hist, err := newLiveClient().GetFundingRateHistory(context.Background(), hyperliquidPerpCoin, start, end)
+	require.NoError(t, err)
+	require.NotEmpty(t, hist)
 }

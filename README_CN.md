@@ -68,28 +68,33 @@ func getSpread(ctx context.Context, adp exchanges.Exchange, symbol string) (deci
 
 ### 2. 符号约定
 
-所有方法统一接受**基础货币符号**（如 `"BTC"`、`"ETH"`），适配器内部根据配置的报价币种自动转换为交易所特定格式：
+Adapter 支持 quote-aware 的市场标识。`"BTC"` 这类基础符号仍会使用 adapter 的默认报价币种；`"BTC/USDT"`、`"BTC/USDC"` 或 `exchanges.MarketRef` 可以显式表达市场，让同一个 adapter 在交易所支持时路由多个 quote：
 
-| 你传入    | Binance (USDT)    | Binance (USDC)   | OKX (USDT)        | Hyperliquid      |
-|----------|-------------------|------------------|-------------------|------------------|
-| `"BTC"`  | `"BTCUSDT"`       | `"BTCUSDC"`      | `"BTC-USDT-SWAP"` | `"BTC"`          |
+| 你传入 | Binance | OKX | Hyperliquid |
+|--------|---------|-----|-------------|
+| 默认 USDT 下的 `"BTC"` | `"BTCUSDT"` | `"BTC-USDT-SWAP"` | 不支持 |
+| `"BTC/USDC"` | `"BTCUSDC"` | `"BTC-USDC-SWAP"` | `"BTC"` |
 
-### 3. 双层架构
+### 3. 三层架构
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  你的策略 / 应用                                      │
 ├─────────────────────────────────────────────────────┤
-│  适配器层 (exchanges.Exchange 接口)                    │  ← 统一 API
-│    binance.Adapter / okx.Adapter / nado.Adapter     │
+│  TradingAccount / PortfolioAccount                  │  ← 生命周期运行时
+│    account.PerpTradingAccount / PortfolioAccount    │
+├─────────────────────────────────────────────────────┤
+│  适配器层 (capability interfaces)                    │  ← 统一便利能力
+│    binance.Adapter / okx.Adapter / bybit.Adapter    │
 ├─────────────────────────────────────────────────────┤
 │  SDK 层 (底层 REST + WebSocket 客户端)                │  ← 交易所特定
-│    binance/sdk/ / okx/sdk/ / nado/sdk/              │
+│    binance/sdk/ / okx/sdk/ / bybit/sdk/             │
 └─────────────────────────────────────────────────────┘
 ```
 
-- **适配器层**：实现 `exchanges.Exchange` 接口。处理符号映射、订单校验、滑点逻辑和状态管理。
-- **SDK 层**：轻量 REST/WebSocket 客户端，与交易所 API 端点一一对应。可以直接使用以获得最大灵活性。
+- **SDK 层**：轻量 REST/WebSocket 客户端，对齐官方交易所 API。需要原生交易所能力时直接使用这一层。
+- **适配器层**：提供稳定的跨交易所便利能力，包括行情、订单、账户快照和可选 capability。
+- **TradingAccount 层**：管理交易生命周期，包括快照、私有流、OrderFlow、stream health 和组合账户。
 
 ---
 

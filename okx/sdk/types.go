@@ -199,6 +199,31 @@ type AccountConfig struct {
 	SettleCcyList       []string `json:"settleCcyList"`
 }
 
+type AccountLevel string
+
+const (
+	AccountLevelUnknown              AccountLevel = ""
+	AccountLevelSimple               AccountLevel = "simple"
+	AccountLevelSingleCurrencyMargin AccountLevel = "single_currency_margin"
+	AccountLevelMultiCurrencyMargin  AccountLevel = "multi_currency_margin"
+	AccountLevelPortfolioMargin      AccountLevel = "portfolio_margin"
+)
+
+func (c AccountConfig) AccountLevel() AccountLevel {
+	switch c.AcctLv {
+	case "1":
+		return AccountLevelSimple
+	case "2":
+		return AccountLevelSingleCurrencyMargin
+	case "3":
+		return AccountLevelMultiCurrencyMargin
+	case "4":
+		return AccountLevelPortfolioMargin
+	default:
+		return AccountLevelUnknown
+	}
+}
+
 type PositionMode struct {
 	PosMode string `json:"posMode"`
 }

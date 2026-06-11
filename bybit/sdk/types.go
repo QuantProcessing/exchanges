@@ -138,6 +138,53 @@ type WalletCoin struct {
 	UsdValue       string `json:"usdValue"`
 }
 
+type UnifiedMarginStatus int
+
+const (
+	UnifiedMarginStatusClassic UnifiedMarginStatus = 1
+	UnifiedMarginStatusUTA1    UnifiedMarginStatus = 3
+	UnifiedMarginStatusUTA1Pro UnifiedMarginStatus = 4
+	UnifiedMarginStatusUTA2    UnifiedMarginStatus = 5
+	UnifiedMarginStatusUTA2Pro UnifiedMarginStatus = 6
+)
+
+type AccountMode string
+
+const (
+	AccountModeUnknown AccountMode = ""
+	AccountModeClassic AccountMode = "CLASSIC"
+	AccountModeUTA1    AccountMode = "UTA1"
+	AccountModeUTA2    AccountMode = "UTA2"
+)
+
+type AccountInfo struct {
+	UnifiedMarginStatus UnifiedMarginStatus `json:"unifiedMarginStatus"`
+	MarginMode          string              `json:"marginMode"`
+	IsMasterTrader      bool                `json:"isMasterTrader"`
+	SpotHedgingStatus   string              `json:"spotHedgingStatus"`
+	UpdatedTime         string              `json:"updatedTime"`
+	DCPStatus           string              `json:"dcpStatus"`
+	TimeWindow          int                 `json:"timeWindow"`
+	SMPGroup            int                 `json:"smpGroup"`
+}
+
+func (a AccountInfo) AccountMode() AccountMode {
+	switch a.UnifiedMarginStatus {
+	case UnifiedMarginStatusClassic:
+		return AccountModeClassic
+	case UnifiedMarginStatusUTA1, UnifiedMarginStatusUTA1Pro:
+		return AccountModeUTA1
+	case UnifiedMarginStatusUTA2, UnifiedMarginStatusUTA2Pro:
+		return AccountModeUTA2
+	default:
+		return AccountModeUnknown
+	}
+}
+
+func (m AccountMode) IsUnified() bool {
+	return m == AccountModeUTA1 || m == AccountModeUTA2
+}
+
 type FeeRatesResult struct {
 	List []FeeRateRecord `json:"list"`
 }

@@ -47,14 +47,15 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 	}
 
 	accountAddr := opts.accountAddr()
-	baseClient := hyperliquid.NewClient().WithCredentials(opts.PrivateKey, nil)
+	vaultAddress := opts.vaultAddress()
+	baseClient := hyperliquid.NewClient().WithCredentials(opts.PrivateKey, vaultAddress)
 	if accountAddr != "" {
 		baseClient = baseClient.WithAccount(accountAddr)
 	}
 	client := spot.NewClient(baseClient)
 
 	// Create lifecycle context
-	baseWsClient := hyperliquid.NewWebsocketClient(ctx).WithCredentials(opts.PrivateKey, nil)
+	baseWsClient := hyperliquid.NewWebsocketClient(ctx).WithCredentials(opts.PrivateKey, vaultAddress)
 	baseWsClient.AccountAddr = accountAddr
 
 	wsClient := spot.NewWebsocketClient(baseWsClient)

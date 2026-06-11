@@ -8,14 +8,116 @@ import (
 )
 
 // ============================================================================
+// Capability Interfaces
+// ============================================================================
+
+// MarketDataExchange exposes normalized public market-data reads.
+//
+// The string symbol methods are legacy convenience methods. They may parse
+// quote-aware values such as "BTC/USDC", but new code should prefer
+// InstrumentExchange when available so market identity is explicit.
+type MarketDataExchange interface {
+	FetchTicker(ctx context.Context, symbol string) (*Ticker, error)
+	FetchOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error)
+	FetchTrades(ctx context.Context, symbol string, limit int) ([]Trade, error)
+	// FetchHistoricalTrades returns paginated historical trades.
+	// opts may be nil; a nil opts means "most recent page, adapter default limit".
+	// Adapters that do not support paginated history must return ErrNotSupported.
+	FetchHistoricalTrades(ctx context.Context, symbol string, opts *HistoricalTradeOpts) ([]Trade, error)
+	FetchKlines(ctx context.Context, symbol string, interval Interval, opts *KlineOpts) ([]Kline, error)
+	FetchSymbolDetails(ctx context.Context, symbol string) (*SymbolDetails, error)
+}
+
+// OrderExecutionExchange exposes normalized order write and order-query behavior.
+//
+// The string symbol methods are legacy convenience methods. New code that has
+// an explicit market should prefer InstrumentExchange.PlaceOrderFor and
+// FetchOpenOrdersFor when the adapter implements them.
+type OrderExecutionExchange interface {
+	// Unsuffixed write methods are the adapter's primary non-WS write path.
+	// *WS methods are explicit WebSocket submissions and return only transport/ACK errors.
+	PlaceOrder(ctx context.Context, params *OrderParams) (*Order, error)
+	PlaceOrderWS(ctx context.Context, params *OrderParams) error
+	CancelOrder(ctx context.Context, orderID, symbol string) error
+	CancelOrderWS(ctx context.Context, orderID, symbol string) error
+	CancelAllOrders(ctx context.Context, symbol string) error
+	FetchOrderByID(ctx context.Context, orderID, symbol string) (*Order, error)
+	FetchOrders(ctx context.Context, symbol string) ([]Order, error)
+	FetchOpenOrders(ctx context.Context, symbol string) ([]Order, error)
+}
+
+// AccountSnapshotExchange exposes normalized account snapshot reads.
+type AccountSnapshotExchange interface {
+	FetchAccount(ctx context.Context) (*Account, error)
+	FetchBalance(ctx context.Context) (decimal.Decimal, error)
+	FetchFeeRate(ctx context.Context, symbol string) (*FeeRate, error)
+}
+
+// LocalOrderBookExchange exposes WebSocket-maintained local orderbook behavior.
+type LocalOrderBookExchange interface {
+	// WatchOrderBook subscribes to orderbook updates and maintains a local copy.
+	// The callback is called on every update; pass nil for pull-only mode.
+	// depth controls the callback snapshot size. Use depth <= 0 for full depth.
+	// This method blocks until the initial snapshot is synced.
+	WatchOrderBook(ctx context.Context, symbol string, depth int, cb OrderBookCallback) error
+	GetLocalOrderBook(symbol string, depth int) *OrderBook
+	StopWatchOrderBook(ctx context.Context, symbol string) error
+}
+
+// PerpRiskExchange exposes lifecycle-relevant perpetual account and order controls.
+type PerpRiskExchange interface {
+	FetchPositions(ctx context.Context) ([]Position, error)
+	SetLeverage(ctx context.Context, symbol string, leverage int) error
+	ModifyOrder(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) (*Order, error)
+	ModifyOrderWS(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) error
+}
+
+// PerpMarketAnalytics exposes perpetual market analytics that are useful to
+// strategies but not required for TradingAccount lifecycle management.
+type PerpMarketAnalytics interface {
+	FetchFundingRate(ctx context.Context, symbol string) (*FundingRate, error)
+	FetchAllFundingRates(ctx context.Context) ([]FundingRate, error)
+	// FetchFundingRateHistory returns historical funding rates for a symbol.
+	// opts may be nil for "most recent adapter-default page".
+	// Hourly normalization: returned FundingRate entries use the same
+	// per-hour convention as FetchFundingRate.
+	FetchFundingRateHistory(ctx context.Context, symbol string, opts *FundingRateHistoryOpts) ([]FundingRate, error)
+	// FetchOpenInterest returns current open interest for a perp symbol.
+	FetchOpenInterest(ctx context.Context, symbol string) (*OpenInterest, error)
+}
+
+// SpotBalanceExchange exposes normalized spot balance reads.
+type SpotBalanceExchange interface {
+	FetchSpotBalances(ctx context.Context) ([]SpotBalance, error)
+}
+
+// AssetTransferExchange exposes normalized asset movement between account types.
+// Transfer semantics vary significantly across venues, so this stays optional.
+type AssetTransferExchange interface {
+	TransferAsset(ctx context.Context, params *TransferParams) error
+}
+
+// InstrumentExchange exposes instrument-aware adapter methods. Prefer these
+// methods for new code so market identity is explicit instead of inferred from
+// base-only strings.
+type InstrumentExchange interface {
+	FetchTickerFor(ctx context.Context, market MarketRef) (*Ticker, error)
+	FetchOrderBookFor(ctx context.Context, market MarketRef, limit int) (*OrderBook, error)
+	PlaceOrderFor(ctx context.Context, market MarketRef, params *OrderParams) (*Order, error)
+	FetchOpenOrdersFor(ctx context.Context, market MarketRef) ([]Order, error)
+}
+
+// ============================================================================
 // Core Interface: Exchange
 // ============================================================================
 
-// Exchange is the primary interface for strategy developers.
-// It provides a unified, CCXT-inspired API for interacting with any exchanges.
+// Exchange is the primary adapter convenience interface for strategy developers.
+// It provides a unified, CCXT-inspired API for interacting with any exchange.
 //
-// Symbol convention: all methods accept a **base currency** symbol (e.g. "BTC",
-// "ETH"). The adapter handles conversion to echange-specific formats internally.
+// Symbol convention: legacy string methods accept base symbols for the
+// adapter's default quote and may accept quote-aware strings such as
+// "BTC/USDC". New code should use MarketRef through InstrumentExchange when
+// the adapter supports it.
 //
 // Method naming convention: Fetch* = REST query, Watch* = WebSocket subscription.
 type Exchange interface {
@@ -32,42 +134,11 @@ type Exchange interface {
 	// ListSymbols returns all symbols supported by this adapter.
 	ListSymbols() []string
 
-	// === Market Data (REST) ===
-	FetchTicker(ctx context.Context, symbol string) (*Ticker, error)
-	FetchOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error)
-	FetchTrades(ctx context.Context, symbol string, limit int) ([]Trade, error)
-	// FetchHistoricalTrades returns paginated historical trades.
-	// opts may be nil; a nil opts means "most recent page, adapter default limit".
-	// Adapters that do not support paginated history must return ErrNotSupported.
-	FetchHistoricalTrades(ctx context.Context, symbol string, opts *HistoricalTradeOpts) ([]Trade, error)
-	FetchKlines(ctx context.Context, symbol string, interval Interval, opts *KlineOpts) ([]Kline, error)
-
-	// === Trading ===
-	// Unsuffixed write methods are the adapter's primary non-WS write path.
-	// *WS methods are explicit WebSocket submissions and return only transport/ACK errors.
-	PlaceOrder(ctx context.Context, params *OrderParams) (*Order, error)
-	PlaceOrderWS(ctx context.Context, params *OrderParams) error
-	CancelOrder(ctx context.Context, orderID, symbol string) error
-	CancelOrderWS(ctx context.Context, orderID, symbol string) error
-	CancelAllOrders(ctx context.Context, symbol string) error
-	FetchOrderByID(ctx context.Context, orderID, symbol string) (*Order, error)
-	FetchOrders(ctx context.Context, symbol string) ([]Order, error)
-	FetchOpenOrders(ctx context.Context, symbol string) ([]Order, error)
-
-	// === Account ===
-	FetchAccount(ctx context.Context) (*Account, error)
-	FetchBalance(ctx context.Context) (decimal.Decimal, error)
-	FetchSymbolDetails(ctx context.Context, symbol string) (*SymbolDetails, error)
-	FetchFeeRate(ctx context.Context, symbol string) (*FeeRate, error)
-
-	// === Local OrderBook (WS-maintained) ===
-	// WatchOrderBook subscribes to orderbook updates and maintains a local copy.
-	// The callback is called on every update; pass nil for pull-only mode.
-	// depth controls the callback snapshot size. Use depth <= 0 for full depth.
-	// This method blocks until the initial snapshot is synced.
-	WatchOrderBook(ctx context.Context, symbol string, depth int, cb OrderBookCallback) error
-	GetLocalOrderBook(symbol string, depth int) *OrderBook
-	StopWatchOrderBook(ctx context.Context, symbol string) error
+	// === Capability Families ===
+	MarketDataExchange
+	OrderExecutionExchange
+	AccountSnapshotExchange
+	LocalOrderBookExchange
 
 	// === WebSocket Streaming ===
 	Streamable
@@ -81,26 +152,15 @@ type Exchange interface {
 // Use type assertion: if perp, ok := adp.(adapter.PerpExchange); ok { ... }
 type PerpExchange interface {
 	Exchange
-	FetchPositions(ctx context.Context) ([]Position, error)
-	SetLeverage(ctx context.Context, symbol string, leverage int) error
-	FetchFundingRate(ctx context.Context, symbol string) (*FundingRate, error)
-	FetchAllFundingRates(ctx context.Context) ([]FundingRate, error)
-	// FetchFundingRateHistory returns historical funding rates for a symbol.
-	// opts may be nil for "most recent adapter-default page".
-	// Hourly normalization: returned FundingRate entries use the same
-	// per-hour convention as FetchFundingRate.
-	FetchFundingRateHistory(ctx context.Context, symbol string, opts *FundingRateHistoryOpts) ([]FundingRate, error)
-	// FetchOpenInterest returns current open interest for a perp symbol.
-	FetchOpenInterest(ctx context.Context, symbol string) (*OpenInterest, error)
-	ModifyOrder(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) (*Order, error)
-	ModifyOrderWS(ctx context.Context, orderID, symbol string, params *ModifyOrderParams) error
+	PerpRiskExchange
+	PerpMarketAnalytics
 }
 
 // SpotExchange extends Exchange with spot-specific capabilities.
 type SpotExchange interface {
 	Exchange
-	FetchSpotBalances(ctx context.Context) ([]SpotBalance, error)
-	TransferAsset(ctx context.Context, params *TransferParams) error
+	SpotBalanceExchange
+	AssetTransferExchange
 }
 
 // OptionExchange extends Exchange with option-specific capabilities.
@@ -183,7 +243,7 @@ type TradeCallback func(*Trade)
 
 // PlaceMarketOrder is a convenience function for placing a market order.
 // Optionally pass a reference price to avoid adapter-side ticker lookups when supported.
-func PlaceMarketOrder(ctx context.Context, adp Exchange, symbol string, side OrderSide, qty decimal.Decimal, price ...decimal.Decimal) (*Order, error) {
+func PlaceMarketOrder(ctx context.Context, adp OrderExecutionExchange, symbol string, side OrderSide, qty decimal.Decimal, price ...decimal.Decimal) (*Order, error) {
 	return adp.PlaceOrder(ctx, &OrderParams{
 		Symbol:   symbol,
 		Side:     side,
@@ -194,7 +254,7 @@ func PlaceMarketOrder(ctx context.Context, adp Exchange, symbol string, side Ord
 }
 
 // PlaceLimitOrder is a convenience function for placing a limit order.
-func PlaceLimitOrder(ctx context.Context, adp Exchange, symbol string, side OrderSide, price, qty decimal.Decimal) (*Order, error) {
+func PlaceLimitOrder(ctx context.Context, adp OrderExecutionExchange, symbol string, side OrderSide, price, qty decimal.Decimal) (*Order, error) {
 	return adp.PlaceOrder(ctx, &OrderParams{
 		Symbol:      symbol,
 		Side:        side,
@@ -207,7 +267,7 @@ func PlaceLimitOrder(ctx context.Context, adp Exchange, symbol string, side Orde
 
 // PlaceMarketOrderWithSlippage is a convenience function for placing a market order with slippage protection.
 // Optionally pass a reference price to avoid adapter-side ticker lookups when supported.
-func PlaceMarketOrderWithSlippage(ctx context.Context, adp Exchange, symbol string, side OrderSide, qty, slippage decimal.Decimal, price ...decimal.Decimal) (*Order, error) {
+func PlaceMarketOrderWithSlippage(ctx context.Context, adp OrderExecutionExchange, symbol string, side OrderSide, qty, slippage decimal.Decimal, price ...decimal.Decimal) (*Order, error) {
 	return adp.PlaceOrder(ctx, &OrderParams{
 		Symbol:   symbol,
 		Side:     side,

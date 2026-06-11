@@ -1,5 +1,7 @@
 package lighter
 
+import "strings"
+
 import (
 	"fmt"
 )
@@ -501,6 +503,28 @@ type AccountLimitsResponse struct {
 	CurrentTakerFeeTick int32  `json:"current_taker_fee_tick"`
 }
 
+type AccountTier string
+
+const (
+	AccountTierUnknown  AccountTier = ""
+	AccountTierStandard AccountTier = "standard"
+	AccountTierPremium  AccountTier = "premium"
+	AccountTierPlus     AccountTier = "plus"
+)
+
+func (r AccountLimitsResponse) AccountTier() AccountTier {
+	switch strings.ToLower(strings.TrimSpace(r.UserTier)) {
+	case string(AccountTierStandard):
+		return AccountTierStandard
+	case string(AccountTierPremium):
+		return AccountTierPremium
+	case string(AccountTierPlus):
+		return AccountTierPlus
+	default:
+		return AccountTierUnknown
+	}
+}
+
 type AccountMetadataResponse struct {
 	Code             int32              `json:"code"`
 	Msg              string             `json:"message"`
@@ -675,42 +699,47 @@ type IsolatedRiskParameters struct {
 type CandlesticksResponse struct {
 	Code         int32         `json:"code"`
 	Msg          string        `json:"message"`
-	Candlesticks []Candlestick `json:"candlesticks"`
+	Resolution   string        `json:"r"`
+	Candlesticks []Candlestick `json:"c"`
 }
 
 type Candlestick struct {
-	Timestamp   int64  `json:"timestamp"`
-	Open        string `json:"open"`
-	High        string `json:"high"`
-	Low         string `json:"low"`
-	Close       string `json:"close"`
-	Volume      string `json:"volume"`
-	QuoteVolume string `json:"quote_volume"`
+	Timestamp   int64   `json:"t"`
+	Open        float64 `json:"o"`
+	High        float64 `json:"h"`
+	Low         float64 `json:"l"`
+	Close       float64 `json:"c"`
+	Volume      float64 `json:"v"`
+	QuoteVolume float64 `json:"V"`
+	LastTradeID int64   `json:"i"`
+	CloseRaw    float64 `json:"C,omitempty"`
+	HighRaw     float64 `json:"H,omitempty"`
+	LowRaw      float64 `json:"L,omitempty"`
+	OpenRaw     float64 `json:"O,omitempty"`
 }
 
 type FundingHistoryResponse struct {
-	Code     int32                `json:"code"`
-	Msg      string               `json:"message"`
-	Fundings []FundingRateHistory `json:"fundings"`
+	Code       int32                `json:"code"`
+	Msg        string               `json:"message"`
+	Resolution string               `json:"resolution"`
+	Fundings   []FundingRateHistory `json:"fundings"`
 }
 
 type FundingRateHistory struct {
 	Timestamp int64  `json:"timestamp"`
-	MarketId  int    `json:"market_id"`
+	Value     string `json:"value"`
 	Rate      string `json:"rate"`
-	Price     string `json:"price"`
+	Direction string `json:"direction"`
 }
 
 type TransferFeeInfoResponse struct {
-	Code int32  `json:"code"`
-	Msg  string `json:"message"`
-	Fee  string `json:"fee"`
+	Code            int32  `json:"code"`
+	Msg             string `json:"message"`
+	TransferFeeUSDC int64  `json:"transfer_fee_usdc"`
 }
 
 type WithdrawalDelayResponse struct {
-	Code  int32  `json:"code"`
-	Msg   string `json:"message"`
-	Delay int64  `json:"delay"`
+	Seconds int64 `json:"seconds"`
 }
 
 type ApiKeysResponse struct {
@@ -727,9 +756,9 @@ type ApiKey struct {
 }
 
 type L1MetadataResponse struct {
-	Code       int32      `json:"code"`
-	Msg        string     `json:"message"`
-	L1Metadata L1Metadata `json:"l1_metadata"`
+	L1Address                string `json:"l1_address"`
+	CanInvite                bool   `json:"can_invite"`
+	ReferralPointsPercentage string `json:"referral_points_percentage"`
 }
 
 type L1Metadata struct {
@@ -739,15 +768,36 @@ type L1Metadata struct {
 }
 
 type PublicPoolsMetadataResponse struct {
-	Code                int32                `json:"code"`
-	Msg                 string               `json:"message"`
-	PublicPoolsMetadata []PublicPoolMetadata `json:"public_pools_metadata"`
+	Code        int32                `json:"code"`
+	Msg         string               `json:"message"`
+	PublicPools []PublicPoolMetadata `json:"public_pools"`
 }
 
 type PublicPoolMetadata struct {
-	Index       int64  `json:"index"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	AccountIndex          int64             `json:"account_index"`
+	AccountType           uint8             `json:"account_type"`
+	Name                  string            `json:"name"`
+	L1Address             string            `json:"l1_address"`
+	AnnualPercentageYield float64           `json:"annual_percentage_yield"`
+	Status                uint8             `json:"status"`
+	OperatorFee           string            `json:"operator_fee"`
+	TotalAssetValue       string            `json:"total_asset_value"`
+	TotalShares           int64             `json:"total_shares"`
+	Assets                []PublicPoolAsset `json:"assets"`
+	CreatedAt             int64             `json:"created_at"`
+	MasterAccountIndex    int64             `json:"master_account_index"`
+	SharpeRatio           float64           `json:"sharpe_ratio"`
+	TotalPerpsValue       string            `json:"total_perps_value"`
+	TotalSpotValue        string            `json:"total_spot_value"`
+}
+
+type PublicPoolAsset struct {
+	Symbol        string `json:"symbol"`
+	AssetID       int16  `json:"asset_id"`
+	Balance       string `json:"balance"`
+	LockedBalance string `json:"locked_balance"`
+	MarginBalance string `json:"margin_balance"`
+	MarginMode    string `json:"margin_mode"`
 }
 
 type ReferralPointsResponse struct {

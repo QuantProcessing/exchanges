@@ -42,14 +42,18 @@ func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
 }
 
 func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*Adapter, error) {
+	if err := ensureSupportedAccountMode(opts); err != nil {
+		return nil, err
+	}
+	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
+		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
+	}
+
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypePerp, opts.logger())
 
 	instruments, err := client.GetInstruments(ctx, quoteToPerpCategory(quote), "")
 	if err != nil {
 		return nil, err
-	}
-	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
-		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
 	}
 	markets := buildMarketCache(instruments, quote)
 	base.SetSymbolDetails(buildSymbolDetails(instruments, quote, exchanges.MarketTypePerp))
@@ -65,7 +69,7 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		cancel:       cancel,
 		cancels:      make(map[string]context.CancelFunc),
 	}
-	adp.private = newPerpPrivateProfile(adp)
+	adp.private = newPerpPrivateProfile(adp, opts)
 	return adp, nil
 }
 
@@ -83,95 +87,15 @@ func (a *Adapter) Close() error {
 }
 
 func (a *Adapter) FormatSymbol(symbol string) string {
-	upper := strings.ToUpper(symbol)
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	if inst, ok := a.markets.perpByBase[upper]; ok {
-		return inst.Symbol
-	}
-	return upper
+	return a.markets.FormatSymbol(symbol, a.quote, exchanges.MarketTypePerp)
 }
 
 func (a *Adapter) ExtractSymbol(symbol string) string {
-	upper := strings.ToUpper(symbol)
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	if inst, ok := a.markets.bySymbol[upper]; ok && inst.BaseCoin != "" {
-		return strings.ToUpper(inst.BaseCoin)
-	}
-	return upper
-}
-
-func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
-	raw, err := a.client.GetTicker(ctx, a.perpCategory, a.FormatSymbol(symbol))
-	if err != nil {
-		return nil, err
-	}
-	return toTicker(symbol, raw), nil
-}
-
-func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	raw, err := a.client.GetOrderBook(ctx, a.perpCategory, a.FormatSymbol(symbol), limit)
-	if err != nil {
-		return nil, err
-	}
-	return toOrderBook(symbol, raw), nil
-}
-
-func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
-	raw, err := a.client.GetRecentFills(ctx, a.perpCategory, a.FormatSymbol(symbol), limit)
-	if err != nil {
-		return nil, err
-	}
-	return mapTrades(symbol, raw), nil
-}
-
-func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) ([]exchanges.Kline, error) {
-	rawInterval, err := klineIntervalString(interval)
-	if err != nil {
-		return nil, err
-	}
-	startTime, endTime, limit, err := klineTimeRange(interval, opts)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := a.client.GetCandles(ctx, a.perpCategory, a.FormatSymbol(symbol), rawInterval, "market", startTime, endTime, limit)
-	if err != nil {
-		return nil, err
-	}
-	return mapKlines(symbol, interval, raw), nil
-}
-
-func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
-	return a.private.PlaceOrder(ctx, params)
-}
-
-func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
-	return a.private.PlaceOrderWS(ctx, params)
-}
-
-func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	return a.private.CancelOrder(ctx, orderID, symbol)
-}
-
-func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
-	return a.private.CancelOrderWS(ctx, orderID, symbol)
-}
-
-func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	return a.private.CancelAllOrders(ctx, symbol)
-}
-
-func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	return a.private.FetchOrderByID(ctx, orderID, symbol)
-}
-
-func (a *Adapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	return a.private.FetchOrders(ctx, symbol)
-}
-
-func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	return a.private.FetchOpenOrders(ctx, symbol)
+	return a.markets.ExtractSymbol(symbol, a.quote, exchanges.MarketTypePerp)
 }
 
 func (a *Adapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
@@ -342,20 +266,3 @@ func (a *Adapter) StopWatchTrades(ctx context.Context, symbol string) error {
 func (a *Adapter) StopWatchKlines(ctx context.Context, symbol string, interval exchanges.Interval) error {
 	return exchanges.ErrNotSupported
 }
-
-// FetchHistoricalTrades returns recent public fills. Bitget's /api/v3/market/fills
-// endpoint does not accept cursor, fromId, or time-range parameters — so opts.FromID,
-// opts.Start, and opts.End are ignored. Only opts.Limit is honored.
-func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
-	sym := a.FormatSymbol(symbol)
-	limit := 100
-	if opts != nil && opts.Limit > 0 {
-		limit = opts.Limit
-	}
-	raw, err := a.client.GetRecentFills(ctx, a.perpCategory, sym, limit)
-	if err != nil {
-		return nil, err
-	}
-	return mapTrades(symbol, raw), nil
-}
-

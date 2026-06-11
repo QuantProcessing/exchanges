@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/QuantProcessing/exchanges/internal/testenv"
 	"github.com/QuantProcessing/exchanges/hyperliquid/sdk"
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
-func requireSoakEnv(t *testing.T) {
+func requireLiveWSCredentials(t *testing.T) {
 	t.Helper()
-	testenv.RequireSoak(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
+	testenv.RequireLiveCredentials(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
 }
 
-func GetEnv() (string, string, string) {
+func hyperliquidWSEnv() (string, string, string) {
 	privateKey := os.Getenv("HYPERLIQUID_PRIVATE_KEY")
 	vault := os.Getenv("HYPERLIQUID_VAULT")
 	accountAddr := os.Getenv("HYPERLIQUID_ACCOUNT_ADDR")
@@ -24,47 +23,39 @@ func GetEnv() (string, string, string) {
 }
 
 func TestSubscribeOrderUpdates(t *testing.T) {
-	requireSoakEnv(t)
-	privateKey, _, accountAddr := GetEnv()
+	requireLiveWSCredentials(t)
+	privateKey, _, accountAddr := hyperliquidWSEnv()
 	baseClient := hyperliquid.NewWebsocketClient(context.Background())
 	wsClient := NewWebsocketClient(baseClient).WithCredentials(privateKey, accountAddr)
+	defer wsClient.Close()
 	err := wsClient.Connect()
 	if err != nil {
-		fmt.Println(err)
-		return
+		t.Fatal(err)
 	}
 
 	err = wsClient.SubscribeOrderUpdates(accountAddr, func(orderUpdates []hyperliquid.WsOrderUpdate) {
 		fmt.Printf("%+v\n", orderUpdates)
 	})
 	if err != nil {
-		fmt.Println(err)
-		return
+		t.Fatal(err)
 	}
-
-	timeout := time.NewTimer(3 * time.Minute)
-	<-timeout.C
 }
 
 func TestSubscribeWebData2(t *testing.T) {
-	requireSoakEnv(t)
-	privateKey, _, accountAddr := GetEnv()
+	requireLiveWSCredentials(t)
+	privateKey, _, accountAddr := hyperliquidWSEnv()
 	baseClient := hyperliquid.NewWebsocketClient(context.Background())
 	wsClient := NewWebsocketClient(baseClient).WithCredentials(privateKey, accountAddr)
+	defer wsClient.Close()
 	err := wsClient.Connect()
 	if err != nil {
-		fmt.Println(err)
-		return
+		t.Fatal(err)
 	}
 
 	err = wsClient.SubscribeWebData2(accountAddr, func(pos PerpPosition) {
 		fmt.Printf("%+v\n", pos)
 	})
 	if err != nil {
-		fmt.Println(err)
-		return
+		t.Fatal(err)
 	}
-
-	timeout := time.NewTimer(3 * time.Minute)
-	<-timeout.C
 }

@@ -35,6 +35,29 @@ If peer selection or capability classification is missing, stop and do that firs
 
 `FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate contracts. Preserve that distinction in both implementation and tests.
 
+## Adapter Interface Boundaries
+
+Adapters expose stable cross-exchange convenience, not every official exchange
+API. Implement venue-specific official endpoints in `sdk/` first, then expose
+them through adapters only when they fit a stable shared abstraction.
+
+Prefer small optional interfaces over expanding `Exchange`, `PerpExchange`, or
+`SpotExchange`. Current capability families include:
+
+- `MarketDataExchange`
+- `OrderExecutionExchange`
+- `AccountSnapshotExchange`
+- `LocalOrderBookExchange`
+- `PerpRiskExchange`
+- `PerpMarketAnalytics`
+- `SpotBalanceExchange`
+- `AssetTransferExchange`
+
+Funding, open interest, mark/index analytics, account bills, batch orders,
+trigger/algo orders, and venue-specific risk controls must remain optional
+capability surfaces unless a separate design establishes them as core
+cross-exchange primitives.
+
 ## Architecture And `sdk/` Boundaries
 
 Create a dedicated `sdk/` layer when any of these are true:
@@ -66,6 +89,70 @@ Do not keep these in adapter files:
 - WebSocket connection lifecycle internals
 
 Rule of thumb: `sdk/` speaks exchange-native protocol, adapters speak the shared repository contract.
+
+## Official API Parity
+
+Before adding SDK endpoints or claiming official spot/perp coverage, update the
+matching file under `docs/superpowers/gaps/official-api-parity-*.md`.
+
+Rules:
+
+- every official spot/perp REST endpoint, WebSocket channel, or WebSocket API operation needs a row
+- use `implemented-sdk` for typed SDK methods
+- use `implemented-raw` only when a deliberate raw SDK fallback exists
+- use `implemented-adapter` only when the endpoint is also exposed through a stable adapter capability
+- do not leave `missing-sdk` or `missing-adapter` rows when declaring a parity slice complete
+- do not add adapter interfaces for venue-specific endpoints without a design note like `docs/superpowers/gaps/adapter-exposure-policy.md`
+
+Run `go test . -run TestOfficialAPIParityMatricesAreClassified` after matrix changes.
+
+## SDK Test Layout
+
+Keep SDK tests direct and Go-idiomatic.
+
+Rules:
+
+- every SDK implementation file gets a corresponding `_test.go` file
+- every public SDK API method gets a directly named test method
+- method test names should follow `TestClient_MethodName` or
+  `TestWSClient_MethodName`
+- tests should sit beside the code they cover
+- read-method tests should call the real official exchange endpoint by default
+- public read tests should not require a feature flag
+- private read tests should skip only when required credentials are missing
+- write-method tests must require an exchange-specific enable flag such as
+  `BINANCE_ENABLE_LIVE_WRITE_TESTS=1` plus required credentials before they
+  execute against the real exchange
+- avoid fake transports, fake WebSocket connections, and local
+  `httptest.Server` listeners for SDK API-method tests unless the code under
+  test is a pure parser, pure signing helper, or local dispatcher rather than
+  an exchange API call
+
+Example:
+
+```text
+binance/sdk/spot/order.go
+binance/sdk/spot/order_test.go
+```
+
+```go
+func TestClient_PlaceOrder(t *testing.T) {}
+func TestClient_CancelOrder(t *testing.T) {}
+func TestClient_GetOrder(t *testing.T) {}
+func TestClient_GetOpenOrders(t *testing.T) {}
+```
+
+Each read API method test should cover the useful minimum:
+
+- successful response parsing
+- enough request inputs to prove the SDK method is wired to the intended
+  official API behavior
+
+Each write API method test should cover the useful minimum:
+
+- clear skip message when the enable flag or credentials are missing
+- tiny, explicitly parameterized request values loaded from environment
+- response/error parsing from the real official endpoint
 
 ## Order Contract Rules
 
@@ -113,15 +200,18 @@ Practical readiness rules:
 
 - `WatchOrders` is mandatory for lifecycle claims
 - `WatchOrders` is mandatory for TradingAccount readiness
+- `WatchFills` is optional; return `ErrNotSupported` so runtime health can report it
 - `WatchPositions` is additive coverage, not the universal gate
+- funding, open interest, and market analytics are optional adapter capabilities, never TradingAccount dependencies
 - unsupported shared private surfaces must return `exchanges.ErrNotSupported`, not no-op success
 
 Responsibility split:
 
 1. `FetchAccount` establishes the initial coherent snapshot
 2. `WatchOrders` supplies order lifecycle deltas
-3. `WatchPositions` supplies position deltas when supported
-4. `TradingAccount` owns caching, fan-out, tracked `OrderFlow` updates, and periodic reconciliation
+3. `WatchFills` enriches execution detail when supported
+4. `WatchPositions` supplies position deltas when supported
+5. `TradingAccount` owns caching, fan-out, tracked `OrderFlow` updates, stream health, and periodic reconciliation
 
 If the exchange lacks a usable private order stream, do not claim `lifecycle-capable` or `trading-account-capable`.
 
@@ -132,7 +222,9 @@ Live adapter integration is incomplete until `adapter_test.go` wires the shared 
 Required wiring:
 
 - update the repository-root `.env.example`
-- use `internal/testenv` for env loading and `RUN_FULL` / `RUN_SOAK` gating
+- use `internal/testenv` for env loading; SDK write tests use
+  exchange-specific enable flags, while adapter/full regression suites may
+  continue using the script-managed `RUN_FULL` / `RUN_SOAK` gates
 - construct the real adapter from env-backed options
 - wire the shared suite matrix that matches the adapter's capability level
 - use clear skips only for missing credentials, missing symbols, or genuine exchange limitations

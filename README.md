@@ -72,30 +72,38 @@ func getSpread(ctx context.Context, adp exchanges.Exchange, symbol string) (deci
 }
 ```
 
-### 2. Symbol Convention
+### 2. Market Identity
 
-All methods accept a **base currency symbol** (e.g. `"BTC"`, `"ETH"`). The adapter handles conversion to exchange-specific formats internally based on the configured quote currency:
+Adapters support quote-aware market identity. Simple base symbols such as
+`"BTC"` still use the adapter's default quote, while explicit symbols such as
+`"BTC/USDT"` and `exchanges.MarketRef` let one adapter route multiple quote
+markets when the venue supports them:
 
-| You Pass | Binance (USDT)    | Binance (USDC)   | OKX (USDT)       | Hyperliquid      |
-|----------|-------------------|------------------|------------------|------------------|
-| `"BTC"`  | `"BTCUSDT"`       | `"BTCUSDC"`      | `"BTC-USDT-SWAP"`| `"BTC"`          |
+| You Pass | Binance | OKX | Hyperliquid |
+|----------|---------|-----|-------------|
+| `"BTC"` with default USDT | `"BTCUSDT"` | `"BTC-USDT-SWAP"` | not supported |
+| `"BTC/USDC"` | `"BTCUSDC"` | `"BTC-USDC-SWAP"` | `"BTC"` |
 
-### 3. Two-Layer Architecture
+### 3. Three-Layer Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Your Strategy / Application                        │
 ├─────────────────────────────────────────────────────┤
-│  Adapter Layer (exchanges.Exchange interface)        │  ← Unified API
-│    binance.Adapter / okx.Adapter / nado.Adapter     │
+│  TradingAccount / PortfolioAccount                  │  ← Lifecycle runtime
+│    account.PerpTradingAccount / PortfolioAccount    │
+├─────────────────────────────────────────────────────┤
+│  Adapter Layer (capability interfaces)              │  ← Unified convenience
+│    binance.Adapter / okx.Adapter / bybit.Adapter    │
 ├─────────────────────────────────────────────────────┤
 │  SDK Layer (low-level REST + WebSocket clients)      │  ← Exchange-specific
-│    binance/sdk/ / okx/sdk/ / nado/sdk/              │
+│    binance/sdk/ / okx/sdk/ / bybit/sdk/             │
 └─────────────────────────────────────────────────────┘
 ```
 
-- **Adapter Layer**: Implements `exchanges.Exchange`. Handles symbol mapping, order validation, slippage logic, and state management.
-- **SDK Layer**: Thin REST/WebSocket clients that map 1:1 to exchange API endpoints. You can use these directly for maximum flexibility.
+- **SDK Layer**: Thin REST/WebSocket clients aligned with official exchange APIs. Use this layer for venue-native features.
+- **Adapter Layer**: Stable cross-exchange convenience over market data, orders, account snapshots, and optional capability families.
+- **TradingAccount Layer**: Lifecycle runtime for snapshots, private streams, order flow tracking, stream health, and portfolio composition.
 
 ---
 
@@ -404,8 +412,9 @@ adp, _ := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
     PrivateKey: os.Getenv("HYPERLIQUID_PRIVATE_KEY"), AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
 })
 
-// All adapters expose the exact same Exchange interface
+// Use explicit quote symbols when routing multiple quote markets through one adapter.
 ticker, _ := adp.FetchTicker(ctx, "BTC")
+tickerUSDC, _ := adp.FetchTickerFor(ctx, exchanges.ParseMarketRef("BTC/USDC", exchanges.QuoteCurrencyUSDT, exchanges.MarketTypePerp))
 ```
 
 ### Quote Currency

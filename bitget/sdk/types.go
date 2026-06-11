@@ -139,6 +139,75 @@ type AccountAssets struct {
 	Assets           []AccountAsset `json:"assets"`
 }
 
+type AccountInfo struct {
+	UserID      string   `json:"userId"`
+	InviterID   string   `json:"inviterId"`
+	ParentID    string   `json:"parentId"`
+	ChannelCode string   `json:"channelCode"`
+	Channel     string   `json:"channel"`
+	IPs         string   `json:"ips"`
+	PermType    string   `json:"permType"`
+	Permissions []string `json:"permissions"`
+	RegisTime   string   `json:"regisTime"`
+}
+
+type FundingAsset struct {
+	Coin      string `json:"coin"`
+	Available string `json:"available"`
+	Frozen    string `json:"frozen"`
+	Balance   string `json:"balance"`
+}
+
+type FinancialRecordsRequest struct {
+	Category  string
+	Coin      string
+	Type      string
+	StartTime string
+	EndTime   string
+	Limit     string
+	Cursor    string
+}
+
+type FinancialRecords struct {
+	List   []FinancialRecord `json:"list"`
+	Cursor string            `json:"cursor"`
+}
+
+type FinancialRecord struct {
+	Category string `json:"category"`
+	ID       string `json:"id"`
+	Symbol   string `json:"symbol"`
+	Coin     string `json:"coin"`
+	Type     string `json:"type"`
+	Amount   string `json:"amount"`
+	Fee      string `json:"fee"`
+	Balance  string `json:"balance"`
+	TS       string `json:"ts"`
+}
+
+type AccountFeeRate struct {
+	MakerFeeRate string `json:"makerFeeRate"`
+	TakerFeeRate string `json:"takerFeeRate"`
+}
+
+type SwitchStatus struct {
+	Status string `json:"status"`
+	Reason string `json:"reason"`
+}
+
+type MaxTransferable struct {
+	Coin              string `json:"coin"`
+	MaxTransfer       string `json:"maxTransfer"`
+	BorrowMaxTransfer string `json:"borrowMaxTransfer"`
+}
+
+type OpenInterestLimit struct {
+	Symbol           string `json:"symbol"`
+	SingleUserLimit  string `json:"singleUserLimit"`
+	MasterSubLimit   string `json:"masterSubLimit"`
+	MarketMakerLimit string `json:"marketMakerLimit"`
+}
+
 type PositionRecord struct {
 	Symbol           string `json:"symbol"`
 	Category         string `json:"category"`
@@ -180,6 +249,28 @@ type FeeDetail struct {
 	Fee     string `json:"fee"`
 }
 
+type FillRecord struct {
+	Category    string      `json:"category"`
+	OrderID     string      `json:"orderId"`
+	ClientOID   string      `json:"clientOid"`
+	ExecID      string      `json:"execId"`
+	ExecLinkID  string      `json:"execLinkId"`
+	Symbol      string      `json:"symbol"`
+	OrderType   string      `json:"orderType"`
+	Side        string      `json:"side"`
+	HoldSide    string      `json:"holdSide"`
+	TradeSide   string      `json:"tradeSide"`
+	ExecPrice   string      `json:"execPrice"`
+	ExecQty     string      `json:"execQty"`
+	ExecValue   string      `json:"execValue"`
+	ExecPnl     string      `json:"execPnl"`
+	TradeScope  string      `json:"tradeScope"`
+	FeeDetail   []FeeDetail `json:"feeDetail"`
+	ExecTime    string      `json:"execTime"`
+	UpdatedTime string      `json:"updatedTime"`
+	IsRPI       string      `json:"isRPI"`
+}
+
 type Ticker struct {
 	Category     string `json:"category"`
 	Symbol       string `json:"symbol"`
@@ -216,9 +307,13 @@ type PublicFill struct {
 
 // OpenInterest matches /api/v2/mix/market/open-interest data.
 type OpenInterest struct {
-	Symbol    string `json:"symbol"`
-	Amount    string `json:"amount"` // base-asset units
-	Timestamp string `json:"timestamp"`
+	List []OpenInterestEntry `json:"openInterestList"`
+	TS   string              `json:"ts"`
+}
+
+type OpenInterestEntry struct {
+	Symbol string `json:"symbol"`
+	Size   string `json:"size"` // base-asset units
 }
 
 // HistoryFundRateEntry matches one element of /api/v2/mix/market/history-fund-rate.

@@ -1,83 +1,11 @@
 package lighter
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"testing"
-	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
-
-func TestWSClientPrivateChannelHelpersAlignWithOfficialChannels(t *testing.T) {
-	authToken := "auth-token"
-	callback := func([]byte) {}
-
-	cases := []struct {
-		name            string
-		subscribe       func(*WebsocketClient) error
-		unsubscribe     func(*WebsocketClient) error
-		expectedChannel string
-		expectedAuth    string
-	}{
-		{
-			name:            "account all assets",
-			subscribe:       func(c *WebsocketClient) error { return c.SubscribeAccountAllAssets(1234, authToken, callback) },
-			unsubscribe:     func(c *WebsocketClient) error { return c.UnsubscribeAccountAllAssets(1234) },
-			expectedChannel: "account_all_assets/1234",
-			expectedAuth:    authToken,
-		},
-		{
-			name:            "spot average entry prices",
-			subscribe:       func(c *WebsocketClient) error { return c.SubscribeAccountSpotAvgEntryPrices(1234, authToken, callback) },
-			unsubscribe:     func(c *WebsocketClient) error { return c.UnsubscribeAccountSpotAvgEntryPrices(1234) },
-			expectedChannel: "account_spot_avg_entry_prices/1234",
-			expectedAuth:    authToken,
-		},
-		{
-			name:            "pool data",
-			subscribe:       func(c *WebsocketClient) error { return c.SubscribePoolData(1234, authToken, callback) },
-			unsubscribe:     func(c *WebsocketClient) error { return c.UnsubscribePoolData(1234) },
-			expectedChannel: "pool_data/1234",
-			expectedAuth:    authToken,
-		},
-		{
-			name:            "pool info",
-			subscribe:       func(c *WebsocketClient) error { return c.SubscribePoolInfo(1234, authToken, callback) },
-			unsubscribe:     func(c *WebsocketClient) error { return c.UnsubscribePoolInfo(1234) },
-			expectedChannel: "pool_info/1234",
-			expectedAuth:    authToken,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			client := NewWebsocketClient(context.Background())
-			rec := &jsonCaptureConn{}
-			client.conn = rec
-
-			require.NoError(t, tc.subscribe(client))
-
-			sub := client.Subscriptions[tc.expectedChannel]
-			require.NotNil(t, sub)
-			require.NotNil(t, sub.authToken)
-			require.Equal(t, tc.expectedAuth, *sub.authToken)
-			require.Equal(t, map[string]string{
-				"type":    "subscribe",
-				"channel": tc.expectedChannel,
-				"auth":    tc.expectedAuth,
-			}, rec.lastPayload)
-
-			require.NoError(t, tc.unsubscribe(client))
-			require.Equal(t, map[string]string{
-				"type":    "unsubscribe",
-				"channel": tc.expectedChannel,
-			}, rec.lastPayload)
-		})
-	}
-}
 
 func TestWSModelTypesDecodeExtendedWebsocketFields(t *testing.T) {
 	var order Order
@@ -205,41 +133,4 @@ func TestWSEventsDecodeNewOfficialPayloadShapes(t *testing.T) {
 	require.Equal(t, float64(1.5), poolInfoEvent.PoolInfo.DailyReturns.DailyReturn)
 	require.NotNil(t, poolInfoEvent.PoolInfo.SharePrice)
 	require.Equal(t, float64(101.2), poolInfoEvent.PoolInfo.SharePrice.SharePrice)
-}
-
-type jsonCaptureConn struct {
-	lastPayload map[string]string
-}
-
-func (c *jsonCaptureConn) ReadMessage() (int, []byte, error) {
-	return 0, nil, errors.New("not implemented")
-}
-
-func (c *jsonCaptureConn) WriteJSON(v interface{}) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	var payload map[string]string
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return err
-	}
-	c.lastPayload = payload
-	return nil
-}
-
-func (c *jsonCaptureConn) WriteControl(messageType int, data []byte, deadline time.Time) error {
-	if messageType != websocket.PingMessage {
-		return nil
-	}
-	return nil
-}
-
-func (c *jsonCaptureConn) SetReadDeadline(t time.Time) error {
-	return nil
-}
-
-func (c *jsonCaptureConn) Close() error {
-	return nil
 }

@@ -45,14 +45,14 @@ func TestExtractSymbolWithQuote(t *testing.T) {
 		quote  string
 		want   string
 	}{
-		{"BTCUSDT→BTC", "BTCUSDT", "USDT", "BTC"},
-		{"ETHUSDT→ETH", "ETHUSDT", "USDT", "ETH"},
-		{"BTCUSDC→BTC", "BTCUSDC", "USDC", "BTC"},
-		{"ETHUSDC→ETH", "ETHUSDC", "USDC", "ETH"},
-		{"lowercase btcusdt", "btcusdt", "USDT", "BTC"},
-		{"no suffix match", "BTCUSDC", "USDT", "BTCUSDC"},
-		{"bare symbol", "BTC", "USDT", "BTC"},
-		{"DOGEUSDC→DOGE", "DOGEUSDC", "USDC", "DOGE"},
+		{"BTCUSDT→BTC/USDT", "BTCUSDT", "USDT", "BTC/USDT"},
+		{"ETHUSDT→ETH/USDT", "ETHUSDT", "USDT", "ETH/USDT"},
+		{"BTCUSDC→BTC/USDC", "BTCUSDC", "USDC", "BTC/USDC"},
+		{"ETHUSDC→ETH/USDC", "ETHUSDC", "USDC", "ETH/USDC"},
+		{"lowercase btcusdt", "btcusdt", "USDT", "BTC/USDT"},
+		{"explicit quote overrides default", "BTCUSDC", "USDT", "BTC/USDC"},
+		{"bare symbol", "BTC", "USDT", "BTC/USDT"},
+		{"DOGEUSDC→DOGE/USDC", "DOGEUSDC", "USDC", "DOGE/USDC"},
 	}
 
 	for _, tt := range tests {
@@ -65,8 +65,26 @@ func TestExtractSymbolWithQuote(t *testing.T) {
 	}
 }
 
-// Backward compatibility: original FormatSymbol/ExtractSymbol still work as USDT
-func TestFormatSymbol_BackwardCompat(t *testing.T) {
+func TestFormatAndExtractDocumentQuoteAwareInterpretation(t *testing.T) {
+	usdtSymbol := FormatSymbolWithQuote("BTC", "USDT")
+	usdcSymbol := FormatSymbolWithQuote("BTC", "USDC")
+
+	if usdtSymbol != "btcusdt" {
+		t.Fatalf("USDT formatter = %q, want btcusdt", usdtSymbol)
+	}
+	if usdcSymbol != "btcusdc" {
+		t.Fatalf("USDC formatter = %q, want btcusdc", usdcSymbol)
+	}
+
+	if got := ExtractSymbolWithQuote("BTCUSDC", "USDT"); got != "BTC/USDC" {
+		t.Fatalf("extractor should preserve explicit BTCUSDC quote, got %q", got)
+	}
+	if got := ExtractSymbolWithQuote("BTCUSDT", "USDC"); got != "BTC/USDT" {
+		t.Fatalf("extractor should preserve explicit BTCUSDT quote, got %q", got)
+	}
+}
+
+func TestFormatSymbol_DefaultQuote(t *testing.T) {
 	tests := []struct {
 		symbol string
 		want   string
@@ -83,14 +101,14 @@ func TestFormatSymbol_BackwardCompat(t *testing.T) {
 	}
 }
 
-func TestExtractSymbol_BackwardCompat(t *testing.T) {
+func TestExtractSymbol_DefaultQuote(t *testing.T) {
 	tests := []struct {
 		symbol string
 		want   string
 	}{
-		{"BTCUSDT", "BTC"},
-		{"ethusdt", "ETH"},
-		{"BTC", "BTC"},
+		{"BTCUSDT", "BTC/USDT"},
+		{"ethusdt", "ETH/USDT"},
+		{"BTC", "BTC/USDT"},
 	}
 	for _, tt := range tests {
 		got := ExtractSymbol(tt.symbol)
@@ -109,9 +127,10 @@ func TestFormatExtract_Roundtrip(t *testing.T) {
 		for _, sym := range symbols {
 			formatted := FormatSymbolWithQuote(sym, quote)
 			extracted := ExtractSymbolWithQuote(formatted, quote)
-			if extracted != sym {
+			want := sym + "/" + quote
+			if extracted != want {
 				t.Errorf("Roundtrip failed: %q → format(%q) → %q → extract → %q, want %q",
-					sym, quote, formatted, extracted, sym)
+					sym, quote, formatted, extracted, want)
 			}
 		}
 	}

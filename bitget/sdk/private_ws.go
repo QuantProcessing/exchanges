@@ -62,6 +62,12 @@ type WSPositionMessage struct {
 	Data   []PositionRecord `json:"data"`
 }
 
+type WSFillMessage struct {
+	Arg    WSArg        `json:"arg"`
+	Action string       `json:"action"`
+	Data   []FillRecord `json:"data"`
+}
+
 func DecodeOrderMessage(payload []byte) (*WSOrderMessage, error) {
 	var msg WSOrderMessage
 	if err := json.Unmarshal(payload, &msg); err != nil {
@@ -72,6 +78,14 @@ func DecodeOrderMessage(payload []byte) (*WSOrderMessage, error) {
 
 func DecodePositionMessage(payload []byte) (*WSPositionMessage, error) {
 	var msg WSPositionMessage
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+func DecodeFillMessage(payload []byte) (*WSFillMessage, error) {
+	var msg WSFillMessage
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return nil, err
 	}

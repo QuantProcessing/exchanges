@@ -23,6 +23,6 @@ func TestAllPackageRegistersKnownExchangeConstructors(t *testing.T) {
 	_, err = exchanges.LookupConstructor("BYBIT")
 	require.NoError(t, err)
 
-	_, err = exchanges.LookupConstructor("DERIBIT")
+	_, err = exchanges.LookupConstructor("HYPERLIQUID")
 	require.NoError(t, err)
 }

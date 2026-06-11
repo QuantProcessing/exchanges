@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	exchanges "github.com/QuantProcessing/exchanges"
 )
 
 const (
 	defaultBaseURL = "https://api.bitget.com"
-	publicWSURL    = "wss://ws.bitget.com/v3/ws/public"
+	publicWSURL    = "wss://ws.bitget.com/v2/ws/public"
 	privateWSURL   = "wss://ws.bitget.com/v3/ws/private"
 	classicWSURL   = "wss://ws.bitget.com/v2/ws/private"
 )
@@ -138,4 +140,27 @@ func (c *Client) postPrivate(ctx context.Context, path string, body any, out any
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// GetPrivateRaw executes an authenticated GET request for official Bitget
+// endpoints that are SDK-covered by the raw fallback before a typed method is
+// introduced.
+func (c *Client) GetPrivateRaw(ctx context.Context, path string, query map[string]string, out any) error {
+	return c.getPrivate(ctx, path, query, out)
+}
+
+// PostPrivateRaw executes an authenticated POST request for official Bitget
+// endpoints that are SDK-covered by the raw fallback before a typed method is
+// introduced.
+func (c *Client) PostPrivateRaw(ctx context.Context, path string, body any, out any) error {
+	return c.postPrivate(ctx, path, body, out)
+}
+
+func applySDKRequestOptsString(params map[string]string, opts exchanges.SDKRequestOpts) {
+	if opts.RecvWindowMillis > 0 {
+		params["recvWindow"] = fmt.Sprintf("%d", opts.RecvWindowMillis)
+	}
+	if opts.ClientRequestID != "" {
+		params["clientOid"] = opts.ClientRequestID
+	}
 }

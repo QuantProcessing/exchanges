@@ -61,3 +61,13 @@ func TestOptions_AccountAddr_PrefersExplicitAddress(t *testing.T) {
 	}
 	require.Equal(t, "0xabc", opts.accountAddr())
 }
+
+func TestOptions_VaultAddress_ReturnsNilWhenUnset(t *testing.T) {
+	require.Nil(t, Options{}.vaultAddress())
+}
+
+func TestOptions_VaultAddress_ReturnsPointerWhenSet(t *testing.T) {
+	vault := Options{VaultAddress: "0x0000000000000000000000000000000000000001"}.vaultAddress()
+	require.NotNil(t, vault)
+	require.Equal(t, "0x0000000000000000000000000000000000000001", *vault)
+}

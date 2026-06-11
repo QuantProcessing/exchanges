@@ -14,7 +14,6 @@ import (
 
 	"go.uber.org/zap"
 
-
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -184,4 +183,13 @@ func (c *Client) GetUserFees(ctx context.Context) (*UserFees, error) {
 		return nil, err
 	}
 	return &res, nil
+}
+
+func applySDKRequestOpts(payload map[string]any, opts exchanges.SDKRequestOpts) {
+	if opts.RecvWindowMillis > 0 {
+		payload["expiresAfter"] = time.Now().Add(time.Duration(opts.RecvWindowMillis) * time.Millisecond).UnixMilli()
+	}
+	if opts.ClientRequestID != "" {
+		payload["clientRequestId"] = opts.ClientRequestID
+	}
 }

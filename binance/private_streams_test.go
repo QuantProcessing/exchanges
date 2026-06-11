@@ -62,7 +62,7 @@ func TestPerpWatchOrdersAndFillsShareSingleNativeHandler(t *testing.T) {
 
 	order := orders[0]
 	require.Equal(t, "22", order.OrderID)
-	require.Equal(t, "BTC", order.Symbol)
+	require.Equal(t, "BTC/USDT", order.Symbol)
 	require.Equal(t, exchanges.OrderSideSell, order.Side)
 	require.Equal(t, exchanges.OrderTypeLimit, order.Type)
 	require.True(t, order.Quantity.Equal(decimal.RequireFromString("2")))
@@ -79,7 +79,7 @@ func TestPerpWatchOrdersAndFillsShareSingleNativeHandler(t *testing.T) {
 	fill := fills[0]
 	require.Equal(t, "11", fill.TradeID)
 	require.Equal(t, "22", fill.OrderID)
-	require.Equal(t, "BTC", fill.Symbol)
+	require.Equal(t, "BTC/USDT", fill.Symbol)
 	require.Equal(t, exchanges.OrderSideSell, fill.Side)
 	require.True(t, fill.Price.Equal(decimal.RequireFromString("101.50")))
 	require.True(t, fill.Quantity.Equal(decimal.RequireFromString("0.25")))
@@ -139,7 +139,7 @@ func TestSpotWatchOrdersAndFillsShareSingleNativeHandler(t *testing.T) {
 
 	order := orders[0]
 	require.Equal(t, "44", order.OrderID)
-	require.Equal(t, "ETH", order.Symbol)
+	require.Equal(t, "ETH/USDT", order.Symbol)
 	require.Equal(t, exchanges.OrderSideBuy, order.Side)
 	require.Equal(t, exchanges.OrderTypeLimit, order.Type)
 	require.True(t, order.Quantity.Equal(decimal.RequireFromString("3")))
@@ -156,7 +156,7 @@ func TestSpotWatchOrdersAndFillsShareSingleNativeHandler(t *testing.T) {
 	fill := fills[0]
 	require.Equal(t, "33", fill.TradeID)
 	require.Equal(t, "44", fill.OrderID)
-	require.Equal(t, "ETH", fill.Symbol)
+	require.Equal(t, "ETH/USDT", fill.Symbol)
 	require.Equal(t, exchanges.OrderSideBuy, fill.Side)
 	require.True(t, fill.Price.Equal(decimal.RequireFromString("202.75")))
 	require.True(t, fill.Quantity.Equal(decimal.RequireFromString("1.25")))

@@ -199,7 +199,7 @@ func TestPerpFetchPositionsUsesClient(t *testing.T) {
 	positions, err := adp.FetchPositions(context.Background())
 	require.NoError(t, err)
 	require.Len(t, positions, 1)
-	require.Equal(t, "BTC", positions[0].Symbol)
+	require.Equal(t, "BTC/USDT", positions[0].Symbol)
 	require.Equal(t, exchanges.PositionSideLong, positions[0].Side)
 }
 
@@ -269,7 +269,7 @@ func TestPerpFetchAccountAggregatesWalletPositionsAndOpenOrders(t *testing.T) {
 		},
 		getOpenOrdersFn: func(_ context.Context, category, symbol string) ([]sdk.OrderRecord, error) {
 			require.Equal(t, categoryLinear, category)
-			require.Empty(t, symbol)
+			require.Equal(t, "USDT", symbol)
 			return []sdk.OrderRecord{{
 				OrderID:     "1",
 				OrderLinkID: "cid-1",

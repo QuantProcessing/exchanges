@@ -37,6 +37,7 @@ func init() {
 			APIKey:        opts["api_key"],
 			SecretKey:     opts["secret_key"],
 			Passphrase:    opts["passphrase"],
+			AccountMode:   AccountMode(opts["account_mode"]),
 			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
 		}
 

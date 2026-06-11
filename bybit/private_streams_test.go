@@ -78,7 +78,7 @@ func TestPerpWatchPositionsUsesPrivateWS(t *testing.T) {
 
 	select {
 	case update := <-updates:
-		require.Equal(t, "BTC", update.Symbol)
+		require.Equal(t, "BTC/USDT", update.Symbol)
 		require.Equal(t, exchanges.PositionSideLong, update.Side)
 	case <-time.After(time.Second):
 		t.Fatal("expected position update")

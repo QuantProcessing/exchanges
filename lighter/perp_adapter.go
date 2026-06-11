@@ -185,8 +185,7 @@ func (a *Adapter) refreshMetaInternal(ctx context.Context) error {
 }
 
 func (a *Adapter) IsConnected(ctx context.Context) (bool, error) {
-	// Simple check
-	_, err := a.client.GetL1Metadata(ctx)
+	_, err := a.client.GetOrderBookDetails(ctx, nil, nil)
 	return err == nil, err
 }
 
@@ -812,17 +811,21 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 
 	var endTime, startTime int64
 	if end != nil {
-		endTime = end.Unix()
+		endTime = end.UnixMilli()
 	} else {
-		endTime = time.Now().Unix()
+		endTime = time.Now().UnixMilli()
 	}
 	if start != nil {
-		startTime = start.Unix()
+		startTime = start.UnixMilli()
 	} else {
-		startTime = endTime - int64(limit)*intervalToSeconds(interval)
+		startTime = endTime - int64(limit)*intervalToSeconds(interval)*1000
+	}
+	countBack := int64(limit)
+	if countBack <= 0 {
+		countBack = 100
 	}
 
-	res, err := a.client.GetCandlesticks(ctx, mid, resolution, startTime, endTime)
+	res, err := a.client.GetCandlesticks(ctx, mid, resolution, startTime, endTime, countBack)
 	if err != nil {
 		return nil, err
 	}
@@ -832,12 +835,12 @@ func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval excha
 		klines[i] = exchanges.Kline{
 			Symbol:    symbol,
 			Interval:  interval,
-			Timestamp: k.Timestamp * 1000,
-			Open:      parseLighterFloat(k.Open),
-			High:      parseLighterFloat(k.High),
-			Low:       parseLighterFloat(k.Low),
-			Close:     parseLighterFloat(k.Close),
-			Volume:    parseLighterFloat(k.Volume),
+			Timestamp: k.Timestamp,
+			Open:      decimal.NewFromFloat(k.Open),
+			High:      decimal.NewFromFloat(k.High),
+			Low:       decimal.NewFromFloat(k.Low),
+			Close:     decimal.NewFromFloat(k.Close),
+			Volume:    decimal.NewFromFloat(k.Volume),
 		}
 	}
 	return klines, nil
@@ -1274,8 +1277,15 @@ func (a *Adapter) FetchFundingRateHistory(ctx context.Context, symbol string, op
 	if opts != nil && opts.Limit > 0 {
 		limit = int64(opts.Limit)
 	}
-	// Start/End ignored — Lighter's GetFundingHistory accepts only limit + optional market.
-	hist, err := a.client.GetFundingHistory(ctx, &mid, limit)
+	endTime := time.Now().UnixMilli()
+	startTime := endTime - limit*int64(time.Hour/time.Millisecond)
+	if opts != nil && opts.End != nil {
+		endTime = opts.End.UnixMilli()
+	}
+	if opts != nil && opts.Start != nil {
+		startTime = opts.Start.UnixMilli()
+	}
+	hist, err := a.client.GetFundingHistory(ctx, mid, "1h", startTime, endTime, limit)
 	if err != nil {
 		return nil, err
 	}

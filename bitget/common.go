@@ -19,42 +19,92 @@ const (
 	categoryUSDCFutures = "USDC-FUTURES"
 )
 
-type marketCache struct {
+type MarketCatalog struct {
 	spotByBase map[string]sdk.Instrument
 	perpByBase map[string]sdk.Instrument
 	bySymbol   map[string]sdk.Instrument
 }
 
-func newMarketCache() *marketCache {
-	return &marketCache{
+type marketCache = MarketCatalog
+
+func newMarketCache() *MarketCatalog {
+	return &MarketCatalog{
 		spotByBase: make(map[string]sdk.Instrument),
 		perpByBase: make(map[string]sdk.Instrument),
 		bySymbol:   make(map[string]sdk.Instrument),
 	}
 }
 
-func buildMarketCache(instruments []sdk.Instrument, quote exchanges.QuoteCurrency) *marketCache {
+func buildMarketCache(instruments []sdk.Instrument, quote exchanges.QuoteCurrency) *MarketCatalog {
 	cache := newMarketCache()
 	for _, inst := range instruments {
-		if strings.ToUpper(inst.QuoteCoin) != string(quote) {
-			continue
-		}
 		if strings.ToLower(inst.Status) != "online" {
 			continue
 		}
 
-		base := strings.ToUpper(inst.BaseCoin)
+		marketType := exchanges.MarketTypeSpot
+		if isPerpCategory(inst.Category) {
+			marketType = exchanges.MarketTypePerp
+		}
+		market := marketRefFromInstrument(inst, quote, marketType)
+		if market.Base == "" || !isSupportedBitgetQuote(market.Quote) {
+			continue
+		}
 		symbol := strings.ToUpper(inst.Symbol)
 		cache.bySymbol[symbol] = inst
 
 		switch strings.ToUpper(inst.Category) {
 		case categorySpot:
-			cache.spotByBase[base] = inst
+			cache.spotByBase[market.Symbol()] = inst
+			if string(market.Quote) == string(quote) {
+				cache.spotByBase[market.Base] = inst
+			}
 		case categoryUSDTFutures, categoryUSDCFutures:
-			cache.perpByBase[base] = inst
+			cache.perpByBase[market.Symbol()] = inst
+			if string(market.Quote) == string(quote) {
+				cache.perpByBase[market.Base] = inst
+			}
 		}
 	}
 	return cache
+}
+
+func (c *MarketCatalog) FormatSymbol(symbol string, quote exchanges.QuoteCurrency, marketType exchanges.MarketType) string {
+	market := exchanges.ParseMarketRef(symbol, quote, marketType)
+	if c == nil {
+		return market.Base + string(market.Quote)
+	}
+
+	var inst sdk.Instrument
+	var ok bool
+	switch marketType {
+	case exchanges.MarketTypeSpot:
+		inst, ok = c.spotByBase[market.Base]
+		if ok && string(market.Quote) == string(quote) {
+			return inst.Symbol
+		}
+		inst, ok = c.spotByBase[market.Symbol()]
+	case exchanges.MarketTypePerp:
+		inst, ok = c.perpByBase[market.Base]
+		if ok && string(market.Quote) == string(quote) {
+			return inst.Symbol
+		}
+		inst, ok = c.perpByBase[market.Symbol()]
+	}
+	if ok {
+		return inst.Symbol
+	}
+	return market.Base + string(market.Quote)
+}
+
+func (c *MarketCatalog) ExtractSymbol(symbol string, quote exchanges.QuoteCurrency, marketType exchanges.MarketType) string {
+	upper := strings.ToUpper(symbol)
+	if c != nil {
+		if inst, ok := c.bySymbol[upper]; ok && inst.BaseCoin != "" {
+			return marketRefFromInstrument(inst, quote, marketType).Symbol()
+		}
+	}
+	return exchanges.ParseMarketRef(upper, quote, marketType).Symbol()
 }
 
 func authError(message string) error {
@@ -67,6 +117,11 @@ func hasAnyCredentials(opts Options) bool {
 
 func hasFullCredentials(opts Options) bool {
 	return opts.APIKey != "" && opts.SecretKey != "" && opts.Passphrase != ""
+}
+
+func ensureSupportedAccountMode(opts Options) error {
+	_, err := opts.accountMode()
+	return err
 }
 
 func isPerpCategory(category string) bool {
@@ -97,9 +152,6 @@ func requirePrivateAccess(client *sdk.Client) error {
 func buildSymbolDetails(instruments []sdk.Instrument, quote exchanges.QuoteCurrency, marketType exchanges.MarketType) map[string]*exchanges.SymbolDetails {
 	details := make(map[string]*exchanges.SymbolDetails)
 	for _, inst := range instruments {
-		if strings.ToUpper(inst.QuoteCoin) != string(quote) {
-			continue
-		}
 		if strings.ToLower(inst.Status) != "online" {
 			continue
 		}
@@ -118,7 +170,15 @@ func buildSymbolDetails(instruments []sdk.Instrument, quote exchanges.QuoteCurre
 		if err != nil {
 			continue
 		}
-		details[detail.Symbol] = detail
+		market := marketRefFromInstrument(inst, quote, marketType)
+		if market.Base == "" || !isSupportedBitgetQuote(market.Quote) {
+			continue
+		}
+		detail.Symbol = market.Symbol()
+		details[market.Symbol()] = detail
+		if string(market.Quote) == string(quote) {
+			details[market.Base] = detail
+		}
 	}
 	return details
 }
@@ -142,6 +202,29 @@ func symbolDetailsFromInstrument(inst sdk.Instrument) (*exchanges.SymbolDetails,
 		MinQuantity:       minQty,
 		MinNotional:       minNotional,
 	}, nil
+}
+
+func marketRefFromInstrument(inst sdk.Instrument, defaultQuote exchanges.QuoteCurrency, marketType exchanges.MarketType) exchanges.MarketRef {
+	base := strings.ToUpper(inst.BaseCoin)
+	quote := strings.ToUpper(inst.QuoteCoin)
+	if base != "" && quote != "" {
+		return exchanges.MarketRef{
+			Base:   base,
+			Quote:  exchanges.QuoteCurrency(quote),
+			Settle: exchanges.QuoteCurrency(quote),
+			Type:   marketType,
+		}
+	}
+	return exchanges.ParseMarketRef(inst.Symbol, defaultQuote, marketType)
+}
+
+func isSupportedBitgetQuote(quote exchanges.QuoteCurrency) bool {
+	switch quote {
+	case exchanges.QuoteCurrencyUSDT, exchanges.QuoteCurrencyUSDC:
+		return true
+	default:
+		return false
+	}
 }
 
 func parseDecimal(raw string) decimal.Decimal {

@@ -10,6 +10,46 @@ import (
 	"time"
 )
 
+func (c *Client) getJSON(ctx context.Context, path string, params url.Values, auth bool, out any) error {
+	if params != nil {
+		if encoded := params.Encode(); encoded != "" {
+			path = fmt.Sprintf("%s?%s", path, encoded)
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	if auth {
+		token, err := c.CreateAuthToken(time.Now().Add(10 * time.Minute))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", token)
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("http error %d: %s", resp.StatusCode, string(data))
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("empty response body from %s", path)
+	}
+	if err := json.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("unmarshal error: %w, code: %d, body: %s", err, resp.StatusCode, string(data))
+	}
+	return nil
+}
+
 // GetAssetDetails fetches asset details
 func (c *Client) GetAssetDetails(ctx context.Context, assetIndex *int16) (*AssetDetailsResponse, error) {
 	path := "/api/v1/assetDetails"
@@ -289,27 +329,17 @@ func (c *Client) GetExchangeStats(ctx context.Context) (*ExchangeStatsResponse, 
 	return &res, nil
 }
 
-// GetCandlesticks fetches candlesticks
-func (c *Client) GetCandlesticks(ctx context.Context, marketId int, resolution string, startTimestamp, endTimestamp int64) (*CandlesticksResponse, error) {
-	path := fmt.Sprintf("/api/v1/candlesticks?market_id=%d&resolution=%s&start_timestamp=%d&end_timestamp=%d", marketId, resolution, startTimestamp, endTimestamp)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
+// GetCandlesticks fetches candles.
+func (c *Client) GetCandlesticks(ctx context.Context, marketId int, resolution string, startTimestamp, endTimestamp, countBack int64) (*CandlesticksResponse, error) {
+	params := url.Values{}
+	params.Set("market_id", fmt.Sprintf("%d", marketId))
+	params.Set("resolution", resolution)
+	params.Set("start_timestamp", fmt.Sprintf("%d", startTimestamp))
+	params.Set("end_timestamp", fmt.Sprintf("%d", endTimestamp))
+	params.Set("count_back", fmt.Sprintf("%d", countBack))
 
 	var res CandlesticksResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := c.getJSON(ctx, "/api/v1/candles", params, false, &res); err != nil {
 		return nil, err
 	}
 	if res.Code != 200 {
@@ -318,30 +348,16 @@ func (c *Client) GetCandlesticks(ctx context.Context, marketId int, resolution s
 	return &res, nil
 }
 
-// GetFundingHistory fetches funding history
-func (c *Client) GetFundingHistory(ctx context.Context, marketId *int, limit int64) (*FundingHistoryResponse, error) {
-	path := fmt.Sprintf("/api/v1/fundings?limit=%d", limit)
-	if marketId != nil {
-		path = fmt.Sprintf("%s&market_id=%d", path, *marketId)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
+// GetFundingHistory fetches historical funding rates.
+func (c *Client) GetFundingHistory(ctx context.Context, marketId int, resolution string, startTimestamp, endTimestamp, countBack int64) (*FundingHistoryResponse, error) {
+	params := url.Values{}
+	params.Set("market_id", fmt.Sprintf("%d", marketId))
+	params.Set("resolution", resolution)
+	params.Set("start_timestamp", fmt.Sprintf("%d", startTimestamp))
+	params.Set("end_timestamp", fmt.Sprintf("%d", endTimestamp))
+	params.Set("count_back", fmt.Sprintf("%d", countBack))
 	var res FundingHistoryResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := c.getJSON(ctx, "/api/v1/fundings", params, false, &res); err != nil {
 		return nil, err
 	}
 	if res.Code != 200 {
@@ -350,27 +366,15 @@ func (c *Client) GetFundingHistory(ctx context.Context, marketId *int, limit int
 	return &res, nil
 }
 
-// GetTransferFeeInfo fetches transfer fee info
-func (c *Client) GetTransferFeeInfo(ctx context.Context) (*TransferFeeInfoResponse, error) {
-	path := "/api/v1/transferFeeInfo"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return nil, err
+// GetTransferFeeInfo fetches authenticated transfer fee info.
+func (c *Client) GetTransferFeeInfo(ctx context.Context, toAccountIndex *int64) (*TransferFeeInfoResponse, error) {
+	params := url.Values{}
+	params.Set("account_index", fmt.Sprintf("%d", c.AccountIndex))
+	if toAccountIndex != nil {
+		params.Set("to_account_index", fmt.Sprintf("%d", *toAccountIndex))
 	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var res TransferFeeInfoResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := c.getJSON(ctx, "/api/v1/transferFeeInfo", params, true, &res); err != nil {
 		return nil, err
 	}
 	if res.Code != 200 {
@@ -379,31 +383,11 @@ func (c *Client) GetTransferFeeInfo(ctx context.Context) (*TransferFeeInfoRespon
 	return &res, nil
 }
 
-// GetWithdrawalDelay fetches withdrawal delay
+// GetWithdrawalDelay fetches withdrawal delay.
 func (c *Client) GetWithdrawalDelay(ctx context.Context) (*WithdrawalDelayResponse, error) {
-	path := "/api/v1/withdrawalDelay"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var res WithdrawalDelayResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := c.getJSON(ctx, "/api/v1/withdrawalDelay", nil, false, &res); err != nil {
 		return nil, err
-	}
-	if res.Code != 200 {
-		return nil, fmt.Errorf("failed to get withdrawal delay: %s", res.Msg)
 	}
 	return &res, nil
 }
@@ -437,56 +421,32 @@ func (c *Client) GetAnnouncements(ctx context.Context) (*AnnouncementResponse, e
 	return &res, nil
 }
 
-// GetL1Metadata fetches L1 metadata
-func (c *Client) GetL1Metadata(ctx context.Context) (*L1MetadataResponse, error) {
-	path := "/api/v1/l1Metadata"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
+// GetL1Metadata fetches authenticated L1 metadata for an address.
+func (c *Client) GetL1Metadata(ctx context.Context, l1Address string) (*L1MetadataResponse, error) {
+	params := url.Values{}
+	params.Set("l1_address", l1Address)
 	var res L1MetadataResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := c.getJSON(ctx, "/api/v1/l1Metadata", params, true, &res); err != nil {
 		return nil, err
-	}
-	if res.Code != 200 {
-		return nil, fmt.Errorf("failed to get L1 metadata: %s", res.Msg)
 	}
 	return &res, nil
 }
 
-// GetPublicPoolsMetadata fetches public pools metadata
-func (c *Client) GetPublicPoolsMetadata(ctx context.Context) (*PublicPoolsMetadataResponse, error) {
-	path := "/api/v1/publicPoolsMetadata"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return nil, err
+// GetPublicPoolsMetadata fetches public pools metadata.
+func (c *Client) GetPublicPoolsMetadata(ctx context.Context, filter string, index, limit int64, accountIndex *int64) (*PublicPoolsMetadataResponse, error) {
+	params := url.Values{}
+	if filter != "" {
+		params.Set("filter", filter)
 	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
+	params.Set("index", fmt.Sprintf("%d", index))
+	params.Set("limit", fmt.Sprintf("%d", limit))
+	auth := false
+	if accountIndex != nil {
+		params.Set("account_index", fmt.Sprintf("%d", *accountIndex))
+		auth = true
 	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var res PublicPoolsMetadataResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := c.getJSON(ctx, "/api/v1/publicPoolsMetadata", params, auth, &res); err != nil {
 		return nil, err
 	}
 	if res.Code != 200 {

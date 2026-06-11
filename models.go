@@ -306,6 +306,14 @@ type HistoricalTradeOpts struct {
 	Limit  int
 }
 
+// SDKRequestOpts carries venue-native request options for low-level SDK
+// methods. Adapters should not expose this type unless a stable cross-exchange
+// abstraction has been designed for the specific option.
+type SDKRequestOpts struct {
+	RecvWindowMillis int64
+	ClientRequestID  string
+}
+
 // SpotBalance represents the balance of a single asset in a spot account.
 type SpotBalance struct {
 	Asset  string          `json:"asset"`  // Currency symbol, e.g. "BTC", "USDT"
@@ -380,6 +388,7 @@ type IsolatedMarginAccount struct {
 // OrderParams is the unified parameter struct for PlaceOrder.
 type OrderParams struct {
 	Symbol      string
+	Market      MarketRef
 	Side        OrderSide
 	Type        OrderType // MARKET or LIMIT
 	Quantity    decimal.Decimal

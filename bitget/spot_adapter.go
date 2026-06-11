@@ -41,14 +41,18 @@ func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
 }
 
 func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, opts Options, quote exchanges.QuoteCurrency, client *sdk.Client) (*SpotAdapter, error) {
+	if err := ensureSupportedAccountMode(opts); err != nil {
+		return nil, err
+	}
+	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
+		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
+	}
+
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, opts.logger())
 
 	instruments, err := client.GetInstruments(ctx, categorySpot, "")
 	if err != nil {
 		return nil, err
-	}
-	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
-		return nil, authError("bitget: api_key, secret_key, and passphrase must all be set together")
 	}
 	markets := buildMarketCache(instruments, quote)
 	base.SetSymbolDetails(buildSymbolDetails(instruments, quote, exchanges.MarketTypeSpot))
@@ -63,7 +67,7 @@ func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		cancel:      cancel,
 		cancels:     make(map[string]context.CancelFunc),
 	}
-	adp.private = newSpotPrivateProfile(adp)
+	adp.private = newSpotPrivateProfile(adp, opts)
 	return adp, nil
 }
 
@@ -81,95 +85,15 @@ func (a *SpotAdapter) Close() error {
 }
 
 func (a *SpotAdapter) FormatSymbol(symbol string) string {
-	upper := strings.ToUpper(symbol)
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	if inst, ok := a.markets.spotByBase[upper]; ok {
-		return inst.Symbol
-	}
-	return upper
+	return a.markets.FormatSymbol(symbol, a.quote, exchanges.MarketTypeSpot)
 }
 
 func (a *SpotAdapter) ExtractSymbol(symbol string) string {
-	upper := strings.ToUpper(symbol)
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	if inst, ok := a.markets.bySymbol[upper]; ok && inst.BaseCoin != "" {
-		return strings.ToUpper(inst.BaseCoin)
-	}
-	return upper
-}
-
-func (a *SpotAdapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
-	raw, err := a.client.GetTicker(ctx, categorySpot, a.FormatSymbol(symbol))
-	if err != nil {
-		return nil, err
-	}
-	return toTicker(symbol, raw), nil
-}
-
-func (a *SpotAdapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (*exchanges.OrderBook, error) {
-	raw, err := a.client.GetOrderBook(ctx, categorySpot, a.FormatSymbol(symbol), limit)
-	if err != nil {
-		return nil, err
-	}
-	return toOrderBook(symbol, raw), nil
-}
-
-func (a *SpotAdapter) FetchTrades(ctx context.Context, symbol string, limit int) ([]exchanges.Trade, error) {
-	raw, err := a.client.GetRecentFills(ctx, categorySpot, a.FormatSymbol(symbol), limit)
-	if err != nil {
-		return nil, err
-	}
-	return mapTrades(symbol, raw), nil
-}
-
-func (a *SpotAdapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) ([]exchanges.Kline, error) {
-	rawInterval, err := klineIntervalString(interval)
-	if err != nil {
-		return nil, err
-	}
-	startTime, endTime, limit, err := klineTimeRange(interval, opts)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := a.client.GetCandles(ctx, categorySpot, a.FormatSymbol(symbol), rawInterval, "market", startTime, endTime, limit)
-	if err != nil {
-		return nil, err
-	}
-	return mapKlines(symbol, interval, raw), nil
-}
-
-func (a *SpotAdapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
-	return a.private.PlaceOrder(ctx, params)
-}
-
-func (a *SpotAdapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
-	return a.private.PlaceOrderWS(ctx, params)
-}
-
-func (a *SpotAdapter) CancelOrder(ctx context.Context, orderID, symbol string) error {
-	return a.private.CancelOrder(ctx, orderID, symbol)
-}
-
-func (a *SpotAdapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
-	return a.private.CancelOrderWS(ctx, orderID, symbol)
-}
-
-func (a *SpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	return a.private.CancelAllOrders(ctx, symbol)
-}
-
-func (a *SpotAdapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (*exchanges.Order, error) {
-	return a.private.FetchOrderByID(ctx, orderID, symbol)
-}
-
-func (a *SpotAdapter) FetchOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	return a.private.FetchOrders(ctx, symbol)
-}
-
-func (a *SpotAdapter) FetchOpenOrders(ctx context.Context, symbol string) ([]exchanges.Order, error) {
-	return a.private.FetchOpenOrders(ctx, symbol)
+	return a.markets.ExtractSymbol(symbol, a.quote, exchanges.MarketTypeSpot)
 }
 
 func (a *SpotAdapter) FetchAccount(ctx context.Context) (*exchanges.Account, error) {

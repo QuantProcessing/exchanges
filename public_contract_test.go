@@ -13,6 +13,26 @@ type stubExchange struct {
 	placed *exchanges.OrderParams
 }
 
+var _ exchanges.MarketDataExchange = (*stubExchange)(nil)
+var _ exchanges.OrderExecutionExchange = (*stubExchange)(nil)
+var _ exchanges.AccountSnapshotExchange = (*stubExchange)(nil)
+var _ exchanges.LocalOrderBookExchange = (*stubExchange)(nil)
+var _ exchanges.Streamable = (*stubExchange)(nil)
+var _ exchanges.SpotBalanceExchange = (*spotStubExchange)(nil)
+var _ exchanges.AssetTransferExchange = (*spotStubExchange)(nil)
+
+type spotStubExchange struct {
+	stubExchange
+}
+
+func (s *spotStubExchange) FetchSpotBalances(context.Context) ([]exchanges.SpotBalance, error) {
+	return nil, nil
+}
+
+func (s *spotStubExchange) TransferAsset(context.Context, *exchanges.TransferParams) error {
+	return nil
+}
+
 func (s *stubExchange) GetExchange() string { return "stub" }
 
 func (s *stubExchange) GetMarketType() exchanges.MarketType { return exchanges.MarketTypeSpot }

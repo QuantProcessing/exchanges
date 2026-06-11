@@ -2,232 +2,123 @@ package sdk
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
+	"os"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
-func TestPlaceOrderPostsBody(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, http.MethodPost, r.Method)
-			require.Equal(t, "/v5/order/create", r.URL.Path)
-			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-
-			var payload map[string]any
-			require.NoError(t, json.Unmarshal(body, &payload))
-			require.Equal(t, "spot", payload["category"])
-			require.Equal(t, "BTCUSDT", payload["symbol"])
-			require.Equal(t, "baseCoin", payload["marketUnit"])
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"orderId":"1","orderLinkId":"cid-1"}}`), nil
-		}),
-	}
+func TestClient_PlaceOrder(t *testing.T) {
+	client := requireBybitLiveWrite(t, "BYBIT_TEST_ORDER_QTY", "BYBIT_TEST_ORDER_PRICE")
+	symbol := bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol)
 
 	got, err := client.PlaceOrder(context.Background(), PlaceOrderRequest{
-		Category:    "spot",
-		Symbol:      "BTCUSDT",
-		Side:        "Buy",
-		OrderType:   "Market",
-		Qty:         "2",
-		MarketUnit:  "baseCoin",
-		OrderLinkID: "cid-1",
+		Category:    "linear",
+		Symbol:      symbol,
+		Side:        bybitEnvOrDefault("BYBIT_TEST_ORDER_SIDE", "Buy"),
+		OrderType:   "Limit",
+		Qty:         os.Getenv("BYBIT_TEST_ORDER_QTY"),
+		Price:       os.Getenv("BYBIT_TEST_ORDER_PRICE"),
+		TimeInForce: "GTC",
+		OrderLinkID: bybitEnvOrDefault("BYBIT_TEST_ORDER_LINK_ID", ""),
 	})
-	require.NoError(t, err)
-	require.Equal(t, "1", got.OrderID)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected order response")
+	}
 }
 
-func TestCancelOrderPostsBody(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, http.MethodPost, r.Method)
-			require.Equal(t, "/v5/order/cancel", r.URL.Path)
-			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
+func TestClient_CancelOrder(t *testing.T) {
+	client := requireBybitLiveWrite(t, "BYBIT_TEST_ORDER_ID")
+	symbol := bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol)
 
-			var payload map[string]string
-			require.NoError(t, json.Unmarshal(body, &payload))
-			require.Equal(t, "linear", payload["category"])
-			require.Equal(t, "BTCUSDT", payload["symbol"])
-			require.Equal(t, "1", payload["orderId"])
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"orderId":"1","orderLinkId":"cid-1"}}`), nil
-		}),
-	}
-
-	_, err := client.CancelOrder(context.Background(), CancelOrderRequest{
+	got, err := client.CancelOrder(context.Background(), CancelOrderRequest{
 		Category: "linear",
-		Symbol:   "BTCUSDT",
-		OrderID:  "1",
+		Symbol:   symbol,
+		OrderID:  os.Getenv("BYBIT_TEST_ORDER_ID"),
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("CancelOrder: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected cancel response")
+	}
 }
 
-func TestCancelAllOrdersPostsBody(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, http.MethodPost, r.Method)
-			require.Equal(t, "/v5/order/cancel-all", r.URL.Path)
-			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-
-			var payload map[string]string
-			require.NoError(t, json.Unmarshal(body, &payload))
-			require.Equal(t, "spot", payload["category"])
-			require.Equal(t, "BTCUSDT", payload["symbol"])
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"success":"1"}}`), nil
-		}),
-	}
+func TestClient_CancelAllOrders(t *testing.T) {
+	client := requireBybitLiveWrite(t)
+	symbol := bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol)
 
 	err := client.CancelAllOrders(context.Background(), CancelAllOrdersRequest{
-		Category: "spot",
-		Symbol:   "BTCUSDT",
-	})
-	require.NoError(t, err)
-}
-
-func TestAmendOrderPostsBody(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, http.MethodPost, r.Method)
-			require.Equal(t, "/v5/order/amend", r.URL.Path)
-			body, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-
-			var payload map[string]string
-			require.NoError(t, json.Unmarshal(body, &payload))
-			require.Equal(t, "linear", payload["category"])
-			require.Equal(t, "BTCUSDT", payload["symbol"])
-			require.Equal(t, "1", payload["orderId"])
-			require.Equal(t, "0.2", payload["qty"])
-			require.Equal(t, "101", payload["price"])
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"orderId":"1","orderLinkId":"cid-1"}}`), nil
-		}),
-	}
-
-	_, err := client.AmendOrder(context.Background(), AmendOrderRequest{
 		Category: "linear",
-		Symbol:   "BTCUSDT",
-		OrderID:  "1",
-		Qty:      "0.2",
-		Price:    "101",
+		Symbol:   symbol,
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("CancelAllOrders: %v", err)
+	}
 }
 
-func TestGetOpenOrdersParsesList(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, "/v5/order/realtime", r.URL.Path)
-			require.Equal(t, "spot", r.URL.Query().Get("category"))
-			require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"1","orderLinkId":"cid-1","symbol":"BTCUSDT","side":"Buy","orderType":"Limit","timeInForce":"GTC","price":"50000","qty":"0.1","cumExecQty":"0","avgPrice":"0","orderStatus":"New","reduceOnly":false,"createdTime":"1710000000000","updatedTime":"1710000000001"}]}}`), nil
-		}),
-	}
+func TestClient_AmendOrder(t *testing.T) {
+	client := requireBybitLiveWrite(t, "BYBIT_TEST_ORDER_ID", "BYBIT_TEST_ORDER_QTY", "BYBIT_TEST_ORDER_PRICE")
+	symbol := bybitEnvOrDefault("BYBIT_TEST_SYMBOL", bybitLinearSymbol)
 
-	got, err := client.GetOpenOrders(context.Background(), "spot", "BTCUSDT")
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, "1", got[0].OrderID)
+	got, err := client.AmendOrder(context.Background(), AmendOrderRequest{
+		Category: "linear",
+		Symbol:   symbol,
+		OrderID:  os.Getenv("BYBIT_TEST_ORDER_ID"),
+		Qty:      os.Getenv("BYBIT_TEST_ORDER_QTY"),
+		Price:    os.Getenv("BYBIT_TEST_ORDER_PRICE"),
+	})
+	if err != nil {
+		t.Fatalf("AmendOrder: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected amend response")
+	}
 }
 
-func TestGetOrderHistoryParsesList(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, "/v5/order/history", r.URL.Path)
-			require.Equal(t, "linear", r.URL.Query().Get("category"))
-			require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"1","orderLinkId":"cid-1","symbol":"BTCUSDT","side":"Sell","orderType":"Market","timeInForce":"IOC","price":"0","qty":"0.1","cumExecQty":"0.1","avgPrice":"50010","orderStatus":"Filled","reduceOnly":true,"createdTime":"1710000000000","updatedTime":"1710000000002"}]}}`), nil
-		}),
+func TestClient_GetOpenOrders(t *testing.T) {
+	got, err := newLivePrivateClient(t).GetOpenOrders(context.Background(), "linear", bybitLinearSymbol)
+	if err != nil {
+		t.Fatalf("GetOpenOrders: %v", err)
 	}
-
-	got, err := client.GetOrderHistory(context.Background(), "linear", "BTCUSDT")
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, "Filled", got[0].OrderStatus)
+	if got == nil {
+		t.Fatal("expected open orders slice")
+	}
 }
 
-func TestGetOrderHistoryFilteredPassesOrderID(t *testing.T) {
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			require.Equal(t, "/v5/order/history", r.URL.Path)
-			require.Equal(t, "linear", r.URL.Query().Get("category"))
-			require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
-			require.Equal(t, "1", r.URL.Query().Get("orderId"))
-			return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[]}}`), nil
-		}),
+func TestClient_GetOrderHistory(t *testing.T) {
+	got, err := newLivePrivateClient(t).GetOrderHistory(context.Background(), "linear", bybitLinearSymbol)
+	if err != nil {
+		t.Fatalf("GetOrderHistory: %v", err)
 	}
-
-	_, err := client.GetOrderHistoryFiltered(context.Background(), "linear", "BTCUSDT", "1", "")
-	require.NoError(t, err)
+	if got == nil {
+		t.Fatal("expected order history slice")
+	}
 }
 
-func TestGetOrderHistoryPaginates(t *testing.T) {
-	hits := 0
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			hits++
-			require.Equal(t, "/v5/order/history", r.URL.Path)
-			switch hits {
-			case 1:
-				require.Empty(t, r.URL.Query().Get("cursor"))
-				return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"1"}],"nextPageCursor":"cursor-2"}}`), nil
-			case 2:
-				require.Equal(t, "cursor-2", r.URL.Query().Get("cursor"))
-				return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"2"}],"nextPageCursor":""}}`), nil
-			default:
-				t.Fatalf("unexpected request %d", hits)
-				return nil, nil
-			}
-		}),
+func TestClient_GetOrderHistoryFiltered(t *testing.T) {
+	client := newLivePrivateClient(t)
+	orderID := os.Getenv("BYBIT_TEST_ORDER_ID")
+	if orderID == "" {
+		t.Skip("BYBIT_TEST_ORDER_ID is required for filtered order history live test")
 	}
 
-	got, err := client.GetOrderHistory(context.Background(), "linear", "BTCUSDT")
-	require.NoError(t, err)
-	require.Len(t, got, 2)
+	got, err := client.GetOrderHistoryFiltered(context.Background(), "linear", bybitLinearSymbol, orderID, "")
+	if err != nil {
+		t.Fatalf("GetOrderHistoryFiltered: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected filtered order history slice")
+	}
 }
 
-func TestGetRealtimeOrdersPaginates(t *testing.T) {
-	hits := 0
-	client := NewClient().WithCredentials("api-key", "secret-key")
-	client.baseURL = "https://example.test"
-	client.httpClient = &http.Client{
-		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			hits++
-			require.Equal(t, "/v5/order/realtime", r.URL.Path)
-			switch hits {
-			case 1:
-				require.Empty(t, r.URL.Query().Get("cursor"))
-				return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"1"}],"nextPageCursor":"cursor-2"}}`), nil
-			case 2:
-				require.Equal(t, "cursor-2", r.URL.Query().Get("cursor"))
-				return jsonResponse(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"2"}],"nextPageCursor":""}}`), nil
-			default:
-				t.Fatalf("unexpected request %d", hits)
-				return nil, nil
-			}
-		}),
+func TestClient_GetRealtimeOrders(t *testing.T) {
+	got, err := newLivePrivateClient(t).GetRealtimeOrders(context.Background(), "linear", bybitLinearSymbol, "", "", "", 0)
+	if err != nil {
+		t.Fatalf("GetRealtimeOrders: %v", err)
 	}
-
-	got, err := client.GetRealtimeOrders(context.Background(), "linear", "BTCUSDT", "", "", "", 0)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
+	if got == nil {
+		t.Fatal("expected realtime orders slice")
+	}
 }

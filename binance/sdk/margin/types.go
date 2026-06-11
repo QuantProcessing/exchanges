@@ -63,40 +63,40 @@ type TransactionResult struct {
 
 // MarginOrder represents the response from order placement
 type MarginOrder struct {
-	Symbol        string `json:"symbol"`
-	OrderID       int64  `json:"orderId"`
-	ClientOrderID string `json:"clientOrderId"`
-	TransactTime  int64  `json:"transactTime"`
-	Price         string `json:"price"`
-	OrigQty       string `json:"origQty"`
-	ExecutedQty   string `json:"executedQty"`
+	Symbol              string `json:"symbol"`
+	OrderID             int64  `json:"orderId"`
+	ClientOrderID       string `json:"clientOrderId"`
+	TransactTime        int64  `json:"transactTime"`
+	Price               string `json:"price"`
+	OrigQty             string `json:"origQty"`
+	ExecutedQty         string `json:"executedQty"`
 	CummulativeQuoteQty string `json:"cummulativeQuoteQty"`
-	Status        string `json:"status"`
-	TimeInForce   string `json:"timeInForce"`
-	Type          string `json:"type"`
-	Side          string `json:"side"`
-	IsIsolated    bool   `json:"isIsolated"`
+	Status              string `json:"status"`
+	TimeInForce         string `json:"timeInForce"`
+	Type                string `json:"type"`
+	Side                string `json:"side"`
+	IsIsolated          bool   `json:"isIsolated"`
 }
 
 type OrderResponseFull struct {
-    MarginOrder
-    Fills []struct {
-        Price string `json:"price"`
-        Qty   string `json:"qty"`
-        Commission string `json:"commission"`
-        CommissionAsset string `json:"commissionAsset"`
-    } `json:"fills"`
+	MarginOrder
+	Fills []struct {
+		Price           string `json:"price"`
+		Qty             string `json:"qty"`
+		Commission      string `json:"commission"`
+		CommissionAsset string `json:"commissionAsset"`
+	} `json:"fills"`
 }
 
 type PlaceOrderParams struct {
-	Symbol          string
-	Side            string
-	Type            string
-	TimeInForce     string // Optional
-	Quantity        float64
-	QuoteOrderQty   float64 // Optional
-	Price           float64 // Optional
-	NewClientOrderID string // Optional
-	SideEffectType  string // NO_SIDE_EFFECT, MARGIN_BUY, AUTO_REPAY
-	IsIsolated      bool
+	Symbol           string
+	Side             string
+	Type             string
+	TimeInForce      string // Optional
+	Quantity         float64
+	QuoteOrderQty    float64 // Optional
+	Price            float64 // Optional
+	NewClientOrderID string  // Optional
+	SideEffectType   string  // NO_SIDE_EFFECT, MARGIN_BUY, AUTO_REPAY
+	IsIsolated       bool
 }

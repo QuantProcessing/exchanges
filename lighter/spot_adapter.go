@@ -192,8 +192,7 @@ func (a *SpotAdapter) refreshMetaInternal(ctx context.Context) error {
 }
 
 func (a *SpotAdapter) IsConnected(ctx context.Context) (bool, error) {
-	// Simple check
-	_, err := a.client.GetL1Metadata(ctx)
+	_, err := a.client.GetOrderBookDetails(ctx, nil, nil)
 	return err == nil, err
 }
 

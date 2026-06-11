@@ -44,17 +44,27 @@ type spotPrivateProfile interface {
 }
 
 func newPrivateWSClient(opts Options) *sdk.PrivateWSClient {
-	return sdk.NewPrivateWSClient().
-		WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase).
-		WithClassicMode()
+	client := sdk.NewPrivateWSClient().
+		WithCredentials(opts.APIKey, opts.SecretKey, opts.Passphrase)
+	mode, _ := opts.accountMode()
+	if mode == AccountModeClassic {
+		client.WithClassicMode()
+	}
+	return client
 }
 
-func newPerpPrivateProfile(adp *Adapter) perpPrivateProfile {
-	// Classic mode is the only Bitget private profile wired today.
+func newPerpPrivateProfile(adp *Adapter, opts Options) perpPrivateProfile {
+	mode, _ := opts.accountMode()
+	if mode == AccountModeUTA {
+		return &utaPerpProfile{adp: adp}
+	}
 	return &classicPerpProfile{adp: adp}
 }
 
-func newSpotPrivateProfile(adp *SpotAdapter) spotPrivateProfile {
-	// Classic mode is the only Bitget private profile wired today.
+func newSpotPrivateProfile(adp *SpotAdapter, opts Options) spotPrivateProfile {
+	mode, _ := opts.accountMode()
+	if mode == AccountModeUTA {
+		return &utaSpotProfile{adp: adp}
+	}
 	return &classicSpotProfile{adp: adp}
 }

@@ -14,19 +14,20 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
 )
 
 const (
-	BaseURL = "https://api.binance.com"
+	BaseURL       = "https://api.binance.com"
+	ServerTimeURL = "https://api.binance.com"
 )
 
 type Client struct {
-	BaseURL    string
-	APIKey     string
-	SecretKey  string
-	HTTPClient *http.Client
-	Logger     *zap.SugaredLogger
+	BaseURL           string
+	ServerTimeBaseURL string
+	APIKey            string
+	SecretKey         string
+	HTTPClient        *http.Client
+	Logger            *zap.SugaredLogger
 }
 
 func NewClient() *Client {
@@ -51,9 +52,10 @@ func NewClient() *Client {
 	}
 
 	return &Client{
-		BaseURL:    BaseURL,
-		HTTPClient: httpClient,
-		Logger:     l,
+		BaseURL:           BaseURL,
+		ServerTimeBaseURL: ServerTimeURL,
+		HTTPClient:        httpClient,
+		Logger:            l,
 	}
 }
 
@@ -65,6 +67,11 @@ func (c *Client) WithCredentials(apiKey, secretKey string) *Client {
 
 func (c *Client) WithBaseURL(url string) *Client {
 	c.BaseURL = url
+	return c
+}
+
+func (c *Client) WithServerTimeBaseURL(url string) *Client {
+	c.ServerTimeBaseURL = url
 	return c
 }
 
@@ -92,7 +99,10 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	}
 
 	if signed {
-		q.Add("timestamp", fmt.Sprintf("%d", Timestamp()))
+		if q.Get("recvWindow") == "" {
+			q.Add("recvWindow", "60000")
+		}
+		q.Add("timestamp", fmt.Sprintf("%d", c.timestamp(ctx)))
 		queryString := q.Encode()
 		sig := GenerateSignature(c.SecretKey, queryString)
 		u.RawQuery = queryString + "&signature=" + sig
@@ -139,6 +149,40 @@ func (c *Client) call(ctx context.Context, method, endpoint string, params map[s
 	}
 
 	return nil
+}
+
+func (c *Client) timestamp(ctx context.Context) int64 {
+	serverTime, err := c.serverTime(ctx)
+	if err != nil {
+		return Timestamp()
+	}
+	return serverTime
+}
+
+func (c *Client) serverTime(ctx context.Context) (int64, error) {
+	baseURL := c.ServerTimeBaseURL
+	if baseURL == "" {
+		baseURL = ServerTimeURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/v3/time", nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("server time returned %s", resp.Status)
+	}
+	var out struct {
+		ServerTime int64 `json:"serverTime"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return 0, err
+	}
+	return out.ServerTime, nil
 }
 
 func (c *Client) Get(ctx context.Context, endpoint string, params map[string]interface{}, signed bool, result interface{}) error {

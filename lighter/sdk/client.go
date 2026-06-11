@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	MainnetAPIURL = "https://mainnet.zklighter.elliot.ai"
+	MainnetAPIURL  = "https://mainnet.zklighter.elliot.ai"
+	ExplorerAPIURL = "https://explorer.elliot.ai/api"
 )
 
 type Client struct {
@@ -196,17 +197,40 @@ func (c *Client) PostForm(ctx context.Context, path string, params map[string]st
 }
 
 func (c *Client) GetBlockHeight(ctx context.Context) (int64, error) {
-	data, err := c.Post(ctx, "/block/height", nil, false)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ExplorerAPIURL+"/blocks", nil)
 	if err != nil {
 		return 0, err
 	}
-	var res struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Height  int64  `json:"height"`
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return 0, fmt.Errorf("http error %d: %s", resp.StatusCode, data)
+	}
+	var res []struct {
+		BlockHeight int64 `json:"block_height"`
 	}
 	if err := json.Unmarshal(data, &res); err != nil {
 		return 0, err
 	}
-	return res.Height, nil
+	if len(res) == 0 {
+		return 0, fmt.Errorf("no blocks returned")
+	}
+	return res[0].BlockHeight, nil
+}
+
+func applySDKRequestOptsString(params map[string]string, opts exchanges.SDKRequestOpts) {
+	if opts.RecvWindowMillis > 0 {
+		params["recv_window"] = fmt.Sprintf("%d", opts.RecvWindowMillis)
+	}
+	if opts.ClientRequestID != "" {
+		params["client_request_id"] = opts.ClientRequestID
+	}
 }

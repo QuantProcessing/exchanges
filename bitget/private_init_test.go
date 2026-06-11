@@ -36,6 +36,32 @@ func TestNewPerpAdapterRejectsPartialCredentials(t *testing.T) {
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
 }
 
+func TestNewPerpAdapterUsesUTAProfileWhenRequested(t *testing.T) {
+	client := newTestClient(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "/api/v3/market/instruments", r.URL.Path)
+		return jsonHTTPResponse(`{"code":"00000","msg":"success","requestTime":1,"data":[{"symbol":"BTCUSDT","category":"USDT-FUTURES","baseCoin":"BTC","quoteCoin":"USDT","minOrderQty":"0.001","minOrderAmount":"5","pricePrecision":"1","quantityPrecision":"3","status":"online"}]}`), nil
+	})
+
+	adp, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{
+		AccountMode: AccountModeUTA,
+	}, exchanges.QuoteCurrencyUSDT, client)
+	require.NoError(t, err)
+	require.IsType(t, &utaPerpProfile{}, adp.private)
+}
+
+func TestNewSpotAdapterUsesUTAProfileWhenRequested(t *testing.T) {
+	client := newTestClient(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "/api/v3/market/instruments", r.URL.Path)
+		return jsonHTTPResponse(`{"code":"00000","msg":"success","requestTime":1,"data":[{"symbol":"BTCUSDT","category":"SPOT","baseCoin":"BTC","quoteCoin":"USDT","minOrderQty":"0.0001","minOrderAmount":"5","pricePrecision":"2","quantityPrecision":"4","status":"online"}]}`), nil
+	})
+
+	adp, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{
+		AccountMode: AccountModeUTA,
+	}, exchanges.QuoteCurrencyUSDT, client)
+	require.NoError(t, err)
+	require.IsType(t, &utaSpotProfile{}, adp.private)
+}
+
 func TestNewPerpAdapterWithCredentialsDoesNotProbeAccountSettings(t *testing.T) {
 	calledSettings := false
 	client := newTestClient(func(r *http.Request) (*http.Response, error) {

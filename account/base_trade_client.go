@@ -17,10 +17,21 @@ type placementClientIDInitializer interface {
 	EnsureClientID(params *exchanges.OrderParams) error
 }
 
+type instrumentOrderPlacer interface {
+	PlaceOrderFor(ctx context.Context, market exchanges.MarketRef, params *exchanges.OrderParams) (*exchanges.Order, error)
+}
+
 // baseTradeClient owns the market-agnostic execution machinery shared by
 // PerpTradingAccount and SpotTradingAccount: order cache, order/fill flow
 // fusion, client-id management, run lifecycle. It is unaware of positions,
 // balances, leverage, or any market-specific concept.
+//
+// TradingAccount lifecycle dependency contract:
+//   - FetchAccount must provide the initial order/account snapshot.
+//   - WatchOrders is mandatory for perp and spot TradingAccount readiness.
+//   - WatchFills is optional; ErrNotSupported is represented in health.
+//   - Product-specific streams such as positions and balances are health
+//     sources, not reasons to pull funding/OI/analytics APIs into this layer.
 //
 // Each concrete *TradingAccount embeds baseTradeClient and adds its own
 // state (positions/balances), its own Place strongly-typed entry point, and
@@ -73,9 +84,12 @@ func (b *baseTradeClient) placeGeneric(ctx context.Context, params *exchanges.Or
 	if err := b.ensurePlacementClientID(params); err != nil {
 		return nil, err
 	}
+	if hasMarketIdentity(params.Market) {
+		params.Symbol = params.Market.Symbol()
+	}
 
 	flow := b.flows.Register(pendingPlacementOrder(params))
-	order, err := b.adp.PlaceOrder(ctx, params)
+	order, err := b.placeOrder(ctx, params)
 	if err != nil {
 		flow.Close()
 		return nil, err
@@ -88,6 +102,15 @@ func (b *baseTradeClient) placeGeneric(ctx context.Context, params *exchanges.Or
 	flow.seedPlacement(order)
 	b.flows.Bind(flow, order)
 	return flow, nil
+}
+
+func (b *baseTradeClient) placeOrder(ctx context.Context, params *exchanges.OrderParams) (*exchanges.Order, error) {
+	if params != nil && hasMarketIdentity(params.Market) {
+		if instrumentAdp, ok := b.adp.(instrumentOrderPlacer); ok {
+			return instrumentAdp.PlaceOrderFor(ctx, params.Market, params)
+		}
+	}
+	return b.adp.PlaceOrder(ctx, params)
 }
 
 func (b *baseTradeClient) placeGenericWS(ctx context.Context, params *exchanges.OrderParams) (*OrderFlow, error) {
@@ -155,6 +178,10 @@ func pendingPlacementOrder(params *exchanges.OrderParams) *exchanges.Order {
 		Status:        exchanges.OrderStatusPending,
 		Timestamp:     time.Now().UnixMilli(),
 	}
+}
+
+func hasMarketIdentity(market exchanges.MarketRef) bool {
+	return strings.TrimSpace(market.Base) != "" || strings.TrimSpace(market.VenueSymbol) != ""
 }
 
 func isTerminalOrderStatus(status exchanges.OrderStatus) bool {

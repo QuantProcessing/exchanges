@@ -139,3 +139,12 @@ func Request[T any](c *Client, ctx context.Context, method Method, path string, 
 
 	return baseResp.Data, nil
 }
+
+func applySDKRequestOpts(payload map[string]any, opts exchanges.SDKRequestOpts) {
+	if opts.RecvWindowMillis > 0 {
+		payload["recvWindow"] = opts.RecvWindowMillis
+	}
+	if opts.ClientRequestID != "" {
+		payload["clOrdId"] = opts.ClientRequestID
+	}
+}

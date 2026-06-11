@@ -16,6 +16,7 @@ import (
 // setting set via PerpTradingAccount.SetLeverage, not a per-order flag.
 type PerpOrderParams struct {
 	Symbol      string
+	Market      exchanges.MarketRef
 	Side        exchanges.OrderSide
 	Type        exchanges.OrderType
 	Quantity    decimal.Decimal
@@ -33,6 +34,7 @@ func (p *PerpOrderParams) toGeneric() *exchanges.OrderParams {
 	}
 	return &exchanges.OrderParams{
 		Symbol:      p.Symbol,
+		Market:      p.Market,
 		Side:        p.Side,
 		Type:        p.Type,
 		Quantity:    p.Quantity,

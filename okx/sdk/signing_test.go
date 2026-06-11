@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestSignRequest(t *testing.T) {
+func TestSigner_SignRequest(t *testing.T) {
 	apiKey := "test_api_key"
 	secretKey := "test_secret_key"
 	passphrase := "test_passphrase"

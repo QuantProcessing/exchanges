@@ -35,6 +35,29 @@ func TestNewAdapterWithClientRejectsPartialCredentials(t *testing.T) {
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
 }
 
+func TestNewAdapterWithClientRecordsAccountLevel(t *testing.T) {
+	client := newOKXTestClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v5/public/instruments":
+			return okxJSONHTTPResponse(`{"code":"0","msg":"","data":[{"instId":"BTC-USDT-SWAP","instIdCode":123456,"baseCcy":"BTC","quoteCcy":"USDT","ctVal":"0.01","ctValCcy":"BTC","tickSz":"0.1","lotSz":"1","minSz":"1","instType":"SWAP","state":"live"}]}`), nil
+		case "/api/v5/account/config":
+			return okxJSONHTTPResponse(`{"code":"0","msg":"","data":[{"acctLv":"4","posMode":"long_short_mode"}]}`), nil
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	adp, err := newPerpAdapterWithClient(context.Background(), Options{
+		APIKey:     "key",
+		SecretKey:  "secret",
+		Passphrase: "pass",
+	}, exchanges.QuoteCurrencyUSDT, client)
+	require.NoError(t, err)
+	require.Equal(t, okxsdk.AccountLevelPortfolioMargin, adp.accountLevel)
+	require.Equal(t, "long_short_mode", adp.posMode)
+}
+
 func TestNewSpotAdapterWithClientAllowsPublicOnlyConstruction(t *testing.T) {
 	client := newOKXTestClient(func(r *http.Request) (*http.Response, error) {
 		require.Equal(t, "/api/v5/public/instruments", r.URL.Path)

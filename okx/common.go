@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/shopspring/decimal"
 )
 
@@ -37,29 +38,31 @@ func ExtractSymbol(symbol string) string {
 // FormatSymbolWithQuote converts base currency with configurable quote and instType
 // (e.g., BTC + USDC + SWAP → BTC-USDC-SWAP)
 func FormatSymbolWithQuote(symbol, quote, instType string) string {
-	s := strings.ToUpper(symbol)
-	suffix := "-" + strings.ToUpper(quote) + "-" + strings.ToUpper(instType)
-	if !strings.HasSuffix(s, suffix) {
-		s += suffix
+	market := exchanges.ParseMarketRef(symbol, exchanges.QuoteCurrency(quote), exchanges.MarketTypePerp)
+	suffix := "-" + strings.ToUpper(instType)
+	if strings.HasSuffix(strings.ToUpper(symbol), suffix) {
+		return strings.ToUpper(symbol)
 	}
-	return s
+	return market.Base + "-" + string(market.Quote) + suffix
 }
 
 // FormatSpotSymbolWithQuote converts base currency for OKX spot (e.g., BTC + USDC → BTC-USDC)
 func FormatSpotSymbolWithQuote(symbol, quote string) string {
-	s := strings.ToUpper(symbol)
-	suffix := "-" + strings.ToUpper(quote)
-	if strings.Contains(s, "-") {
-		return s
-	}
-	return s + suffix
+	market := exchanges.ParseMarketRef(symbol, exchanges.QuoteCurrency(quote), exchanges.MarketTypeSpot)
+	return market.Base + "-" + string(market.Quote)
 }
 
 // ExtractSymbolWithQuote extracts base currency by trimming quote-related suffixes
 func ExtractSymbolWithQuote(symbol, quote string) string {
-	s := strings.ToUpper(symbol)
-	q := strings.ToUpper(quote)
-	s = strings.TrimSuffix(s, "-"+q+"-SWAP")
-	s = strings.TrimSuffix(s, "-"+q)
-	return s
+	market := exchanges.ParseMarketRef(symbol, exchanges.QuoteCurrency(quote), "")
+	return market.Symbol()
+}
+
+func isSupportedOKXQuote(quote exchanges.QuoteCurrency) bool {
+	switch quote {
+	case exchanges.QuoteCurrencyUSDT, exchanges.QuoteCurrencyUSDC:
+		return true
+	default:
+		return false
+	}
 }

@@ -33,10 +33,40 @@ func TestBuildMarketCacheFiltersByQuoteAndTradingStatus(t *testing.T) {
 
 	cache := buildMarketCache(instruments, exchanges.QuoteCurrencyUSDT)
 	require.Equal(t, "BTCUSDT", cache.byBase["BTC"].Symbol)
+	require.Equal(t, "BTCUSDT", cache.byBase["BTC/USDT"].Symbol)
+	require.Equal(t, "BTCUSDC", cache.byBase["BTC/USDC"].Symbol)
 	_, hasETH := cache.byBase["ETH"]
 	require.False(t, hasETH)
-	_, hasUSDC := cache.bySymbol["BTCUSDC"]
-	require.False(t, hasUSDC)
+	require.Contains(t, cache.bySymbol, "BTCUSDC")
+}
+
+func TestBuildMarketCacheSupportsMultipleQuotes(t *testing.T) {
+	instruments := []sdk.Instrument{
+		{
+			Symbol:    "BTCUSDT",
+			BaseCoin:  "BTC",
+			QuoteCoin: "USDT",
+			Status:    instrumentStatusTrading,
+		},
+		{
+			Symbol:    "BTCUSDC",
+			BaseCoin:  "BTC",
+			QuoteCoin: "USDC",
+			Status:    instrumentStatusTrading,
+		},
+	}
+
+	usdtCache := buildMarketCache(instruments, exchanges.QuoteCurrencyUSDT)
+	require.Equal(t, "BTCUSDT", usdtCache.byBase["BTC"].Symbol)
+	require.Equal(t, "BTCUSDT", usdtCache.byBase["BTC/USDT"].Symbol)
+	require.Equal(t, "BTCUSDC", usdtCache.byBase["BTC/USDC"].Symbol)
+	require.Contains(t, usdtCache.bySymbol, "BTCUSDC")
+
+	usdcCache := buildMarketCache(instruments, exchanges.QuoteCurrencyUSDC)
+	require.Equal(t, "BTCUSDC", usdcCache.byBase["BTC"].Symbol)
+	require.Equal(t, "BTCUSDT", usdcCache.byBase["BTC/USDT"].Symbol)
+	require.Equal(t, "BTCUSDC", usdcCache.byBase["BTC/USDC"].Symbol)
+	require.Contains(t, usdcCache.bySymbol, "BTCUSDT")
 }
 
 func TestSymbolDetailsFromInstrumentUsesTickSizeAndQtyStep(t *testing.T) {

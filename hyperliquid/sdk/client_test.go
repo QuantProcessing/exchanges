@@ -10,17 +10,17 @@ import (
 	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
-func requireFullEnv(t *testing.T) {
+func requireLiveCredentials(t *testing.T) {
 	t.Helper()
-	testenv.RequireFull(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
+	testenv.RequireLiveCredentials(t, "HYPERLIQUID_PRIVATE_KEY", "HYPERLIQUID_ACCOUNT_ADDR")
 }
 
-func GetEnv() (string, string, string) {
+func hyperliquidEnv() (string, string, string) {
 	return os.Getenv("HYPERLIQUID_PRIVATE_KEY"), os.Getenv("HYPERLIQUID_VAULT"), os.Getenv("HYPERLIQUID_ACCOUNT_ADDR")
 }
 func TestGetUserFees(t *testing.T) {
-	requireFullEnv(t)
-	privateKey, vault, accountAddr := GetEnv()
+	requireLiveCredentials(t)
+	privateKey, vault, accountAddr := hyperliquidEnv()
 	client := NewClient().WithCredentials(privateKey, &vault).WithAccount(accountAddr)
 	fees, err := client.GetUserFees(context.Background())
 	if err != nil {

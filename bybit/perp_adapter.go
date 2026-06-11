@@ -15,15 +15,16 @@ import (
 
 type Adapter struct {
 	*exchanges.BaseAdapter
-	client    marketClient
-	publicWS  publicWSClient
-	privateWS privateWSClient
-	tradeWS   tradeWSClient
-	markets   *marketCache
-	quote     exchanges.QuoteCurrency
-	cancel    context.CancelFunc
-	cancels   map[string]context.CancelFunc
-	mu        sync.RWMutex
+	client      marketClient
+	publicWS    publicWSClient
+	privateWS   privateWSClient
+	tradeWS     tradeWSClient
+	markets     *marketCache
+	quote       exchanges.QuoteCurrency
+	accountMode sdk.AccountMode
+	cancel      context.CancelFunc
+	cancels     map[string]context.CancelFunc
+	mu          sync.RWMutex
 }
 
 func NewAdapter(ctx context.Context, opts Options) (*Adapter, error) {
@@ -45,6 +46,10 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
 		return nil, authError("bybit: api_key and secret_key must both be set together")
 	}
+	accountMode, err := resolveAccountMode(ctx, client, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypePerp, opts.logger())
 	instruments, err := client.GetInstruments(ctx, categoryLinear)
@@ -63,6 +68,7 @@ func newPerpAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		tradeWS:     sdk.NewTradeWSClient().WithCredentials(opts.APIKey, opts.SecretKey),
 		markets:     markets,
 		quote:       quote,
+		accountMode: accountMode,
 		cancel:      cancel,
 		cancels:     make(map[string]context.CancelFunc),
 	}, nil
@@ -85,19 +91,22 @@ func (a *Adapter) Close() error {
 }
 
 func (a *Adapter) FormatSymbol(symbol string) string {
-	upper := strings.ToUpper(symbol)
-	if inst, ok := a.markets.byBase[upper]; ok {
+	market := exchanges.ParseMarketRef(symbol, a.quote, exchanges.MarketTypePerp)
+	if inst, ok := a.markets.byBase[market.Base]; ok && string(market.Quote) == string(a.quote) {
 		return inst.Symbol
 	}
-	return upper
+	if inst, ok := a.markets.byBase[market.Symbol()]; ok {
+		return inst.Symbol
+	}
+	return market.Base + string(market.Quote)
 }
 
 func (a *Adapter) ExtractSymbol(symbol string) string {
 	upper := strings.ToUpper(symbol)
 	if inst, ok := a.markets.bySymbol[upper]; ok && inst.BaseCoin != "" {
-		return strings.ToUpper(inst.BaseCoin)
+		return marketRefFromInstrument(inst, a.quote, exchanges.MarketTypePerp).Symbol()
 	}
-	return upper
+	return exchanges.ParseMarketRef(upper, a.quote, exchanges.MarketTypePerp).Symbol()
 }
 
 func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {
@@ -662,4 +671,3 @@ func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, par
 	}
 	return a.tradeWS.AmendOrder(ctx, req)
 }
-

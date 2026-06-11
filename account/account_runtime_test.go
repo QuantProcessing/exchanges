@@ -19,6 +19,9 @@ type stubExchange struct {
 	placed *exchanges.OrderParams
 }
 
+var _ exchanges.PerpRiskExchange = (*stubExchange)(nil)
+var _ exchanges.PerpMarketAnalytics = (*stubExchange)(nil)
+
 func (s *stubExchange) GetExchange() string { return "stub" }
 
 func (s *stubExchange) GetMarketType() exchanges.MarketType { return exchanges.MarketTypePerp }
@@ -198,6 +201,25 @@ type accountRuntimeStubExchange struct {
 	positionWatchID        atomic.Int64
 	watchMu                sync.Mutex
 	placedWS               *exchanges.OrderParams
+	placeForMarket         exchanges.MarketRef
+	placedFor              *exchanges.OrderParams
+}
+
+type spotAccountRuntimeStubExchange struct {
+	accountRuntimeStubExchange
+	spotBalances []exchanges.SpotBalance
+}
+
+func (s *spotAccountRuntimeStubExchange) GetMarketType() exchanges.MarketType {
+	return exchanges.MarketTypeSpot
+}
+
+func (s *spotAccountRuntimeStubExchange) FetchSpotBalances(context.Context) ([]exchanges.SpotBalance, error) {
+	return s.spotBalances, nil
+}
+
+func (s *spotAccountRuntimeStubExchange) TransferAsset(context.Context, *exchanges.TransferParams) error {
+	return nil
 }
 
 func (s *accountRuntimeStubExchange) FetchAccount(ctx context.Context) (*exchanges.Account, error) {
@@ -352,6 +374,15 @@ func (s *accountRuntimeStubExchange) PlaceOrder(ctx context.Context, params *exc
 	}
 
 	return order, nil
+}
+
+func (s *accountRuntimeStubExchange) PlaceOrderFor(ctx context.Context, market exchanges.MarketRef, params *exchanges.OrderParams) (*exchanges.Order, error) {
+	s.placeForMarket = market
+	if params != nil {
+		copy := *params
+		s.placedFor = &copy
+	}
+	return s.PlaceOrder(ctx, params)
 }
 
 func (s *accountRuntimeStubExchange) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
@@ -538,6 +569,38 @@ func TestTradingAccountPlaceReturnsFlowAndBackfillsOrderID(t *testing.T) {
 		latest := flow.Latest()
 		return latest != nil && latest.OrderID == "exch-1"
 	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTradingAccountPlaceUsesInstrumentMarketWhenProvided(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		placeResp: &exchanges.Order{
+			OrderID: "exch-1",
+			Status:  exchanges.OrderStatusNew,
+		},
+	}
+	acct := account.NewPerpTradingAccount(adp, exchanges.NopLogger)
+	market := exchanges.ParseMarketRef("BTC/USDC", exchanges.QuoteCurrencyUSDT, exchanges.MarketTypePerp)
+
+	flow, err := acct.Place(context.Background(), &account.PerpOrderParams{
+		Symbol:   "BTC",
+		Market:   market,
+		Side:     exchanges.OrderSideBuy,
+		Type:     exchanges.OrderTypeLimit,
+		Quantity: decimal.RequireFromString("0.1"),
+		Price:    decimal.RequireFromString("50000"),
+		ClientID: "cli-1",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, flow)
+	defer flow.Close()
+	require.Equal(t, market, adp.placeForMarket)
+	require.NotNil(t, adp.placedFor)
+	require.Equal(t, "BTC/USDC", adp.placedFor.Symbol)
+	require.Equal(t, market, adp.placedFor.Market)
+	require.Equal(t, "BTC/USDC", flow.Latest().Symbol)
 }
 
 func TestTradingAccountPlaceTracksSyncOrderUpdateBeforeAckReturns(t *testing.T) {
@@ -822,6 +885,20 @@ func TestTradingAccountStartIgnoresUnsupportedWatchFills(t *testing.T) {
 	require.EqualValues(t, 1, adp.watchFillsCalls.Load())
 }
 
+func TestTradingAccountStartRequiresWatchOrders(t *testing.T) {
+	t.Parallel()
+
+	adp := &accountRuntimeStubExchange{
+		watchOrdersErr: exchanges.ErrNotSupported,
+	}
+
+	acct := account.NewPerpTradingAccount(adp, nil)
+	err := acct.Start(context.Background())
+	require.ErrorIs(t, err, exchanges.ErrNotSupported)
+	require.EqualValues(t, 1, adp.watchOrdersCalls.Load())
+	require.EqualValues(t, 0, adp.watchFillsCalls.Load())
+}
+
 func TestTradingAccountHealthReportsReadyAndUnsupportedStreams(t *testing.T) {
 	t.Parallel()
 
@@ -839,6 +916,29 @@ func TestTradingAccountHealthReportsReadyAndUnsupportedStreams(t *testing.T) {
 	require.Equal(t, account.StreamStatusReady, health.Streams[account.StreamOrders].Status)
 	require.Equal(t, account.StreamStatusUnsupported, health.Streams[account.StreamFills].Status)
 	require.Equal(t, account.StreamStatusReady, health.Streams[account.StreamPositions].Status)
+	require.False(t, health.Streams[account.StreamFills].Supported)
+}
+
+func TestSpotTradingAccountHealthReportsReadyBalancesAndUnsupportedFills(t *testing.T) {
+	t.Parallel()
+
+	adp := &spotAccountRuntimeStubExchange{
+		accountRuntimeStubExchange: accountRuntimeStubExchange{
+			watchFillsErr: exchanges.ErrNotSupported,
+		},
+		spotBalances: []exchanges.SpotBalance{},
+	}
+
+	acct := account.NewSpotTradingAccount(adp, nil)
+	require.NoError(t, acct.Start(context.Background()))
+	defer acct.Close()
+
+	health := acct.Health()
+	require.True(t, health.Started)
+	require.True(t, health.SnapshotLoaded)
+	require.Equal(t, account.StreamStatusReady, health.Streams[account.StreamOrders].Status)
+	require.Equal(t, account.StreamStatusUnsupported, health.Streams[account.StreamFills].Status)
+	require.Equal(t, account.StreamStatusReady, health.Streams[account.StreamBalances].Status)
 	require.False(t, health.Streams[account.StreamFills].Supported)
 }
 

@@ -69,12 +69,12 @@ func TestExtractSymbolWithQuote(t *testing.T) {
 		quote  string
 		want   string
 	}{
-		{"perp USDT", "BTC-USDT-SWAP", "USDT", "BTC"},
-		{"perp USDC", "BTC-USDC-SWAP", "USDC", "BTC"},
-		{"spot USDT", "ETH-USDT", "USDT", "ETH"},
-		{"spot USDC", "ETH-USDC", "USDC", "ETH"},
-		{"no match", "BTC-USDC-SWAP", "USDT", "BTC-USDC-SWAP"},
-		{"bare symbol", "BTC", "USDT", "BTC"},
+		{"perp USDT", "BTC-USDT-SWAP", "USDT", "BTC/USDT"},
+		{"perp USDC", "BTC-USDC-SWAP", "USDC", "BTC/USDC"},
+		{"spot USDT", "ETH-USDT", "USDT", "ETH/USDT"},
+		{"spot USDC", "ETH-USDC", "USDC", "ETH/USDC"},
+		{"explicit quote overrides default", "BTC-USDC-SWAP", "USDT", "BTC/USDC"},
+		{"bare symbol", "BTC", "USDT", "BTC/USDT"},
 	}
 
 	for _, tt := range tests {
@@ -88,8 +88,26 @@ func TestExtractSymbolWithQuote(t *testing.T) {
 	}
 }
 
-// Backward compatibility
-func TestFormatSymbol_BackwardCompat(t *testing.T) {
+func TestFormatAndExtractDocumentQuoteAwareInterpretation(t *testing.T) {
+	usdtPerp := FormatSymbolWithQuote("BTC", "USDT", "SWAP")
+	usdcPerp := FormatSymbolWithQuote("BTC", "USDC", "SWAP")
+
+	if usdtPerp != "BTC-USDT-SWAP" {
+		t.Fatalf("USDT perp formatter = %q, want BTC-USDT-SWAP", usdtPerp)
+	}
+	if usdcPerp != "BTC-USDC-SWAP" {
+		t.Fatalf("USDC perp formatter = %q, want BTC-USDC-SWAP", usdcPerp)
+	}
+
+	if got := ExtractSymbolWithQuote("BTC-USDC-SWAP", "USDT"); got != "BTC/USDC" {
+		t.Fatalf("extractor should preserve explicit BTC-USDC-SWAP quote, got %q", got)
+	}
+	if got := ExtractSymbolWithQuote("BTC-USDT-SWAP", "USDC"); got != "BTC/USDT" {
+		t.Fatalf("extractor should preserve explicit BTC-USDT-SWAP quote, got %q", got)
+	}
+}
+
+func TestFormatSymbol_DefaultQuote(t *testing.T) {
 	tests := []struct {
 		symbol string
 		want   string
@@ -106,14 +124,14 @@ func TestFormatSymbol_BackwardCompat(t *testing.T) {
 	}
 }
 
-func TestExtractSymbol_BackwardCompat(t *testing.T) {
+func TestExtractSymbol_DefaultQuote(t *testing.T) {
 	tests := []struct {
 		symbol string
 		want   string
 	}{
-		{"BTC-USDT-SWAP", "BTC"},
-		{"ETH-USDT", "ETH"},
-		{"BTC", "BTC"},
+		{"BTC-USDT-SWAP", "BTC/USDT"},
+		{"ETH-USDT", "ETH/USDT"},
+		{"BTC", "BTC/USDT"},
 	}
 	for _, tt := range tests {
 		got := ExtractSymbol(tt.symbol)
@@ -132,8 +150,9 @@ func TestFormatExtract_Roundtrip_Perp(t *testing.T) {
 		for _, sym := range symbols {
 			formatted := FormatSymbolWithQuote(sym, quote, "SWAP")
 			extracted := ExtractSymbolWithQuote(formatted, quote)
-			if extracted != sym {
-				t.Errorf("Roundtrip perp failed: %q → %q → %q, want %q", sym, formatted, extracted, sym)
+			want := sym + "/" + quote
+			if extracted != want {
+				t.Errorf("Roundtrip perp failed: %q → %q → %q, want %q", sym, formatted, extracted, want)
 			}
 		}
 	}
@@ -147,8 +166,9 @@ func TestFormatExtract_Roundtrip_Spot(t *testing.T) {
 		for _, sym := range symbols {
 			formatted := FormatSpotSymbolWithQuote(sym, quote)
 			extracted := ExtractSymbolWithQuote(formatted, quote)
-			if extracted != sym {
-				t.Errorf("Roundtrip spot failed: %q → %q → %q, want %q", sym, formatted, extracted, sym)
+			want := sym + "/" + quote
+			if extracted != want {
+				t.Errorf("Roundtrip spot failed: %q → %q → %q, want %q", sym, formatted, extracted, want)
 			}
 		}
 	}

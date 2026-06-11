@@ -16,6 +16,7 @@ var supportedQuoteCurrencies = []exchanges.QuoteCurrency{
 type Options struct {
 	PrivateKey    string
 	AccountAddr   string
+	VaultAddress  string
 	QuoteCurrency exchanges.QuoteCurrency // "USDC" (only supported)
 	Logger        exchanges.Logger
 }
@@ -65,4 +66,11 @@ func (o Options) accountAddr() string {
 		return ""
 	}
 	return crypto.PubkeyToAddress(pk.PublicKey).Hex()
+}
+
+func (o Options) vaultAddress() *string {
+	if o.VaultAddress == "" {
+		return nil
+	}
+	return &o.VaultAddress
 }

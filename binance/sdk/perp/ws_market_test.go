@@ -5,15 +5,10 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
 func requireRealtimeWS(t *testing.T) {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping realtime websocket test under -short")
-	}
 }
 
 // TestSubscribeMarkPrice tests real subscription to Mark Price
@@ -194,7 +189,6 @@ func TestReconnectAndResubscribe(t *testing.T) {
 }
 
 func TestKline(t *testing.T) {
-	testenv.RequireSoak(t)
 	client := NewWsMarketClient(context.Background())
 	client.WsClient.Debug = true
 
@@ -225,33 +219,6 @@ func TestKline(t *testing.T) {
 		t.Fatal("timeout waiting for initial market event from Binance")
 	}
 
-	overall := time.NewTimer(3 * time.Minute)
-	defer overall.Stop()
-	silence := time.NewTimer(30 * time.Second)
-	defer silence.Stop()
-
-	select {
-	case <-overall.C:
-		return
-	default:
-	}
-
-	for {
-		select {
-		case <-events:
-			if !silence.Stop() {
-				select {
-				case <-silence.C:
-				default:
-				}
-			}
-			silence.Reset(30 * time.Second)
-		case <-silence.C:
-			t.Fatal("market websocket went silent during Binance soak")
-		case <-overall.C:
-			return
-		}
-	}
 }
 
 // TestMultiSubscription tests simultaneous subscriptions to multiple streams

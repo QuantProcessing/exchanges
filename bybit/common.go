@@ -23,6 +23,7 @@ const (
 )
 
 type marketClient interface {
+	GetAccountInfo(ctx context.Context) (*sdk.AccountInfo, error)
 	GetInstruments(ctx context.Context, category string) ([]sdk.Instrument, error)
 	GetTicker(ctx context.Context, category, symbol string) (*sdk.Ticker, error)
 	GetOrderBook(ctx context.Context, category, symbol string, limit int) (*sdk.OrderBook, error)
@@ -43,6 +44,32 @@ type marketClient interface {
 	GetOrderHistory(ctx context.Context, category, symbol string) ([]sdk.OrderRecord, error)
 	GetOrderHistoryFiltered(ctx context.Context, category, symbol, orderID, orderLinkID string) ([]sdk.OrderRecord, error)
 	HasCredentials() bool
+}
+
+func resolveAccountMode(ctx context.Context, client marketClient, opts Options) (sdk.AccountMode, error) {
+	configured, err := opts.accountMode()
+	if err != nil {
+		return sdk.AccountModeUnknown, err
+	}
+	if configured == AccountModeClassic {
+		return sdk.AccountModeClassic, exchanges.NewExchangeError(exchangeName, "", "bybit classic account mode is not supported by this adapter lifecycle path", exchanges.ErrNotSupported)
+	}
+	if configured == AccountModeUnified {
+		return sdk.AccountModeUTA2, nil
+	}
+	if !hasFullCredentials(opts) {
+		return sdk.AccountModeUnknown, nil
+	}
+
+	info, err := client.GetAccountInfo(ctx)
+	if err != nil {
+		return sdk.AccountModeUnknown, err
+	}
+	mode := info.AccountMode()
+	if mode.IsUnified() {
+		return mode, nil
+	}
+	return mode, exchanges.NewExchangeError(exchangeName, "", fmt.Sprintf("unsupported bybit account mode status %d", info.UnifiedMarginStatus), exchanges.ErrNotSupported)
 }
 
 type publicWSClient interface {
@@ -79,15 +106,18 @@ func newMarketCache() *marketCache {
 func buildMarketCache(instruments []sdk.Instrument, quote exchanges.QuoteCurrency) *marketCache {
 	cache := newMarketCache()
 	for _, inst := range instruments {
-		if strings.ToUpper(inst.QuoteCoin) != string(quote) {
-			continue
-		}
 		if !strings.EqualFold(inst.Status, instrumentStatusTrading) {
 			continue
 		}
-		base := strings.ToUpper(inst.BaseCoin)
+		market := marketRefFromInstrument(inst, quote, exchanges.MarketTypePerp)
+		if market.Base == "" || !isSupportedBybitQuote(market.Quote) {
+			continue
+		}
 		symbol := strings.ToUpper(inst.Symbol)
-		cache.byBase[base] = inst
+		cache.byBase[market.Symbol()] = inst
+		if string(market.Quote) == string(quote) {
+			cache.byBase[market.Base] = inst
+		}
 		cache.bySymbol[symbol] = inst
 	}
 	return cache
@@ -96,17 +126,22 @@ func buildMarketCache(instruments []sdk.Instrument, quote exchanges.QuoteCurrenc
 func buildSymbolDetails(instruments []sdk.Instrument, quote exchanges.QuoteCurrency) map[string]*exchanges.SymbolDetails {
 	details := make(map[string]*exchanges.SymbolDetails)
 	for _, inst := range instruments {
-		if strings.ToUpper(inst.QuoteCoin) != string(quote) {
+		if !strings.EqualFold(inst.Status, instrumentStatusTrading) {
 			continue
 		}
-		if !strings.EqualFold(inst.Status, instrumentStatusTrading) {
+		market := marketRefFromInstrument(inst, quote, exchanges.MarketTypePerp)
+		if market.Base == "" || !isSupportedBybitQuote(market.Quote) {
 			continue
 		}
 		detail, err := symbolDetailsFromInstrument(inst)
 		if err != nil {
 			continue
 		}
-		details[detail.Symbol] = detail
+		detail.Symbol = market.Symbol()
+		details[market.Symbol()] = detail
+		if string(market.Quote) == string(quote) {
+			details[market.Base] = detail
+		}
 	}
 	return details
 }
@@ -125,6 +160,29 @@ func symbolDetailsFromInstrument(inst sdk.Instrument) (*exchanges.SymbolDetails,
 		MinQuantity:       parseDecimal(inst.LotSizeFilter.MinOrderQty),
 		MinNotional:       parseDecimal(firstNonEmpty(inst.LotSizeFilter.MinNotionalValue, inst.LotSizeFilter.MinOrderAmt)),
 	}, nil
+}
+
+func marketRefFromInstrument(inst sdk.Instrument, defaultQuote exchanges.QuoteCurrency, marketType exchanges.MarketType) exchanges.MarketRef {
+	base := strings.ToUpper(inst.BaseCoin)
+	quote := strings.ToUpper(inst.QuoteCoin)
+	if base != "" && quote != "" {
+		return exchanges.MarketRef{
+			Base:   base,
+			Quote:  exchanges.QuoteCurrency(quote),
+			Settle: exchanges.QuoteCurrency(quote),
+			Type:   marketType,
+		}
+	}
+	return exchanges.ParseMarketRef(inst.Symbol, defaultQuote, marketType)
+}
+
+func isSupportedBybitQuote(quote exchanges.QuoteCurrency) bool {
+	switch quote {
+	case exchanges.QuoteCurrencyUSDT, exchanges.QuoteCurrencyUSDC:
+		return true
+	default:
+		return false
+	}
 }
 
 func authError(message string) error {

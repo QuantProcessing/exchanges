@@ -14,9 +14,18 @@ var supportedQuoteCurrencies = []exchanges.QuoteCurrency{
 	exchanges.QuoteCurrencyUSDC,
 }
 
+type AccountMode string
+
+const (
+	AccountModeAuto    AccountMode = ""
+	AccountModeUnified AccountMode = "UNIFIED"
+	AccountModeClassic AccountMode = "CLASSIC"
+)
+
 type Options struct {
 	APIKey            string
 	SecretKey         string
+	AccountMode       AccountMode
 	QuoteCurrency     exchanges.QuoteCurrency
 	OptionUnderlyings []string
 	Logger            exchanges.Logger
@@ -40,6 +49,15 @@ func (o Options) quoteCurrency() (exchanges.QuoteCurrency, error) {
 		}
 	}
 	return "", fmt.Errorf("bybit: unsupported quote currency %q, supported: %v", q, supportedQuoteCurrencies)
+}
+
+func (o Options) accountMode() (AccountMode, error) {
+	switch mode := AccountMode(strings.ToUpper(strings.TrimSpace(string(o.AccountMode)))); mode {
+	case AccountModeAuto, AccountModeUnified, AccountModeClassic:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("bybit: unsupported account mode %q", o.AccountMode)
+	}
 }
 
 func (o Options) optionUnderlyings() []string {

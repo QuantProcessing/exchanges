@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/QuantProcessing/exchanges/internal/mbx"
 )
 
@@ -156,4 +157,13 @@ func (c *Client) Delete(ctx context.Context, endpoint string, params map[string]
 
 func (c *Client) Put(ctx context.Context, endpoint string, params map[string]interface{}, signed bool, result interface{}) error {
 	return c.call(ctx, http.MethodPut, endpoint, params, signed, result)
+}
+
+func applySDKRequestOpts(params map[string]interface{}, opts exchanges.SDKRequestOpts) {
+	if opts.RecvWindowMillis > 0 {
+		params["recvWindow"] = opts.RecvWindowMillis
+	}
+	if opts.ClientRequestID != "" {
+		params["newClientOrderId"] = opts.ClientRequestID
+	}
 }

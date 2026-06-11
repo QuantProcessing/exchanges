@@ -7,9 +7,6 @@ import (
 )
 
 func Test_SubscribeOrderBook_Debug(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping realtime websocket test under -short")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -56,9 +53,6 @@ func Test_SubscribeOrderBook_Debug(t *testing.T) {
 }
 
 func Test_SubscribeOrderBook(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping realtime websocket test under -short")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 

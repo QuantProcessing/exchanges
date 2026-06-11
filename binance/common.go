@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/shopspring/decimal"
 )
 
@@ -59,17 +60,21 @@ func ExtractSymbol(symbol string) string {
 
 // FormatSymbolWithQuote converts base currency with configurable quote (e.g., BTC + USDC → btcusdc)
 func FormatSymbolWithQuote(symbol, quote string) string {
-	s := strings.ToLower(symbol)
-	q := strings.ToLower(quote)
-	if !strings.HasSuffix(s, q) {
-		s += q
-	}
-	return s
+	market := exchanges.ParseMarketRef(symbol, exchanges.QuoteCurrency(quote), "")
+	return strings.ToLower(market.Base + string(market.Quote))
 }
 
 // ExtractSymbolWithQuote extracts base currency by trimming configurable quote (e.g., BTCUSDC → BTC)
 func ExtractSymbolWithQuote(symbol, quote string) string {
-	s := strings.ToUpper(symbol)
-	return strings.TrimSuffix(s, strings.ToUpper(quote))
+	market := exchanges.ParseMarketRef(symbol, exchanges.QuoteCurrency(quote), "")
+	return market.Symbol()
 }
 
+func isSupportedBinanceQuote(quote exchanges.QuoteCurrency) bool {
+	switch quote {
+	case exchanges.QuoteCurrencyUSDT, exchanges.QuoteCurrencyUSDC:
+		return true
+	default:
+		return false
+	}
+}

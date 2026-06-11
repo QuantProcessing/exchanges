@@ -2,6 +2,7 @@ package bitget
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -26,10 +27,14 @@ func (a *Adapter) FetchOpenInterest(ctx context.Context, symbol string) (*exchan
 	if err != nil {
 		return nil, err
 	}
-	ts, _ := strconv.ParseInt(res.Timestamp, 10, 64)
+	if len(res.List) == 0 {
+		return nil, fmt.Errorf("bitget open interest not found for %s", sym)
+	}
+	entry := res.List[0]
+	ts, _ := strconv.ParseInt(res.TS, 10, 64)
 	return &exchanges.OpenInterest{
 		Symbol:      symbol,
-		OIContracts: parseDecimal(res.Amount),
+		OIContracts: parseDecimal(entry.Size),
 		Timestamp:   ts,
 	}, nil
 }

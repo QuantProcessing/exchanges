@@ -2,31 +2,34 @@ package common
 
 import (
 	"context"
-	"strings"
+	"os"
+	"strconv"
 	"testing"
-	"time"
+
+	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
 
 func TestNonceManager_Fetch(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping external nonce service test under -short")
-	}
-	nm, err := NewNonceManager("https://mainnet.zklighter.elliot.ai", 2854, 2)
+	testenv.RequireLiveCredentials(t, "LIGHTER_ACCOUNT_INDEX", "LIGHTER_KEY_INDEX")
+	accountIndex, err := strconv.ParseInt(os.Getenv("LIGHTER_ACCOUNT_INDEX"), 10, 64)
 	if err != nil {
-		t.Error(err)
+		t.Fatalf("parse LIGHTER_ACCOUNT_INDEX: %v", err)
 	}
-	var nonce int64
-	for attempt := 0; attempt < 3; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		nonce, err = nm.Fetch(ctx)
-		cancel()
-		if err == nil {
-			break
-		}
-		if attempt == 2 || !strings.Contains(err.Error(), "EOF") {
-			t.Fatal(err)
-		}
-		time.Sleep(500 * time.Millisecond)
+	keyIndex, err := strconv.ParseUint(os.Getenv("LIGHTER_KEY_INDEX"), 10, 8)
+	if err != nil {
+		t.Fatalf("parse LIGHTER_KEY_INDEX: %v", err)
 	}
-	t.Logf("Nonce: %d", nonce)
+
+	nm, err := NewNonceManager("https://mainnet.zklighter.elliot.ai", accountIndex, uint8(keyIndex))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nonce, err := nm.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if nonce < 0 {
+		t.Fatalf("unexpected nonce: %d", nonce)
+	}
 }

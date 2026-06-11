@@ -28,6 +28,15 @@ func TestNewPerpAdapterWithClientRejectsPartialCredentials(t *testing.T) {
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
 }
 
+func TestNewPerpAdapterWithClientRejectsClassicAccountMode(t *testing.T) {
+	_, err := newPerpAdapterWithClient(context.Background(), func() {}, Options{APIKey: "key", SecretKey: "secret"}, exchanges.QuoteCurrencyUSDT, &bybitStubClient{
+		getAccountInfoFn: func(_ context.Context) (*sdk.AccountInfo, error) {
+			return &sdk.AccountInfo{UnifiedMarginStatus: sdk.UnifiedMarginStatusClassic}, nil
+		},
+	})
+	require.ErrorIs(t, err, exchanges.ErrNotSupported)
+}
+
 func TestNewSpotAdapterWithClientAllowsConstruction(t *testing.T) {
 	adp, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{}, exchanges.QuoteCurrencyUSDT, &bybitStubClient{
 		getInstrumentsFn: func(_ context.Context, category string) ([]sdk.Instrument, error) {
@@ -43,6 +52,20 @@ func TestNewSpotAdapterWithClientAllowsConstruction(t *testing.T) {
 func TestNewSpotAdapterWithClientRejectsPartialCredentials(t *testing.T) {
 	_, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{SecretKey: "secret"}, exchanges.QuoteCurrencyUSDT, &bybitStubClient{})
 	require.ErrorIs(t, err, exchanges.ErrAuthFailed)
+}
+
+func TestNewSpotAdapterWithClientAcceptsUnifiedAccountMode(t *testing.T) {
+	adp, err := newSpotAdapterWithClient(context.Background(), func() {}, Options{APIKey: "key", SecretKey: "secret"}, exchanges.QuoteCurrencyUSDT, &bybitStubClient{
+		getAccountInfoFn: func(_ context.Context) (*sdk.AccountInfo, error) {
+			return &sdk.AccountInfo{UnifiedMarginStatus: sdk.UnifiedMarginStatusUTA2}, nil
+		},
+		getInstrumentsFn: func(_ context.Context, category string) ([]sdk.Instrument, error) {
+			require.Equal(t, categorySpot, category)
+			return []sdk.Instrument{testSpotInstrument()}, nil
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, adp)
 }
 
 func testSpotInstrument() sdk.Instrument {
@@ -82,6 +105,7 @@ func testLinearInstrument() sdk.Instrument {
 }
 
 type bybitStubClient struct {
+	getAccountInfoFn    func(context.Context) (*sdk.AccountInfo, error)
 	getInstrumentsFn    func(context.Context, string) ([]sdk.Instrument, error)
 	getTickerFn         func(context.Context, string, string) (*sdk.Ticker, error)
 	getOrderBookFn      func(context.Context, string, string, int) (*sdk.OrderBook, error)
@@ -100,6 +124,13 @@ type bybitStubClient struct {
 	getOpenOrdersFn     func(context.Context, string, string) ([]sdk.OrderRecord, error)
 	getOrderHistoryFn   func(context.Context, string, string) ([]sdk.OrderRecord, error)
 	getRealtimeOrdersFn func(context.Context, string, string, string, string, string, int) ([]sdk.OrderRecord, error)
+}
+
+func (c *bybitStubClient) GetAccountInfo(ctx context.Context) (*sdk.AccountInfo, error) {
+	if c.getAccountInfoFn == nil {
+		panic("unexpected GetAccountInfo call")
+	}
+	return c.getAccountInfoFn(ctx)
 }
 
 func (c *bybitStubClient) GetInstruments(ctx context.Context, category string) ([]sdk.Instrument, error) {

@@ -36,6 +36,7 @@ func init() {
 		o := Options{
 			APIKey:        opts["api_key"],
 			SecretKey:     opts["secret_key"],
+			AccountMode:   AccountMode(opts["account_mode"]),
 			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
 		}
 

@@ -2,22 +2,8 @@ package okx
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
-	"time"
-
-	"github.com/QuantProcessing/exchanges/internal/testenv"
 )
-
-func GetEnv(t *testing.T) (string, string, string) {
-	t.Helper()
-	testenv.RequireFull(t, "OKX_API_KEY", "OKX_API_SECRET", "OKX_API_PASSPHRASE")
-	apiKey := os.Getenv("OKX_API_KEY")
-	secretKey := os.Getenv("OKX_API_SECRET")
-	passphrase := os.Getenv("OKX_API_PASSPHRASE")
-	return apiKey, secretKey, passphrase
-}
 
 func TestWSClientConstructorCompatibility(t *testing.T) {
 	ctx := context.Background()
@@ -42,33 +28,25 @@ func TestWSClientConstructorCompatibility(t *testing.T) {
 	}
 }
 
-func TestSubscribeTicker(t *testing.T) {
-	testenv.RequireFull(t)
-	wsClient := NewWSClient(context.Background())
-	err := wsClient.Connect()
-	if err != nil {
-		t.Fatal(err)
+func TestWSClient_SubscribeTicker(t *testing.T) {
+	client := newLivePublicOKXWSClient(t)
+
+	if err := client.SubscribeTicker(okxSpotInstID, func(*Ticker) {}); err != nil {
+		t.Fatalf("SubscribeTicker: %v", err)
 	}
-	wsClient.SubscribeTicker("BTC-USDT-SWAP", func(ticker *Ticker) {
-		fmt.Println(ticker)
-	})
-	timeout := time.NewTimer(10 * time.Second)
-	<-timeout.C
+	if client.Subs[WsSubscribeArgs{Channel: "tickers", InstId: okxSpotInstID}] == nil {
+		t.Fatalf("expected ticker subscription to be registered")
+	}
 }
 
-func TestSubscribeOrderBook(t *testing.T) {
-	testenv.RequireFull(t)
-	wsClient := NewWSClient(context.Background())
-	err := wsClient.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = wsClient.SubscribeOrderBook("BTC-USDT-SWAP", func(ob *OrderBook, action string) {
-		fmt.Printf("Received OrderBook: %+v, Action: %s\n", ob, action)
-	})
+func TestWSClient_SubscribeOrderBook(t *testing.T) {
+	client := newLivePublicOKXWSClient(t)
+
+	err := client.SubscribeOrderBook(okxSpotInstID, func(*OrderBook, string) {})
 	if err != nil {
 		t.Fatalf("SubscribeOrderBook failed: %v", err)
 	}
-	timeout := time.NewTimer(10 * time.Second)
-	<-timeout.C
+	if client.Subs[WsSubscribeArgs{Channel: "books", InstId: okxSpotInstID}] == nil {
+		t.Fatalf("expected order book subscription to be registered")
+	}
 }

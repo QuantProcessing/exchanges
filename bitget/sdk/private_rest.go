@@ -112,6 +112,104 @@ func (c *Client) GetAccountAssets(ctx context.Context) (*AccountAssets, error) {
 	return &out.Data, nil
 }
 
+func (c *Client) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
+	var out responseEnvelope[AccountInfo]
+	err := c.getPrivate(ctx, "/api/v3/account/info", nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get account info failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) GetFundingAssets(ctx context.Context, coin string) ([]FundingAsset, error) {
+	var out responseEnvelope[[]FundingAsset]
+	err := c.getPrivate(ctx, "/api/v3/account/funding-assets", map[string]string{"coin": coin}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get funding assets failed: %s %s", out.Code, out.Msg)
+	}
+	return out.Data, nil
+}
+
+func (c *Client) GetFinancialRecords(ctx context.Context, req FinancialRecordsRequest) (*FinancialRecords, error) {
+	var out responseEnvelope[FinancialRecords]
+	err := c.getPrivate(ctx, "/api/v3/account/financial-records", map[string]string{
+		"category":  req.Category,
+		"coin":      req.Coin,
+		"type":      req.Type,
+		"startTime": req.StartTime,
+		"endTime":   req.EndTime,
+		"limit":     req.Limit,
+		"cursor":    req.Cursor,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get financial records failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) GetAccountFeeRate(ctx context.Context, category, symbol string) (*AccountFeeRate, error) {
+	var out responseEnvelope[AccountFeeRate]
+	err := c.getPrivate(ctx, "/api/v3/account/fee-rate", map[string]string{
+		"category": category,
+		"symbol":   symbol,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get account fee rate failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) GetSwitchStatus(ctx context.Context) (*SwitchStatus, error) {
+	var out responseEnvelope[SwitchStatus]
+	err := c.getPrivate(ctx, "/api/v3/account/switch-status", nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get switch status failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) GetMaxTransferable(ctx context.Context, coin string) (*MaxTransferable, error) {
+	var out responseEnvelope[MaxTransferable]
+	err := c.getPrivate(ctx, "/api/v3/account/max-transferable", map[string]string{"coin": coin}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get max transferable failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) GetOpenInterestLimit(ctx context.Context, category, symbol string) (*OpenInterestLimit, error) {
+	var out responseEnvelope[OpenInterestLimit]
+	err := c.getPrivate(ctx, "/api/v3/account/open-interest-limit", map[string]string{
+		"category": category,
+		"symbol":   symbol,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get open interest limit failed: %s %s", out.Code, out.Msg)
+	}
+	return &out.Data, nil
+}
+
 func (c *Client) GetCurrentPositions(ctx context.Context, category, symbol string) ([]PositionRecord, error) {
 	var out responseEnvelope[PositionList]
 	err := c.getPrivate(ctx, "/api/v3/position/current-position", map[string]string{
@@ -125,6 +223,18 @@ func (c *Client) GetCurrentPositions(ctx context.Context, category, symbol strin
 		return nil, fmt.Errorf("bitget sdk: get positions failed: %s %s", out.Code, out.Msg)
 	}
 	return out.Data.List, nil
+}
+
+func (c *Client) SetHoldMode(ctx context.Context, holdMode string) error {
+	var out responseEnvelope[any]
+	err := c.postPrivate(ctx, "/api/v3/account/set-hold-mode", map[string]string{"holdMode": holdMode}, &out)
+	if err != nil {
+		return err
+	}
+	if out.Code != "00000" {
+		return fmt.Errorf("bitget sdk: set hold mode failed: %s %s", out.Code, out.Msg)
+	}
+	return nil
 }
 
 func (c *Client) SetLeverage(ctx context.Context, req *SetLeverageRequest) error {

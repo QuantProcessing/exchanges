@@ -14,15 +14,16 @@ import (
 
 type SpotAdapter struct {
 	*exchanges.BaseAdapter
-	client    marketClient
-	publicWS  publicWSClient
-	privateWS privateWSClient
-	tradeWS   tradeWSClient
-	markets   *marketCache
-	quote     exchanges.QuoteCurrency
-	cancel    context.CancelFunc
-	cancels   map[string]context.CancelFunc
-	mu        sync.RWMutex
+	client      marketClient
+	publicWS    publicWSClient
+	privateWS   privateWSClient
+	tradeWS     tradeWSClient
+	markets     *marketCache
+	quote       exchanges.QuoteCurrency
+	accountMode sdk.AccountMode
+	cancel      context.CancelFunc
+	cancels     map[string]context.CancelFunc
+	mu          sync.RWMutex
 }
 
 func NewSpotAdapter(ctx context.Context, opts Options) (*SpotAdapter, error) {
@@ -44,6 +45,10 @@ func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 	if hasAnyCredentials(opts) && !hasFullCredentials(opts) {
 		return nil, authError("bybit: api_key and secret_key must both be set together")
 	}
+	accountMode, err := resolveAccountMode(ctx, client, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	base := exchanges.NewBaseAdapter(exchangeName, exchanges.MarketTypeSpot, opts.logger())
 	instruments, err := client.GetInstruments(ctx, categorySpot)
@@ -62,6 +67,7 @@ func newSpotAdapterWithClient(ctx context.Context, cancel context.CancelFunc, op
 		tradeWS:     sdk.NewTradeWSClient().WithCredentials(opts.APIKey, opts.SecretKey),
 		markets:     markets,
 		quote:       quote,
+		accountMode: accountMode,
 		cancel:      cancel,
 		cancels:     make(map[string]context.CancelFunc),
 	}, nil
@@ -84,19 +90,22 @@ func (a *SpotAdapter) Close() error {
 }
 
 func (a *SpotAdapter) FormatSymbol(symbol string) string {
-	upper := strings.ToUpper(symbol)
-	if inst, ok := a.markets.byBase[upper]; ok {
+	market := exchanges.ParseMarketRef(symbol, a.quote, exchanges.MarketTypeSpot)
+	if inst, ok := a.markets.byBase[market.Base]; ok && string(market.Quote) == string(a.quote) {
 		return inst.Symbol
 	}
-	return upper
+	if inst, ok := a.markets.byBase[market.Symbol()]; ok {
+		return inst.Symbol
+	}
+	return market.Base + string(market.Quote)
 }
 
 func (a *SpotAdapter) ExtractSymbol(symbol string) string {
 	upper := strings.ToUpper(symbol)
 	if inst, ok := a.markets.bySymbol[upper]; ok && inst.BaseCoin != "" {
-		return strings.ToUpper(inst.BaseCoin)
+		return marketRefFromInstrument(inst, a.quote, exchanges.MarketTypeSpot).Symbol()
 	}
-	return upper
+	return exchanges.ParseMarketRef(upper, a.quote, exchanges.MarketTypeSpot).Symbol()
 }
 
 func (a *SpotAdapter) FetchTicker(ctx context.Context, symbol string) (*exchanges.Ticker, error) {

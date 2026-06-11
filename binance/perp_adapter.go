@@ -3,7 +3,6 @@ package binance
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -189,88 +188,6 @@ func (a *Adapter) FetchPositions(ctx context.Context) ([]exchanges.Position, err
 	return acc.Positions, nil
 }
 
-func (a *Adapter) PlaceOrder(ctx context.Context, params *exchanges.OrderParams) (_ *exchanges.Order, retErr error) {
-	// Apply slippage logic: converts MARKET+Slippage to LIMIT+IOC
-	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
-		return nil, err
-	}
-	// 1. Validation & Formatting
-	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
-	if err == nil {
-		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
-			return nil, err
-		}
-	}
-
-	formattedSymbol := a.FormatSymbol(params.Symbol)
-	p := perp.PlaceOrderParams{
-		Symbol:   formattedSymbol,
-		Side:     string(params.Side),
-		Type:     a.mapOrderType(params.Type),
-		Quantity: params.Quantity.String(),
-	}
-
-	if params.Price.IsPositive() {
-		p.Price = params.Price.String()
-	}
-
-	p.TimeInForce = a.mapTimeInForce(params)
-	if params.Type == exchanges.OrderTypePostOnly {
-		p.Type = "LIMIT"
-	}
-
-	if params.ClientID != "" {
-		p.NewClientOrderID = params.ClientID
-	}
-
-	resp, err := a.client.PlaceOrder(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-
-	return a.normalizeOrderResponse(resp)
-}
-
-func (a *Adapter) PlaceOrderWS(ctx context.Context, params *exchanges.OrderParams) error {
-	if strings.TrimSpace(params.ClientID) == "" {
-		return fmt.Errorf("client id required for PlaceOrderWS")
-	}
-	if err := a.BaseAdapter.ApplySlippage(ctx, params, a.FetchTicker); err != nil {
-		return err
-	}
-	details, err := a.FetchSymbolDetails(ctx, params.Symbol)
-	if err == nil {
-		if err := exchanges.ValidateAndFormatParams(params, details); err != nil {
-			return err
-		}
-	}
-
-	formattedSymbol := a.FormatSymbol(params.Symbol)
-	p := perp.PlaceOrderParams{
-		Symbol:           formattedSymbol,
-		Side:             string(params.Side),
-		Type:             a.mapOrderType(params.Type),
-		Quantity:         params.Quantity.String(),
-		NewClientOrderID: params.ClientID,
-	}
-
-	if params.Price.IsPositive() {
-		p.Price = params.Price.String()
-	}
-
-	p.TimeInForce = a.mapTimeInForce(params)
-	if params.Type == exchanges.OrderTypePostOnly {
-		p.Type = "LIMIT"
-	}
-
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
-	_, err = a.wsAPI.PlaceOrderWS(a.apiKey, a.secretKey, p, reqID)
-	return err
-}
-
 func (a *Adapter) mapOrderType(t exchanges.OrderType) string {
 	switch t {
 	case exchanges.OrderTypeLimit:
@@ -314,109 +231,6 @@ func (a *Adapter) mapTimeInForce(params *exchanges.OrderParams) string {
 	return ""
 }
 
-func (a *Adapter) CancelOrder(ctx context.Context, orderID, symbol string) (retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	p := perp.CancelOrderParams{
-		Symbol:  formattedSymbol,
-		OrderID: orderID,
-	}
-
-	_, err := a.client.CancelOrder(ctx, p)
-	return err
-}
-
-func (a *Adapter) CancelOrderWS(ctx context.Context, orderID, symbol string) error {
-	formattedSymbol := a.FormatSymbol(symbol)
-	p := perp.CancelOrderParams{
-		Symbol:  formattedSymbol,
-		OrderID: orderID,
-	}
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
-	_, err := a.wsAPI.CancelOrderWS(a.apiKey, a.secretKey, p, reqID)
-	return err
-}
-
-func (a *Adapter) ModifyOrder(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) (_ *exchanges.Order, retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	oid, _ := strconv.ParseInt(orderID, 10, 64)
-	p := perp.ModifyOrderParams{
-		Symbol:   formattedSymbol,
-		OrderID:  oid,
-		Quantity: params.Quantity.String(),
-		Price:    params.Price.String(),
-	}
-
-	resp, err := a.client.ModifyOrder(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-
-	return a.normalizeOrderResponse(resp)
-}
-
-func (a *Adapter) ModifyOrderWS(ctx context.Context, orderID, symbol string, params *exchanges.ModifyOrderParams) error {
-	formattedSymbol := a.FormatSymbol(symbol)
-	if err := a.WsOrderConnected(ctx); err != nil {
-		return err
-	}
-
-	oid, _ := strconv.ParseInt(orderID, 10, 64)
-	p := perp.ModifyOrderParams{
-		Symbol:   formattedSymbol,
-		OrderID:  oid,
-		Quantity: params.Quantity.String(),
-		Price:    params.Price.String(),
-	}
-
-	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
-	_, err := a.wsAPI.ModifyOrderWS(a.apiKey, a.secretKey, p, reqID)
-	return err
-}
-
-func (a *Adapter) FetchOrderByID(ctx context.Context, orderID, symbol string) (_ *exchanges.Order, retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	oid, err := strconv.ParseInt(orderID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid order id: %w", err)
-	}
-
-	res, err := a.client.GetOrder(ctx, formattedSymbol, oid, "")
-	if err != nil {
-		if isBinanceOrderLookupMiss(err) {
-			return nil, exchanges.ErrOrderNotFound
-		}
-		return nil, err
-	}
-
-	return a.normalizeOrderResponse(res)
-}
-
-func (a *Adapter) FetchOrders(ctx context.Context, symbol string) (_ []exchanges.Order, retErr error) {
-	return nil, exchanges.ErrNotSupported
-}
-
-func (a *Adapter) FetchOpenOrders(ctx context.Context, symbol string) (_ []exchanges.Order, retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	res, err := a.client.GetOpenOrders(ctx, formattedSymbol)
-	if err != nil {
-		return nil, err
-	}
-
-	orders := make([]exchanges.Order, 0, len(res))
-	for _, r := range res {
-		o, err := a.normalizeOrderResponse(&r)
-		if err != nil {
-			continue
-		}
-		orders = append(orders, *o)
-	}
-
-	return orders, nil
-}
-
 func isBinanceOrderLookupMiss(err error) bool {
 	if err == nil {
 		return false
@@ -427,14 +241,6 @@ func isBinanceOrderLookupMiss(err error) bool {
 		(strings.Contains(msg, "does not exist") ||
 			strings.Contains(msg, "unknown order") ||
 			strings.Contains(msg, "not found"))
-}
-
-func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) (retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	p := perp.CancelAllOrdersParams{
-		Symbol: formattedSymbol,
-	}
-	return a.client.CancelAllOpenOrders(ctx, p)
 }
 
 func (a *Adapter) SetLeverage(ctx context.Context, symbol string, leverage int) (retErr error) {
@@ -457,194 +263,6 @@ func (a *Adapter) FetchFeeRate(ctx context.Context, symbol string) (_ *exchanges
 	}
 	a.feeCache.Store(symbol, res)
 	return res, nil
-}
-
-// ================= Market Data =================
-
-func (a *Adapter) FetchTicker(ctx context.Context, symbol string) (_ *exchanges.Ticker, retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	// 1. Get 24hr stats
-	t, err := a.client.Ticker(ctx, formattedSymbol)
-	if err != nil {
-		return nil, err
-	}
-
-	depth, err := a.client.Depth(ctx, formattedSymbol, 5)
-	if err != nil {
-		return nil, err
-	}
-
-	ticker := &exchanges.Ticker{
-		Symbol:             symbol,
-		LastPrice:          parseDecimal(t.LastPrice),
-		High24h:            parseDecimal(t.HighPrice),
-		Low24h:             parseDecimal(t.LowPrice),
-		Volume24h:          parseDecimal(t.Volume),
-		QuoteVol:           parseDecimal(t.QuoteVolume),
-		OpenPrice:          parseDecimal(t.OpenPrice),
-		PriceChange:        parseDecimal(t.PriceChange),
-		PriceChangePercent: parseDecimal(t.PriceChangePercent),
-		WeightedAvgPrice:   parseDecimal(t.WeightedAvgPrice),
-		TradeCount:         t.Count,
-		Timestamp:          t.CloseTime,
-	}
-
-	if len(depth.Bids) > 0 {
-		ticker.Bid = parseDecimal(depth.Bids[0][0])
-	}
-	if len(depth.Asks) > 0 {
-		ticker.Ask = parseDecimal(depth.Asks[0][0])
-	}
-
-	return ticker, nil
-}
-
-func (a *Adapter) FetchOrderBook(ctx context.Context, symbol string, limit int) (_ *exchanges.OrderBook, retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	res, err := a.client.Depth(ctx, formattedSymbol, limit)
-	if err != nil {
-		return nil, err
-	}
-
-	ob := &exchanges.OrderBook{
-		Symbol:    symbol,
-		Timestamp: res.T,
-		Bids:      make([]exchanges.Level, 0, len(res.Bids)),
-		Asks:      make([]exchanges.Level, 0, len(res.Asks)),
-	}
-
-	for _, item := range res.Bids {
-		ob.Bids = append(ob.Bids, exchanges.Level{Price: parseDecimal(item[0]), Quantity: parseDecimal(item[1])})
-	}
-	for _, item := range res.Asks {
-		ob.Asks = append(ob.Asks, exchanges.Level{Price: parseDecimal(item[0]), Quantity: parseDecimal(item[1])})
-	}
-
-	return ob, nil
-}
-
-func (a *Adapter) FetchKlines(ctx context.Context, symbol string, interval exchanges.Interval, opts *exchanges.KlineOpts) (_ []exchanges.Kline, retErr error) {
-	var start, end *time.Time
-	var limit int
-	if opts != nil {
-		start = opts.Start
-		end = opts.End
-		limit = opts.Limit
-	}
-	_ = start
-	_ = end
-	_ = limit
-	formattedSymbol := a.FormatSymbol(symbol)
-	var startTime, endTime int64
-	if start != nil {
-		startTime = start.UnixMilli()
-	}
-	if end != nil {
-		endTime = end.UnixMilli()
-	}
-	res, err := a.client.Klines(ctx, formattedSymbol, string(interval), limit, startTime, endTime)
-	if err != nil {
-		return nil, err
-	}
-
-	klines := make([]exchanges.Kline, 0, len(res))
-	for _, item := range res {
-		row := item
-		if len(row) < 8 {
-			continue
-		}
-
-		k := exchanges.Kline{
-			Symbol:    symbol,
-			Interval:  interval,
-			Timestamp: parseInt64(row[0]),
-			Open:      parseDecimalInterface(row[1]),
-			High:      parseDecimalInterface(row[2]),
-			Low:       parseDecimalInterface(row[3]),
-			Close:     parseDecimalInterface(row[4]),
-			Volume:    parseDecimalInterface(row[5]),
-			QuoteVol:  parseDecimalInterface(row[7]),
-		}
-		klines = append(klines, k)
-	}
-
-	return klines, nil
-}
-
-func (a *Adapter) FetchTrades(ctx context.Context, symbol string, limit int) (_ []exchanges.Trade, retErr error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-	res, err := a.client.GetAggTrades(ctx, formattedSymbol, limit)
-	if err != nil {
-		return nil, err
-	}
-
-	trades := make([]exchanges.Trade, 0, len(res))
-	for _, r := range res {
-		side := exchanges.TradeSideBuy
-		if r.IsBuyerMaker {
-			side = exchanges.TradeSideSell
-		}
-
-		trades = append(trades, exchanges.Trade{
-			ID:        fmt.Sprintf("%d", r.ID),
-			Symbol:    symbol,
-			Price:     parseDecimal(r.Price),
-			Quantity:  parseDecimal(r.Quantity),
-			Side:      side,
-			Timestamp: r.Timestamp,
-		})
-	}
-	return trades, nil
-}
-
-// FetchHistoricalTrades returns paginated historical trades via aggTrades.
-// Binance's aggTrades endpoint accepts symbol + (fromId | startTime/endTime) + limit.
-// FromID takes precedence over the time range when set.
-func (a *Adapter) FetchHistoricalTrades(ctx context.Context, symbol string, opts *exchanges.HistoricalTradeOpts) ([]exchanges.Trade, error) {
-	formattedSymbol := a.FormatSymbol(symbol)
-
-	q := perp.AggTradesQuery{Symbol: formattedSymbol, Limit: 500}
-	if opts != nil {
-		if opts.Limit > 0 {
-			q.Limit = opts.Limit
-		}
-		if opts.FromID != "" {
-			id, err := strconv.ParseInt(opts.FromID, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid FromID: %w", err)
-			}
-			q.FromID = &id
-		} else {
-			if opts.Start != nil {
-				q.StartTime = opts.Start.UnixMilli()
-			}
-			if opts.End != nil {
-				q.EndTime = opts.End.UnixMilli()
-			}
-		}
-	}
-
-	raw, err := a.client.GetAggTradesPaged(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-
-	trades := make([]exchanges.Trade, 0, len(raw))
-	for _, r := range raw {
-		side := exchanges.TradeSideBuy
-		if r.IsBuyerMaker {
-			side = exchanges.TradeSideSell
-		}
-		trades = append(trades, exchanges.Trade{
-			ID:        strconv.FormatInt(r.ID, 10),
-			Symbol:    symbol,
-			Price:     parseDecimal(r.Price),
-			Quantity:  parseDecimal(r.Quantity),
-			Side:      side,
-			Timestamp: r.Timestamp,
-		})
-	}
-	return trades, nil
 }
 
 func (a *Adapter) FetchSymbolDetails(ctx context.Context, symbol string) (*exchanges.SymbolDetails, error) {
@@ -975,11 +593,12 @@ func (a *Adapter) RefreshSymbolDetails(ctx context.Context) error {
 		if s.ContractType != "PERPETUAL" {
 			continue
 		}
-		if !strings.Contains(s.Symbol, a.quoteCurrency) {
+		market := exchanges.ParseMarketRef(s.Symbol, exchanges.QuoteCurrency(a.quoteCurrency), exchanges.MarketTypePerp)
+		if market.Base == "" || !isSupportedBinanceQuote(market.Quote) {
 			continue
 		}
 		details := &exchanges.SymbolDetails{
-			Symbol:            s.Symbol,
+			Symbol:            market.Symbol(),
 			PricePrecision:    int32(s.PricePrecision),
 			QuantityPrecision: int32(s.QuantityPrecision),
 		}
@@ -1009,7 +628,10 @@ func (a *Adapter) RefreshSymbolDetails(ctx context.Context) error {
 			}
 		}
 
-		symbols[strings.TrimSuffix(s.Symbol, a.quoteCurrency)] = details
+		symbols[market.Symbol()] = details
+		if string(market.Quote) == a.quoteCurrency {
+			symbols[market.Base] = details
+		}
 	}
 
 	a.SetSymbolDetails(symbols)

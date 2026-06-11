@@ -22,6 +22,18 @@ func (c *Client) GetWalletBalance(ctx context.Context, accountType, coin string)
 	return &resp.Result, nil
 }
 
+func (c *Client) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
+	var resp responseEnvelope[AccountInfo]
+	err := c.getPrivate(ctx, "/v5/account/info", nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("bybit sdk: get account info failed: %d %s", resp.RetCode, resp.RetMsg)
+	}
+	return &resp.Result, nil
+}
+
 func (c *Client) GetFeeRates(ctx context.Context, category, symbol string) ([]FeeRateRecord, error) {
 	var resp responseEnvelope[FeeRatesResult]
 	err := c.getPrivate(ctx, "/v5/account/fee-rate", map[string]string{

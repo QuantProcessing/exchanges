@@ -38,6 +38,7 @@ func init() {
 		o := Options{
 			PrivateKey:    opts["private_key"],
 			AccountAddr:   opts["account_addr"],
+			VaultAddress:  opts["vault_address"],
 			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
 		}
 		switch mt {
