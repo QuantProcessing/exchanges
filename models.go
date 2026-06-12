@@ -380,6 +380,7 @@ type IsolatedMarginAccount struct {
 // OrderParams is the unified parameter struct for PlaceOrder.
 type OrderParams struct {
 	Symbol      string
+	Market      MarketRef
 	Side        OrderSide
 	Type        OrderType // MARKET or LIMIT
 	Quantity    decimal.Decimal

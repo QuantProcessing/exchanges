@@ -1,6 +1,7 @@
 # Adding Exchange Adapters
 
-This document is the repository-owned guide for adding a new exchange package or expanding adapter capability in this codebase.
+This document is the repository-owned guide for adding a new SDK package,
+adding a new adapter package, or expanding adapter capability in this codebase.
 
 Use it for:
 
@@ -24,6 +25,24 @@ This guide replaces the older repo-local `adding-exchange-adapters` skill as the
 
 If peer selection or capability classification is missing, stop and do that first.
 
+## Public Entry Layers
+
+This repository exposes three user-facing layers. Keep the import paths aligned
+with the layer the user is choosing:
+
+- `github.com/QuantProcessing/exchanges` is the normalized root contract.
+- `github.com/QuantProcessing/exchanges/sdk/<exchange>` is the venue-native SDK
+  entry point.
+- `github.com/QuantProcessing/exchanges/adapter/<exchange>` is the normalized
+  adapter entry point.
+- `github.com/QuantProcessing/exchanges/account` is the TradingAccount runtime.
+- `github.com/QuantProcessing/exchanges/cache` is shared normalized runtime
+  state for instruments, account snapshots, orders, fills, and positions.
+- `github.com/QuantProcessing/exchanges/platform` is the node, engine, and bus
+  runtime for independently registered data and execution clients.
+
+Do not place new exchange implementation code at the repository root.
+
 ## Capability Matrix
 
 | Capability | Shared suites to wire in `adapter_test.go` | Minimum support claim |
@@ -31,13 +50,37 @@ If peer selection or capability classification is missing, stop and do that firs
 | `public-data-only` | `RunAdapterComplianceTests` | Private/account/trading surfaces return `exchanges.ErrNotSupported` |
 | `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` |
 | `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it |
-| `trading-account-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunTradingAccountSuite`, and `RunLifecycleSuite` when lifecycle support is claimed | `FetchAccount` plus a real `WatchOrders`; `WatchPositions` is additive, not the gate |
+| `account-lifecycle-capable` | `RunModelContractSuite`, `RunVenueContractSuite`, `RunAccountLifecycleSuite` | Instrument-aware `venue.ExecutionClient` with account snapshot and startup reconciliation |
+| `platform-capable` | `RunPlatformContractSuite` plus venue/account lifecycle suites | Independent `venue.DataClient` and/or `venue.ExecutionClient`, node-managed lifecycle, endpoint/topic bus fan-out, shared cache integration |
 
 `FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate contracts. Preserve that distinction in both implementation and tests.
 
-## Architecture And `sdk/` Boundaries
+## Adapter Interface Boundaries
 
-Create a dedicated `sdk/` layer when any of these are true:
+Adapters expose stable cross-exchange convenience, not every official exchange
+API. Implement venue-specific official endpoints in `sdk/` first, then expose
+them through adapters only when they fit a stable shared abstraction.
+
+Prefer small optional interfaces over expanding `Exchange`, `PerpExchange`, or
+`SpotExchange`. Current capability families include:
+
+- `MarketDataExchange`
+- `OrderExecutionExchange`
+- `AccountSnapshotExchange`
+- `LocalOrderBookExchange`
+- `PerpRiskExchange`
+- `PerpMarketAnalytics`
+- `SpotBalanceExchange`
+- `AssetTransferExchange`
+
+Funding, open interest, mark/index analytics, account bills, batch orders,
+trigger/algo orders, and venue-specific risk controls must remain optional
+capability surfaces unless a separate design establishes them as core
+cross-exchange primitives.
+
+## Architecture And SDK Boundaries
+
+Create or extend `sdk/<exchange>` when any of these are true:
 
 - the exchange needs signing or auth token management
 - low-level REST APIs split across multiple surface groups
@@ -47,8 +90,8 @@ Create a dedicated `sdk/` layer when any of these are true:
 
 Choose the `sdk/` shape from the nearest peer:
 
-- flat `sdk/` when one compact client shape covers the exchange
-- `sdk/perp` plus `sdk/spot` when low-level APIs diverge materially by market
+- flat `sdk/<exchange>` when one compact client shape covers the exchange
+- `sdk/<exchange>/perp` plus `sdk/<exchange>/spot` when low-level APIs diverge materially by market
 - shared helpers only when there is real reuse
 
 Adapter-layer responsibilities:
@@ -65,7 +108,72 @@ Do not keep these in adapter files:
 - wire-format request or response structs
 - WebSocket connection lifecycle internals
 
-Rule of thumb: `sdk/` speaks exchange-native protocol, adapters speak the shared repository contract.
+Rule of thumb: `sdk/<exchange>` speaks exchange-native protocol,
+`adapter/<exchange>` speaks the shared repository contract.
+
+## Official API Parity
+
+Before adding SDK endpoints or claiming official spot/perp coverage, update the
+matching file under `docs/superpowers/gaps/official-api-parity-*.md`.
+
+Rules:
+
+- every official spot/perp REST endpoint, WebSocket channel, or WebSocket API operation needs a row
+- use `implemented-sdk` for typed SDK methods
+- use `implemented-raw` only when a deliberate raw SDK fallback exists
+- use `implemented-adapter` only when the endpoint is also exposed through a stable adapter capability
+- do not leave `missing-sdk` or `missing-adapter` rows when declaring a parity slice complete
+- do not add adapter interfaces for venue-specific endpoints without a design note like `docs/superpowers/gaps/adapter-exposure-policy.md`
+
+Review the updated parity matrix during code review after matrix changes.
+
+## SDK Test Layout
+
+Keep SDK tests direct and Go-idiomatic.
+
+Rules:
+
+- every SDK implementation file gets a corresponding `_test.go` file
+- every public SDK API method gets a directly named test method
+- method test names should follow `TestClient_MethodName` or
+  `TestWSClient_MethodName`
+- tests should sit beside the code they cover
+- read-method tests should call the real official exchange endpoint by default
+- public read tests should not require a feature flag
+- private read tests should skip only when required credentials are missing
+- write-method tests must require an exchange-specific enable flag such as
+  `BINANCE_ENABLE_LIVE_WRITE_TESTS=1` plus required credentials before they
+  execute against the real exchange
+- avoid fake transports, fake WebSocket connections, and local
+  `httptest.Server` listeners for SDK API-method tests unless the code under
+  test is a pure parser, pure signing helper, or local dispatcher rather than
+  an exchange API call
+
+Example:
+
+```text
+sdk/binance/spot/order.go
+sdk/binance/spot/order_test.go
+```
+
+```go
+func TestClient_PlaceOrder(t *testing.T) {}
+func TestClient_CancelOrder(t *testing.T) {}
+func TestClient_GetOrder(t *testing.T) {}
+func TestClient_GetOpenOrders(t *testing.T) {}
+```
+
+Each read API method test should cover the useful minimum:
+
+- successful response parsing
+- enough request inputs to prove the SDK method is wired to the intended
+  official API behavior
+
+Each write API method test should cover the useful minimum:
+
+- clear skip message when the enable flag or credentials are missing
+- tiny, explicitly parameterized request values loaded from environment
+- response/error parsing from the real official endpoint
 
 ## Order Contract Rules
 
@@ -113,17 +221,20 @@ Practical readiness rules:
 
 - `WatchOrders` is mandatory for lifecycle claims
 - `WatchOrders` is mandatory for TradingAccount readiness
+- `WatchFills` is optional; return `ErrNotSupported` so runtime health can report it
 - `WatchPositions` is additive coverage, not the universal gate
+- funding, open interest, and market analytics are optional adapter capabilities, never TradingAccount dependencies
 - unsupported shared private surfaces must return `exchanges.ErrNotSupported`, not no-op success
 
 Responsibility split:
 
 1. `FetchAccount` establishes the initial coherent snapshot
 2. `WatchOrders` supplies order lifecycle deltas
-3. `WatchPositions` supplies position deltas when supported
-4. `TradingAccount` owns caching, fan-out, tracked `OrderFlow` updates, and periodic reconciliation
+3. `WatchFills` enriches execution detail when supported
+4. `WatchPositions` supplies position deltas when supported
+5. `TradingAccount` owns caching, stream health, startup reconciliation, and tracked `OrderTracker` updates
 
-If the exchange lacks a usable private order stream, do not claim `lifecycle-capable` or `trading-account-capable`.
+If the exchange lacks a usable private order stream, do not claim legacy root `lifecycle-capable`. If the instrument-aware execution client cannot provide startup account reconciliation, do not claim `account-lifecycle-capable`.
 
 ## Live Test Wiring
 
@@ -132,7 +243,9 @@ Live adapter integration is incomplete until `adapter_test.go` wires the shared 
 Required wiring:
 
 - update the repository-root `.env.example`
-- use `internal/testenv` for env loading and `RUN_FULL` / `RUN_SOAK` gating
+- use `internal/testenv` for env loading; SDK write tests use
+  exchange-specific enable flags, while adapter/full regression suites may
+  continue using the script-managed `RUN_FULL` / `RUN_SOAK` gates
 - construct the real adapter from env-backed options
 - wire the shared suite matrix that matches the adapter's capability level
 - use clear skips only for missing credentials, missing symbols, or genuine exchange limitations
@@ -174,18 +287,21 @@ Start from the smallest authoritative set:
 - `errors.go`
 - `utils.go`
 - `registry.go`
-- `trading_account.go`
-- `trading_account_state.go`
-- `order_flow.go`
+- `account/trading_account.go`
+- `account/cache.go`
+- `account/order_tracker.go`
+- `venue/interfaces.go`
+- `testsuite/model_contract_suite.go`
+- `testsuite/venue_contract_suite.go`
+- `testsuite/account_lifecycle_suite.go`
 - `testsuite/compliance.go`
 - `testsuite/order_suite.go`
 - `testsuite/lifecycle_suite.go`
-- `testsuite/trading_account_suite.go`
 - `testsuite/helpers.go`
-- `<exchange>/options.go`
-- `<exchange>/register.go`
-- `<exchange>/perp_adapter.go`
-- `<exchange>/spot_adapter.go`
-- `<exchange>/adapter_test.go`
+- `adapter/<exchange>/options.go`
+- `adapter/<exchange>/register.go`
+- `adapter/<exchange>/perp_adapter.go`
+- `adapter/<exchange>/spot_adapter.go`
+- `adapter/<exchange>/adapter_test.go`
 
 For final review before merge, also use `docs/superpowers/checklists/exchange-adapter-review.md`.

@@ -17,12 +17,17 @@
 //
 // # Architecture
 //
-// The package is organized into several layers:
+// The module exposes several public entry layers:
 //
-//   - Root package (exchanges): Unified interfaces, models, errors, and utilities
-//   - Account package (account/): Perp/SpotTradingAccount and OrderFlow runtime helpers
-//   - Exchange packages (binance/, okx/, ...): Exchange-specific adapters and SDK clients
-//   - Testsuite package: Adapter compliance test suite
+//   - Root package (exchanges): normalized interfaces, models, errors, registry,
+//     capabilities, and helpers.
+//   - SDK packages (sdk/binance, sdk/okx, ...): venue-native REST and WebSocket
+//     clients aligned with official exchange APIs.
+//   - Adapter packages (adapter/binance, adapter/okx, ...): normalized
+//     cross-exchange convenience implementations of the root interfaces.
+//   - Account package (account): TradingAccount, OrderTracker, stream health,
+//     and lifecycle state runtime.
+//   - Testsuite package: adapter compliance test suite.
 //
 // # Logger
 //

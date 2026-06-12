@@ -9,4 +9,4 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-go test ./aster/sdk/perp ./binance/sdk/perp ./hyperliquid/sdk/perp -run '^(TestKline|TestSubscribeOrderUpdates|TestSubscribeWebData2)$'
+go test ./sdk/aster/perp ./sdk/binance/perp ./sdk/hyperliquid/perp -run '^(TestKline|TestSubscribeOrderUpdates|TestSubscribeWebData2)$'

@@ -1,6 +1,7 @@
 package testenv
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,6 +42,40 @@ func TestRequireFullSkipsWhenRequiredEnvMissing(t *testing.T) {
 	}
 }
 
+func TestRequireLiveCredentialsSkipsWhenRequiredEnvMissing(t *testing.T) {
+	t.Setenv("TESTENV_REQUIRED_VAR", "")
+
+	skipped := false
+	t.Run("skip", func(t *testing.T) {
+		defer func() {
+			skipped = t.Skipped()
+		}()
+		RequireLiveCredentials(t, "TESTENV_REQUIRED_VAR")
+		t.Fatalf("expected RequireLiveCredentials to skip when required env is missing")
+	})
+
+	if !skipped {
+		t.Fatalf("expected subtest to skip")
+	}
+}
+
+func TestRequireLiveWriteSkipsWithoutEnableFlag(t *testing.T) {
+	t.Setenv("TESTENV_ENABLE_LIVE_WRITE", "")
+
+	skipped := false
+	t.Run("skip", func(t *testing.T) {
+		defer func() {
+			skipped = t.Skipped()
+		}()
+		RequireLiveWrite(t, "TESTENV_ENABLE_LIVE_WRITE")
+		t.Fatalf("expected RequireLiveWrite to skip without enable flag")
+	})
+
+	if !skipped {
+		t.Fatalf("expected subtest to skip")
+	}
+}
+
 func TestRequireSoakSkipsWithoutRunSoak(t *testing.T) {
 	t.Setenv("RUN_SOAK", "")
 
@@ -55,6 +90,22 @@ func TestRequireSoakSkipsWithoutRunSoak(t *testing.T) {
 
 	if !skipped {
 		t.Fatalf("expected subtest to skip")
+	}
+}
+
+func TestIsTransientLiveNetworkError(t *testing.T) {
+	cases := []error{
+		errors.New("Get https://api.example.test: context deadline exceeded (Client.Timeout exceeded while awaiting headers)"),
+		errors.New("EOF"),
+		errors.New("tls handshake timeout"),
+	}
+	for _, err := range cases {
+		if !IsTransientLiveNetworkError(err) {
+			t.Fatalf("expected transient live network error: %v", err)
+		}
+	}
+	if IsTransientLiveNetworkError(errors.New("invalid signature")) {
+		t.Fatal("semantic exchange errors should not be treated as transient network errors")
 	}
 }
 

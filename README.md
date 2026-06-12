@@ -72,30 +72,38 @@ func getSpread(ctx context.Context, adp exchanges.Exchange, symbol string) (deci
 }
 ```
 
-### 2. Symbol Convention
+### 2. Market Identity
 
-All methods accept a **base currency symbol** (e.g. `"BTC"`, `"ETH"`). The adapter handles conversion to exchange-specific formats internally based on the configured quote currency:
+Adapters support quote-aware market identity. Simple base symbols such as
+`"BTC"` still use the adapter's default quote, while explicit symbols such as
+`"BTC/USDT"` and `exchanges.MarketRef` let one adapter route multiple quote
+markets when the venue supports them:
 
-| You Pass | Binance (USDT)    | Binance (USDC)   | OKX (USDT)       | Hyperliquid      |
-|----------|-------------------|------------------|------------------|------------------|
-| `"BTC"`  | `"BTCUSDT"`       | `"BTCUSDC"`      | `"BTC-USDT-SWAP"`| `"BTC"`          |
+| You Pass | Binance | OKX | Hyperliquid |
+|----------|---------|-----|-------------|
+| `"BTC"` with default USDT | `"BTCUSDT"` | `"BTC-USDT-SWAP"` | not supported |
+| `"BTC/USDC"` | `"BTCUSDC"` | `"BTC-USDC-SWAP"` | `"BTC"` |
 
-### 3. Two-Layer Architecture
+### 3. Three-Layer Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Your Strategy / Application                        │
 ├─────────────────────────────────────────────────────┤
-│  Adapter Layer (exchanges.Exchange interface)        │  ← Unified API
-│    binance.Adapter / okx.Adapter / nado.Adapter     │
+│  TradingAccount                                     │  ← Lifecycle runtime
+│    account.TradingAccount / account.OrderTracker    │
+├─────────────────────────────────────────────────────┤
+│  Venue Adapter Layer (capability interfaces)        │  ← Unified convenience
+│    venue.Adapter implementations: binance, okx      │
 ├─────────────────────────────────────────────────────┤
 │  SDK Layer (low-level REST + WebSocket clients)      │  ← Exchange-specific
-│    binance/sdk/ / okx/sdk/ / nado/sdk/              │
+│    sdk/binance/ / sdk/okx/ / sdk/bybit/             │
 └─────────────────────────────────────────────────────┘
 ```
 
-- **Adapter Layer**: Implements `exchanges.Exchange`. Handles symbol mapping, order validation, slippage logic, and state management.
-- **SDK Layer**: Thin REST/WebSocket clients that map 1:1 to exchange API endpoints. You can use these directly for maximum flexibility.
+- **SDK Layer**: Thin REST/WebSocket clients aligned with official exchange APIs. Use this layer for venue-native features.
+- **Adapter Layer**: Stable cross-exchange convenience over market data, orders, account snapshots, and optional capability families.
+- **TradingAccount Layer**: Lifecycle runtime for snapshots, private streams, normalized order/fill tracking, and stream health.
 
 ---
 
@@ -111,7 +119,7 @@ import (
     "fmt"
 
     exchanges "github.com/QuantProcessing/exchanges"
-    "github.com/QuantProcessing/exchanges/binance"
+    "github.com/QuantProcessing/exchanges/adapter/binance"
     "github.com/shopspring/decimal"
 )
 
@@ -316,40 +324,59 @@ if perp, ok := adp.(exchanges.PerpExchange); ok {
 }
 ```
 
-### TradingAccount + OrderFlow (Unified State Management)
+### TradingAccount + OrderTracker (Unified State Management)
 
 ```go
-import "github.com/QuantProcessing/exchanges/account"
+import (
+    _ "github.com/QuantProcessing/exchanges/adapter/binance"
+    "github.com/QuantProcessing/exchanges/account"
+    "github.com/QuantProcessing/exchanges/model"
+    "github.com/QuantProcessing/exchanges/venue"
+    "github.com/shopspring/decimal"
+)
 
-// TradingAccount lives in the public account package.
-// Place returns an OrderFlow so you can inspect merged order snapshots and per-order fills.
-acct := account.NewTradingAccount(adp, nil)
-if err := acct.Start(ctx); err != nil {
-    panic(err)
-}
-defer acct.Close()
-
-flow, err := acct.Place(ctx, &exchanges.OrderParams{
-    Symbol:   "BTC",
-    Side:     exchanges.OrderSideBuy,
-    Type:     exchanges.OrderTypeMarket,
-    Quantity: decimal.NewFromFloat(0.001),
+adapter, err := venue.Open(ctx, model.VenueBinance, map[string]string{
+    "api_key":    "your-api-key",
+    "secret_key": "your-secret-key",
+    "account_id": "binance-main",
 })
 if err != nil {
     panic(err)
 }
-defer flow.Close()
+defer adapter.Close()
+
+instrumentID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+acct, err := account.NewTradingAccount(adapter.Execution(), account.TradingAccountConfig{
+    Instruments: []model.InstrumentID{instrumentID},
+})
+if err != nil {
+    panic(err)
+}
+if err := acct.Start(ctx); err != nil {
+    panic(err)
+}
+defer acct.Stop(ctx)
+
+tracker, err := acct.SubmitOrder(ctx, model.SubmitOrder{
+    InstrumentID: instrumentID,
+    Side:         model.OrderSideBuy,
+    Type:         model.OrderTypeMarket,
+    Quantity:     decimal.RequireFromString("0.001"),
+})
+if err != nil {
+    panic(err)
+}
+defer tracker.Close()
 
 for {
     select {
-    case order, ok := <-flow.C():
+    case order, ok := <-tracker.C():
         if !ok {
             return
         }
-        fmt.Printf("order=%s status=%s filled=%s last_fill=%s@%s\n",
-            order.OrderID, order.Status, order.FilledQuantity,
-            order.LastFillQuantity, order.LastFillPrice)
-    case fill, ok := <-flow.Fills():
+        fmt.Printf("order=%s status=%s filled=%s\n",
+            order.OrderID, order.Status, order.FilledQty)
+    case fill, ok := <-tracker.Fills():
         if !ok {
             return
         }
@@ -357,25 +384,26 @@ for {
     }
 }
 
-latest := flow.Latest()
-fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
+if latest, ok := tracker.Latest(); ok {
+    fmt.Printf("Latest snapshot: %s %s\n", latest.OrderID, latest.Status)
+}
 ```
 
-`OrderFlow.C()` now exposes a per-order merged snapshot. It keeps order lifecycle fields from `WatchOrders`, but when native private fills are available it also surfaces `FilledQuantity`, `LastFillQuantity`, `LastFillPrice`, and `AverageFillPrice` derived from `WatchFills`.
+`OrderTracker.C()` exposes normalized order status reports for one tracked order.
 
-`OrderFlow.Fills()` remains the raw execution-detail stream for the same order. Use it when you need every normalized fill event; use `OrderFlow.C()` when you want one control-flow snapshot per order.
+`OrderTracker.Fills()` exposes normalized fill reports for the same order. Use it when you need execution-detail events; use `OrderTracker.C()` when you want one control-flow snapshot per order.
 
-If `WatchFills` is not supported by an adapter, `OrderFlow.C()` degrades to the existing order-only behavior and `OrderFlow.Fills()` remains empty.
+If fill reports are not supported by an adapter, startup marks the fills stream unsupported and `OrderTracker.Fills()` remains empty.
 
 `TradingAccount.Health()` exposes stream readiness, unsupported stream status, event counters, and slow-subscriber drop counters; see [Stream Health](./docs/stream-health.md).
 
-Downstream consumers such as cross-exchanges-arb should migrate against a release that already includes `TradingAccount + OrderFlow` and after re-running their own integration coverage.
+Downstream consumers such as cross-exchanges-arb should migrate against a release that already includes `TradingAccount + OrderTracker` and after re-running their own integration coverage.
 
-> TradingAccount is the release-facing account runtime in `github.com/QuantProcessing/exchanges/account`. New integrations should build on `TradingAccount + OrderFlow`.
+> TradingAccount is the release-facing account runtime in `github.com/QuantProcessing/exchanges/account`. New integrations should build on `TradingAccount + OrderTracker`.
 
 ## Migration Order
 
-1. Upgrade to the release that includes `TradingAccount + OrderFlow`.
+1. Upgrade to the release that includes `TradingAccount + OrderTracker`.
 2. Re-run your existing adapter integration tests.
 3. Migrate downstream applications only after the new tag is published.
 
@@ -404,8 +432,9 @@ adp, _ := hyperliquid.NewAdapter(ctx, hyperliquid.Options{
     PrivateKey: os.Getenv("HYPERLIQUID_PRIVATE_KEY"), AccountAddr: os.Getenv("HYPERLIQUID_ACCOUNT_ADDR"),
 })
 
-// All adapters expose the exact same Exchange interface
+// Use explicit quote symbols when routing multiple quote markets through one adapter.
 ticker, _ := adp.FetchTicker(ctx, "BTC")
+tickerUSDC, _ := adp.FetchTickerFor(ctx, exchanges.ParseMarketRef("BTC/USDC", exchanges.QuoteCurrencyUSDT, exchanges.MarketTypePerp))
 ```
 
 ### Quote Currency
@@ -514,7 +543,7 @@ Backpack requires a numeric `clientId` in the valid `uint32` range. If you want 
 Use the package helper instead:
 
 ```go
-import "github.com/QuantProcessing/exchanges/backpack"
+import "github.com/QuantProcessing/exchanges/adapter/backpack"
 
 params := &exchanges.OrderParams{
     Symbol:   "BTC",
@@ -683,24 +712,27 @@ exchanges/                  Root package — interfaces, models, errors, utiliti
 ├── base_adapter.go         Shared adapter logic (orderbook, validation, common helpers)
 ├── local_orderbook.go      Local orderbook cache and sync helpers
 ├── log.go                  Logger interface + NopLogger
+├── sdk/                    Venue-native REST & WebSocket clients
+│   ├── binance/            Binance SDK
+│   │   ├── perp/           Perpetual futures API
+│   │   ├── spot/           Spot API
+│   │   └── option/         Options API
+│   ├── okx/                OKX SDK
+│   └── ...                 Other venue SDKs
+├── adapter/                Normalized exchange adapters
+│   ├── binance/            Binance adapter package
+│   │   ├── options.go      Options{APIKey, SecretKey, QuoteCurrency, Logger}
+│   │   ├── perp_adapter.go Perp adapter (Exchange + PerpExchange)
+│   │   └── spot_adapter.go Spot adapter (Exchange + SpotExchange)
+│   ├── okx/                OKX adapter
+│   └── ...                 Other venue adapters
 ├── account/                Public account runtime helpers
 │   ├── trading_account.go  TradingAccount runtime entrypoint
-│   ├── order_flow.go       OrderFlow lifecycle stream + latest snapshot helper
+│   ├── order_tracker.go    OrderTracker lifecycle reports + fill stream
 │   └── ...                 Internal runtime synchronization helpers
+├── config/                 Config-driven adapter construction
 ├── testsuite/              Adapter compliance test suite
-├── binance/                Binance adapter + SDK
-│   ├── options.go          Options{APIKey, SecretKey, QuoteCurrency, Logger}
-│   ├── perp_adapter.go     Perp adapter (Exchange + PerpExchange)
-│   ├── spot_adapter.go     Spot adapter (Exchange + SpotExchange)
-│   └── sdk/                Low-level REST & WebSocket clients
-├── okx/                    OKX (same structure)
-├── aster/                  Aster
-├── nado/                   Nado
-├── lighter/                Lighter
-├── hyperliquid/            Hyperliquid
-├── standx/                 StandX
-├── grvt/                   GRVT (build tag: grvt)
-└── edgex/                  EdgeX (build tag: edgex)
+└── internal/               Private shared implementation helpers
 ```
 
 ## Testing

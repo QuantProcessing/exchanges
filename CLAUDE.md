@@ -8,9 +8,10 @@ Go SDK (`github.com/QuantProcessing/exchanges`, Go 1.26) that gives one unified 
 
 ## Architecture
 
-Two strict layers, with a non-negotiable boundary:
+Three strict layers, with non-negotiable boundaries:
 
-- **Adapter layer** (`<exchange>/perp_adapter.go`, `<exchange>/spot_adapter.go`) — implements `Exchange` / `PerpExchange` / `SpotExchange`. Owns symbol mapping, validation, slippage policy, `ErrNotSupported` decisions, and mapping SDK structs to unified `exchanges.*` models.
+- **Venue adapter layer** (`adapter/<exchange>/venue_adapter.go`, `venue/`) — instrument-aware clients for market data, execution, account state, and startup reconciliation. This is the canonical lifecycle surface.
+- **Root adapter layer** (`adapter/<exchange>/perp_adapter.go`, `adapter/<exchange>/spot_adapter.go`) — implements the legacy-convenience `Exchange` / `PerpExchange` / `SpotExchange` interfaces. Owns symbol mapping, validation, slippage policy, `ErrNotSupported` decisions, and mapping SDK structs to unified `exchanges.*` models.
 - **SDK layer** (`<exchange>/sdk/...`) — exchange-native REST + WebSocket. Owns signing, wire structs, connection lifecycle. Never surface exchange-native structs from adapter methods. See `docs/contributing/adding-exchange-adapters.md` for the full rule set.
 
 Cross-cutting files in the root package:
@@ -23,7 +24,7 @@ Cross-cutting files in the root package:
 
 Separate-but-related runtime:
 
-- `account/` — `TradingAccount` + `OrderFlow`. `TradingAccount.Place` returns an `OrderFlow` that fuses `WatchOrders` (lifecycle) and `WatchFills` (execution detail) into per-order merged snapshots (`flow.C()`) plus a raw fills stream (`flow.Fills()`). Adapters that can't expose native fills must return `ErrNotSupported` — never synthesize fills from another stream.
+- `account/` — `TradingAccount` + `OrderTracker`. `TradingAccount` consumes a `venue.ExecutionClient`, performs startup reconciliation, maintains local account state, and `SubmitOrder` returns an `OrderTracker` with normalized order reports (`tracker.C()`) plus fill reports (`tracker.Fills()`). Adapters that cannot expose native fills mark that stream unsupported rather than synthesizing fills from another stream.
 
 `FetchOrderByID`, `FetchOrders`, `FetchOpenOrders` are three distinct contracts. Never implement the first by scanning the third.
 
@@ -68,7 +69,7 @@ New adapters wire shared suites from `testsuite/` in `<exchange>/adapter_test.go
 | `public-data-only` | `RunAdapterComplianceTests` |
 | `trading-capable` | + `RunOrderSuite`, `RunOrderQuerySemanticsSuite` |
 | `lifecycle-capable` | + `RunLifecycleSuite` (requires real `WatchOrders`) |
-| `trading-account-capable` | + `RunTradingAccountSuite` (requires `FetchAccount` + real `WatchOrders`) |
+| `account-lifecycle-capable` | + `RunAccountLifecycleSuite` for the venue `ExecutionClient` startup path |
 | `analytics-capable` | + `RunAnalyticsComplianceTests` (requires `FetchOpenInterest` + `FetchFundingRateHistory` on PerpExchange) |
 
 Surfaces that are genuinely unsupported must return `exchanges.ErrNotSupported` — never a silent no-op. `FetchOrderByID` must not be implemented by scanning open orders only.
@@ -79,7 +80,7 @@ Surfaces that are genuinely unsupported must return `exchanges.ErrNotSupported` 
 
 - Pick the nearest peer by market coverage first, auth model second; borrow per concern rather than cloning one package.
 - Adapter files must not contain signing, raw REST path building, wire-format structs, or WebSocket connection lifecycle — those belong in `sdk/`.
-- `WatchOrders` is mandatory for any lifecycle or TradingAccount claim; `WatchPositions` is additive, not the gate.
+- `WatchOrders` remains mandatory for the legacy root lifecycle claim; new account runtime coverage is claimed through `venue.ExecutionClient` and `RunAccountLifecycleSuite`.
 - Live-test wiring (`.env.example`, `internal/testenv` gating, shared suite matrix) must exist before calling a capability-level change done.
 
 ## Conventions worth preserving

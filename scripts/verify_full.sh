@@ -87,4 +87,4 @@ cd "$repo_root"
 export RUN_FULL=1
 
 go test -short ./...
-go test ./aster/sdk/perp ./binance/sdk/perp ./edgex/sdk/perp ./grvt/sdk ./hyperliquid/sdk ./hyperliquid/sdk/perp ./lighter/sdk ./lighter/sdk/common ./nado/sdk ./okx/sdk ./standx/sdk
+go test ./sdk/aster/perp ./sdk/binance/perp ./sdk/edgex/perp ./sdk/grvt ./sdk/hyperliquid ./sdk/hyperliquid/perp ./sdk/lighter ./sdk/lighter/common ./sdk/nado ./sdk/okx ./sdk/standx

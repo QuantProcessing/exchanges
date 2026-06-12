@@ -1,0 +1,67 @@
+package okx
+
+import (
+	"context"
+	"fmt"
+
+	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
+)
+
+func init() {
+	exchanges.RegisterCapabilities("OKX", exchanges.MarketTypePerp, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchPositions:      true,
+		WatchTicker:         true,
+		FetchOpenOrders:     true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
+	exchanges.RegisterCapabilities("OKX", exchanges.MarketTypeSpot, exchanges.Capabilities{
+		PlaceOrder:          true,
+		PlaceOrderWS:        true,
+		CancelOrderWS:       true,
+		WatchOrderBook:      true,
+		WatchOrders:         true,
+		WatchFills:          true,
+		WatchTicker:         true,
+		FetchOpenOrders:     true,
+		ModifyOrder:         true,
+		TradingAccountReady: true,
+	})
+	exchanges.Register("OKX", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
+		o := Options{
+			APIKey:        opts["api_key"],
+			SecretKey:     opts["secret_key"],
+			Passphrase:    opts["passphrase"],
+			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
+		}
+		switch mt {
+		case exchanges.MarketTypePerp:
+			return NewAdapter(ctx, o)
+		case exchanges.MarketTypeSpot:
+			return NewSpotAdapter(ctx, o)
+		case exchanges.MarketTypeOption:
+			return NewOptionAdapter(ctx, o)
+		default:
+			return nil, fmt.Errorf("okx: unsupported market type %q", mt)
+		}
+	})
+	venue.Register(model.VenueOKX, func(ctx context.Context, opts map[string]string) (venue.Adapter, error) {
+		return NewVenueAdapter(ctx, VenueOptions{
+			Options: Options{
+				APIKey:        opts["api_key"],
+				SecretKey:     opts["secret_key"],
+				Passphrase:    opts["passphrase"],
+				QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
+			},
+			AccountID: model.AccountID(opts["account_id"]),
+		})
+	})
+}

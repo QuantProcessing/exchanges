@@ -1,6 +1,9 @@
 package testenv
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,6 +60,58 @@ func RequireEnv(t testing.TB, vars ...string) {
 	}
 }
 
+func RequireLiveCredentials(t testing.TB, vars ...string) {
+	t.Helper()
+
+	if err := LoadRepoEnv(); err != nil {
+		t.Fatalf("load repo .env: %v", err)
+	}
+	RequireEnv(t, vars...)
+}
+
+func RequireLiveWrite(t testing.TB, enableVar string, vars ...string) {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("skipping: live write test excluded by -short")
+	}
+	if err := LoadRepoEnv(); err != nil {
+		t.Fatalf("load repo .env: %v", err)
+	}
+	if os.Getenv(enableVar) != "1" {
+		t.Skipf("skipping live write test: set %s=1 to enable real exchange write execution", enableVar)
+	}
+	RequireEnv(t, vars...)
+}
+
+func SkipIfTransientLiveNetworkError(t testing.TB, err error, context string) {
+	t.Helper()
+	if IsTransientLiveNetworkError(err) {
+		if context == "" {
+			context = "live exchange endpoint"
+		}
+		t.Skipf("skipping: %s unavailable during live test: %v", context, err)
+	}
+}
+
+func IsTransientLiveNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, io.EOF) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "client.timeout exceeded while awaiting headers") ||
+		strings.Contains(lower, "context deadline exceeded") ||
+		strings.Contains(lower, "tls handshake timeout") ||
+		strings.Contains(lower, "connection reset by peer") ||
+		strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "network is unreachable") ||
+		strings.Contains(lower, "no such host") ||
+		strings.TrimSpace(lower) == "eof"
+}
+
 func RequireFull(t testing.TB, vars ...string) {
 	t.Helper()
 
@@ -107,10 +162,10 @@ func findRepoRoot() (string, error) {
 
 func applyLegacyAliases() {
 	for legacy, canonical := range map[string]string{
-		"EDGEX_PRIVATE_KEY":    "EDGEX_STARK_PRIVATE_KEY",
+		"EDGEX_PRIVATE_KEY":     "EDGEX_STARK_PRIVATE_KEY",
 		"NADO_SUB_ACCOUNT_NAME": "NADO_SUBACCOUNT_NAME",
-		"OKX_SECRET_KEY":       "OKX_API_SECRET",
-		"OKX_PASSPHRASE":       "OKX_API_PASSPHRASE",
+		"OKX_SECRET_KEY":        "OKX_API_SECRET",
+		"OKX_PASSPHRASE":        "OKX_API_PASSPHRASE",
 	} {
 		if _, exists := os.LookupEnv(canonical); exists {
 			continue
