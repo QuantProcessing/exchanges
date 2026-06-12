@@ -42,6 +42,8 @@ type WSClient struct {
 	// active subscriptions
 	subs map[string]Subscription
 
+	postReconnect func()
+
 	// Message handler to be implemented/assigned by the embedding client
 	Handler func([]byte)
 }
@@ -291,6 +293,19 @@ func (c *WSClient) reconnect() {
 			c.Logger.Errorw("Resubscribe failed", "stream", stream, "error", err)
 		}
 	}
+
+	c.Mu.RLock()
+	handler := c.postReconnect
+	c.Mu.RUnlock()
+	if handler != nil {
+		go handler()
+	}
+}
+
+func (c *WSClient) SetPostReconnect(handler func()) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+	c.postReconnect = handler
 }
 
 func (c *WSClient) WriteJSON(v interface{}) error {

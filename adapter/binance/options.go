@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
 )
 
 // supportedQuoteCurrencies lists the quote currencies supported by Binance.
@@ -14,10 +15,15 @@ var supportedQuoteCurrencies = []exchanges.QuoteCurrency{
 
 // Options configures a Binance adapter.
 type Options struct {
-	APIKey        string
-	SecretKey     string
-	QuoteCurrency exchanges.QuoteCurrency // "USDT" (default for CEX) or "USDC"
-	Logger        exchanges.Logger
+	APIKey          string
+	SecretKey       string
+	QuoteCurrency   exchanges.QuoteCurrency // "USDT" (default for CEX) or "USDC"
+	Logger          exchanges.Logger
+	AccountID       model.AccountID
+	BaseURLHTTP     string
+	BaseURLWS       string
+	BaseURLWSStream string
+	OnResubscribe   ResubscribeHook
 }
 
 func (o Options) logger() exchanges.Logger {

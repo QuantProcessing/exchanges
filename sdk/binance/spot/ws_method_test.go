@@ -79,6 +79,21 @@ func TestWSClient_SetHandler(t *testing.T) {
 	}
 }
 
+func TestWSClient_SetPostReconnect(t *testing.T) {
+	client := NewWSClient(context.Background(), "wss://example.test/ws")
+	called := false
+	client.SetPostReconnect(func() {
+		called = true
+	})
+	if client.postReconnect == nil {
+		t.Fatal("expected post reconnect hook")
+	}
+	client.postReconnect()
+	if !called {
+		t.Fatal("expected post reconnect hook to run")
+	}
+}
+
 func TestWSClient_CallSubscription(t *testing.T) {
 	client := NewWSClient(context.Background(), "wss://example.test/ws")
 	called := false
@@ -107,6 +122,30 @@ func TestWsMarketClient_SubscribeLimitOrderBook(t *testing.T) {
 	requireWSNotConnected(t, client.SubscribeLimitOrderBook("BTCUSDT", 5, "", func(*DepthEvent) error { return nil }))
 	if client.subs["btcusdt@depth5@100ms"].callback == nil {
 		t.Fatal("expected limit depth subscription")
+	}
+}
+
+func TestWsMarketClient_SubscribeLimitOrderBookParsesPartialDepthPayload(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	var got *DepthEvent
+	requireWSNotConnected(t, client.SubscribeLimitOrderBook("BTCUSDT", 5, "100ms", func(e *DepthEvent) error {
+		got = e
+		return nil
+	}))
+
+	client.CallSubscription("btcusdt@depth5@100ms", []byte(`{"lastUpdateId":123,"bids":[["100.1","1.5"]],"asks":[["100.2","2.5"]]}`))
+
+	if got == nil {
+		t.Fatal("expected partial depth event")
+	}
+	if got.FinalUpdateID != 123 {
+		t.Fatalf("expected final update id 123, got %d", got.FinalUpdateID)
+	}
+	if len(got.Bids) != 1 || got.Bids[0][0] != "100.1" || got.Bids[0][1] != "1.5" {
+		t.Fatalf("unexpected bids: %#v", got.Bids)
+	}
+	if len(got.Asks) != 1 || got.Asks[0][0] != "100.2" || got.Asks[0][1] != "2.5" {
+		t.Fatalf("unexpected asks: %#v", got.Asks)
 	}
 }
 
@@ -154,6 +193,12 @@ func TestWsMarketClient_UnsubscribeDepth(t *testing.T) {
 	client := NewWsMarketClient(context.Background())
 	client.subs["btcusdt@depth"] = Subscription{id: 1}
 	requireWSNotConnected(t, client.UnsubscribeDepth("BTCUSDT"))
+}
+
+func TestWsMarketClient_UnsubscribeIncrementOrderBook(t *testing.T) {
+	client := NewWsMarketClient(context.Background())
+	client.subs["btcusdt@depth@100ms"] = Subscription{id: 1}
+	requireWSNotConnected(t, client.UnsubscribeIncrementOrderBook("BTCUSDT", "100ms"))
 }
 
 func TestWsMarketClient_UnsubscribeLimitOrderBook(t *testing.T) {

@@ -17,12 +17,16 @@ type DeclaredCapabilities struct {
 }
 
 type MarketDataCapabilities struct {
-	Ticker      bool
-	OrderBook   bool
-	Trades      bool
-	Bars        bool
-	Options     bool
-	PrivateData bool
+	Ticker          bool
+	OrderBook       bool
+	Trades          bool
+	Bars            bool
+	Options         bool
+	StreamTicker    bool
+	StreamOrderBook bool
+	StreamTrades    bool
+	StreamBars      bool
+	PrivateData     bool
 }
 
 type ExecutionCapabilities struct {

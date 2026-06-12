@@ -3,6 +3,7 @@ package binance
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/QuantProcessing/exchanges/model"
@@ -10,66 +11,34 @@ import (
 )
 
 func init() {
-	exchanges.RegisterCapabilities("BINANCE", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		WatchKlines:         true,
-		FetchOpenOrders:     true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.RegisterCapabilities("BINANCE", exchanges.MarketTypeSpot, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		WatchKlines:         true,
-		FetchOpenOrders:     true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.RegisterCapabilities("BINANCE", exchanges.MarketTypeOption, exchanges.Capabilities{
-		FetchOptionContracts: true,
-		PlaceOrder:           true,
-		FetchOpenOrders:      true,
-		FetchOrderHistory:    true,
-	})
-	exchanges.Register("BINANCE", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			APIKey:        opts["api_key"],
-			SecretKey:     opts["secret_key"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-		}
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
-		case exchanges.MarketTypeSpot:
-			return NewSpotAdapter(ctx, o)
-		case exchanges.MarketTypeOption:
-			return NewOptionAdapter(ctx, o)
-		default:
-			return nil, fmt.Errorf("binance: unsupported market type %q", mt)
-		}
-	})
 	venue.Register(model.VenueBinance, func(ctx context.Context, opts map[string]string) (venue.Adapter, error) {
-		return NewVenueAdapter(ctx, VenueOptions{
-			Options: Options{
-				APIKey:        opts["api_key"],
-				SecretKey:     opts["secret_key"],
-				QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-			},
-			AccountID: model.AccountID(opts["account_id"]),
-		})
+		cfg := Options{
+			APIKey:          opts["api_key"],
+			SecretKey:       opts["secret_key"],
+			QuoteCurrency:   exchanges.QuoteCurrency(opts["quote_currency"]),
+			AccountID:       model.AccountID(opts["account_id"]),
+			BaseURLHTTP:     opts["base_url_http"],
+			BaseURLWS:       opts["base_url_ws"],
+			BaseURLWSStream: opts["base_url_ws_stream"],
+		}
+		switch normalizeAccountType(opts["account_type"]) {
+		case "spot":
+			return NewSpotAdapter(ctx, cfg)
+		case "perp":
+			return NewPerpAdapter(ctx, cfg)
+		default:
+			return nil, fmt.Errorf("binance: unsupported account_type %q", opts["account_type"])
+		}
 	})
+}
+
+func normalizeAccountType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "spot", "cash":
+		return "spot"
+	case "perp", "future", "futures", "usdt_futures", "usdt-futures", "margin":
+		return "perp"
+	default:
+		return raw
+	}
 }

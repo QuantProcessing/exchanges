@@ -44,6 +44,14 @@ func TestClient_WithCredentials(t *testing.T) {
 	}
 }
 
+func TestClient_WithBaseURL(t *testing.T) {
+	client := NewClient().WithBaseURL("https://example.test")
+
+	if client.BaseURL != "https://example.test" {
+		t.Fatalf("unexpected base url: %+v", client)
+	}
+}
+
 func TestClient_Get(t *testing.T) {
 	var out struct {
 		ServerTime int64 `json:"serverTime"`

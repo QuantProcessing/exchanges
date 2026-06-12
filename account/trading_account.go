@@ -311,6 +311,8 @@ func streamNameForExecutionEvent(ev model.ExecutionEvent) StreamName {
 	switch {
 	case ev.AccountState != nil:
 		return StreamBalances
+	case ev.OrderEvent != nil:
+		return StreamOrders
 	case ev.Order != nil:
 		return StreamOrders
 	case ev.Fill != nil:

@@ -255,6 +255,33 @@ func (c *Client) GetOpenOrders(ctx context.Context, symbol string) ([]OrderRespo
 	return res, nil
 }
 
+// All Orders
+
+func (c *Client) AllOrders(ctx context.Context, symbol string, limit int, startTime, endTime int64, orderID int64) ([]OrderResponse, error) {
+	params := map[string]interface{}{
+		"symbol": symbol,
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	}
+	if startTime > 0 {
+		params["startTime"] = startTime
+	}
+	if endTime > 0 {
+		params["endTime"] = endTime
+	}
+	if orderID > 0 {
+		params["orderId"] = orderID
+	}
+
+	var res []OrderResponse
+	err := c.Get(ctx, "/api/v3/allOrders", params, true, &res)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // Trade History
 
 type Trade struct {

@@ -62,6 +62,11 @@ func (c *Client) WithCredentials(apiKey, secretKey string) *Client {
 	return c
 }
 
+func (c *Client) WithBaseURL(url string) *Client {
+	c.BaseURL = url
+	return c
+}
+
 func (c *Client) call(ctx context.Context, method, endpoint string, params map[string]interface{}, signed bool, result interface{}) error {
 	u, err := url.Parse(c.BaseURL + endpoint)
 	if err != nil {

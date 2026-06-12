@@ -36,6 +36,10 @@ with the layer the user is choosing:
 - `github.com/QuantProcessing/exchanges/adapter/<exchange>` is the normalized
   adapter entry point.
 - `github.com/QuantProcessing/exchanges/account` is the TradingAccount runtime.
+- `github.com/QuantProcessing/exchanges/cache` is shared normalized runtime
+  state for instruments, account snapshots, orders, fills, and positions.
+- `github.com/QuantProcessing/exchanges/platform` is the node, engine, and bus
+  runtime for independently registered data and execution clients.
 
 Do not place new exchange implementation code at the repository root.
 
@@ -47,6 +51,7 @@ Do not place new exchange implementation code at the repository root.
 | `trading-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite` | Real trading and order-query behavior; unsupported shared surfaces return `exchanges.ErrNotSupported` |
 | `lifecycle-capable` | `RunAdapterComplianceTests`, `RunOrderSuite`, `RunOrderQuerySemanticsSuite`, `RunLifecycleSuite` | Real `WatchOrders`; lifecycle claims are not valid without it |
 | `account-lifecycle-capable` | `RunModelContractSuite`, `RunVenueContractSuite`, `RunAccountLifecycleSuite` | Instrument-aware `venue.ExecutionClient` with account snapshot and startup reconciliation |
+| `platform-capable` | `RunPlatformContractSuite` plus venue/account lifecycle suites | Independent `venue.DataClient` and/or `venue.ExecutionClient`, node-managed lifecycle, endpoint/topic bus fan-out, shared cache integration |
 
 `FetchOrderByID`, `FetchOrders`, and `FetchOpenOrders` are separate contracts. Preserve that distinction in both implementation and tests.
 

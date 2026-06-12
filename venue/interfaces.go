@@ -97,6 +97,23 @@ type MarketDataClient interface {
 	SubscribeBars(ctx context.Context, id model.InstrumentID, spec model.BarSpec, h BarHandler) (Subscription, error)
 }
 
+type DataClient interface {
+	Venue() model.Venue
+	ClientID() string
+	Instruments() InstrumentProvider
+	Connect(ctx context.Context) error
+	Disconnect(ctx context.Context) error
+	Health() DataHealth
+	MarketDataClient
+}
+
+type DataHealth struct {
+	Connected       bool
+	InstrumentReady bool
+	LastEventTime   time.Time
+	LastError       error
+}
+
 type OptionMarketDataClient interface {
 	FetchOptionChain(ctx context.Context, series model.OptionSeriesID, q ChainQuery) ([]model.Instrument, error)
 	SubscribeOptionGreeks(ctx context.Context, id model.InstrumentID, h OptionGreeksHandler) (Subscription, error)

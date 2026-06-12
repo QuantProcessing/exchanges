@@ -24,3 +24,20 @@ static claims during construction.
 These are static support claims, not health checks. A capability can still fail
 at runtime because of missing credentials, exchange-side permissions, network
 conditions, or exchange account configuration.
+
+## Platform Runtime Claims
+
+The `platform/` runtime uses the same declared capabilities, but interprets
+them as lifecycle contracts:
+
+- data clients must expose `venue.DataClient` lifecycle methods before a node
+  can manage them;
+- execution clients must expose account snapshot and report generation before
+  startup reconciliation can be certified;
+- `Reconciliation.Startup` requires bounded order, fill, account, and relevant
+  position report sources, not only open-order queries;
+- transport details such as REST versus WebSocket order entry stay inside the
+  venue client and are not platform API capabilities.
+
+The top-level `cache/` package stores normalized instruments, account states,
+orders, fills, and positions for platform engines and account lifecycle logic.

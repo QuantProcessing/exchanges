@@ -35,8 +35,9 @@ type WsAPIClient struct {
 
 	// eventHandler handles pushed events (messages without an "id" field),
 	// e.g. user data stream events like executionReport.
-	eventHandler func([]byte)
-	eventMu      sync.Mutex
+	eventHandler  func([]byte)
+	postReconnect func()
+	eventMu       sync.Mutex
 }
 
 func NewWsAPIClient(ctx context.Context) *WsAPIClient {
@@ -61,6 +62,12 @@ func (c *WsAPIClient) SetEventHandler(handler func([]byte)) {
 	c.eventMu.Lock()
 	defer c.eventMu.Unlock()
 	c.eventHandler = handler
+}
+
+func (c *WsAPIClient) SetPostReconnect(handler func()) {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	c.postReconnect = handler
 }
 
 func (c *WsAPIClient) Connect() error {
@@ -170,6 +177,13 @@ func (c *WsAPIClient) reconnect() {
 	if err := c.Connect(); err != nil {
 		c.Logger.Errorw("reconnect failed", "error", err)
 		go c.reconnect()
+		return
+	}
+	c.eventMu.Lock()
+	handler := c.postReconnect
+	c.eventMu.Unlock()
+	if handler != nil {
+		go handler()
 	}
 }
 

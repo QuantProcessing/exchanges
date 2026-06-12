@@ -13,6 +13,8 @@ import (
 type WsAccountClient struct {
 	*WsClient
 	Client       *Client
+	ctx          context.Context
+	BaseURL      string
 	KeepAliveInt time.Duration
 	ListenKey    string
 
@@ -20,22 +22,31 @@ type WsAccountClient struct {
 	accountUpdateCallbacks       []func(*AccountUpdateEvent)
 	orderUpdateCallbacks         []func(*OrderUpdateEvent)
 	accountConfigUpdateCallbacks []func(*AccountConfigUpdateEvent)
+	onResubscribe                func()
 }
 
 func NewWsAccountClient(ctx context.Context, apiKey, apiSecret string) *WsAccountClient {
 	client := &WsAccountClient{
 		Client:       NewClient().WithCredentials(apiKey, apiSecret),
+		ctx:          ctx,
+		BaseURL:      WSBaseURL,
 		WsClient:     NewWSClient(ctx, WSBaseURL),
 		KeepAliveInt: 50 * time.Minute,
 	}
-	client.WsClient.Logger = zap.NewNop().Sugar().Named("binance-account")
-	client.WsClient.Handler = client.handleMessage
+	client.resetWSClient()
 	return client
 }
 
 func (c *WsAccountClient) WithURL(url string) *WsAccountClient {
+	c.BaseURL = url
 	c.WsClient.URL = url
 	return c
+}
+
+func (c *WsAccountClient) SetOnResubscribe(handler func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onResubscribe = handler
 }
 
 func (c *WsAccountClient) SubscribeAccountUpdate(callback func(*AccountUpdateEvent)) {
@@ -57,6 +68,10 @@ func (c *WsAccountClient) SubscribeAccountConfigUpdate(callback func(*AccountCon
 }
 
 func (c *WsAccountClient) Connect() error {
+	if c.WsClient == nil || c.WsClient.isClosed {
+		c.resetWSClient()
+	}
+
 	// 创建 listen key 时使用带超时的子 context
 	ctxAPI, cancelAPI := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancelAPI()
@@ -67,7 +82,7 @@ func (c *WsAccountClient) Connect() error {
 	c.ListenKey = listenKey
 
 	// Configure WsClient with listenKey URL
-	c.WithURL(WSBaseURL + "/" + listenKey)
+	c.WsClient.URL = c.BaseURL + "/" + listenKey
 
 	// Register handlers
 	c.SetHandler("ACCOUNT_UPDATE", c.handleAccountUpdate)
@@ -147,10 +162,23 @@ func (c *WsAccountClient) handleAccountConfigUpdate(data []byte) error {
 
 func (c *WsAccountClient) handleListenKeyExpired(data []byte) error {
 	c.Logger.Info("ListenKey expired")
-	// triggers reconnect
-	c.Close()
-	c.Connect()
+	go c.resubscribe()
 	return nil
+}
+
+func (c *WsAccountClient) resubscribe() {
+	c.WsClient.Close()
+	c.resetWSClient()
+	if err := c.Connect(); err != nil {
+		c.WsClient.Logger.Errorw("Failed to resubscribe user stream", "error", err)
+		return
+	}
+	c.mu.Lock()
+	handler := c.onResubscribe
+	c.mu.Unlock()
+	if handler != nil {
+		handler()
+	}
 }
 
 func (c *WsAccountClient) keepAlive() {
@@ -176,4 +204,10 @@ func (c *WsAccountClient) Close() {
 		c.cancel()
 	}
 	c.WsClient.Close()
+}
+
+func (c *WsAccountClient) resetWSClient() {
+	c.WsClient = NewWSClient(c.ctx, c.BaseURL)
+	c.WsClient.Logger = zap.NewNop().Sugar().Named("binance-account")
+	c.WsClient.Handler = c.handleMessage
 }

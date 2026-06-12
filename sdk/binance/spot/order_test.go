@@ -101,6 +101,16 @@ func TestClient_GetOpenOrders(t *testing.T) {
 	}
 }
 
+func TestClient_AllOrders(t *testing.T) {
+	got, err := newLivePrivateClient(t).AllOrders(context.Background(), envOrDefault("BINANCE_SPOT_TEST_SYMBOL", binanceSpotTestSymbol), 5, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("AllOrders: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil all orders slice")
+	}
+}
+
 func TestClient_MyTrades(t *testing.T) {
 	got, err := newLivePrivateClient(t).MyTrades(context.Background(), envOrDefault("BINANCE_SPOT_TEST_SYMBOL", binanceSpotTestSymbol), 5, 0, 0, 0)
 	if err != nil {

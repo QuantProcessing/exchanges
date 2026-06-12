@@ -38,7 +38,7 @@ func TestContractSuites(t *testing.T) {
 	})
 
 	testsuite.RunAccountLifecycleSuite(t, testsuite.AccountLifecycleSuiteConfig{
-		Execution:   newExecutionClient("acct", provider, nil, &fakePerpExecution{}),
+		Execution:   newPerpExecutionClient("acct", provider, &fakePerpExecution{}, nil),
 		Instruments: []model.InstrumentID{instID},
 	})
 }

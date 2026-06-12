@@ -125,6 +125,9 @@ func (c *WsMarketClient) handleObjectMessage(message []byte) {
 
 // SubscribeDepth
 func (c *WsMarketClient) SubscribeIncrementOrderBook(symbol string, interval string, callback func(*WsDepthEvent) error) error {
+	if interval == "" {
+		interval = "1000ms"
+	}
 	channel := fmt.Sprintf("%s@depth@%s", symbol, interval)
 	return c.Subscribe(channel, func(data []byte) error {
 		var wsData WsDepthEvent
@@ -143,11 +146,20 @@ func (c *WsMarketClient) SubscribeLimitOrderBook(symbol string, levels int, inte
 	}
 	channel := fmt.Sprintf("%s@depth%d@%s", strings.ToLower(symbol), levels, interval)
 	return c.Subscribe(channel, func(data []byte) error {
-		var wsData DepthEvent
-		if err := json.Unmarshal(data, &wsData); err != nil {
+		var partial struct {
+			LastUpdateID int64      `json:"lastUpdateId"`
+			Bids         [][]string `json:"bids"`
+			Asks         [][]string `json:"asks"`
+		}
+		if err := json.Unmarshal(data, &partial); err != nil {
 			return err
 		}
-		return callback(&wsData)
+		return callback(&DepthEvent{
+			Symbol:        strings.ToUpper(symbol),
+			FinalUpdateID: partial.LastUpdateID,
+			Bids:          partial.Bids,
+			Asks:          partial.Asks,
+		})
 	})
 }
 
@@ -203,6 +215,14 @@ func (c *WsMarketClient) SubscribeKline(symbol string, interval string, callback
 
 func (c *WsMarketClient) UnsubscribeDepth(symbol string) error {
 	channel := fmt.Sprintf("%s@depth", strings.ToLower(symbol))
+	return c.Unsubscribe(channel)
+}
+
+func (c *WsMarketClient) UnsubscribeIncrementOrderBook(symbol string, interval string) error {
+	if interval == "" {
+		interval = "1000ms"
+	}
+	channel := fmt.Sprintf("%s@depth@%s", strings.ToLower(symbol), interval)
 	return c.Unsubscribe(channel)
 }
 

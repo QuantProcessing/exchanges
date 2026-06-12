@@ -9,6 +9,7 @@ import (
 
 type Reconciler struct {
 	cache           *Cache
+	orderSM         OrderStateMachine
 	mu              sync.RWMutex
 	flowsByOrderID  map[model.OrderID]*OrderTracker
 	flowsByClientID map[model.ClientOrderID]*OrderTracker
@@ -45,6 +46,11 @@ func (r *Reconciler) ApplyEvent(ev model.ExecutionEvent) error {
 			return err
 		}
 	}
+	if ev.OrderEvent != nil {
+		if err := r.ApplyOrderEvent(*ev.OrderEvent); err != nil {
+			return err
+		}
+	}
 	if ev.Fill != nil {
 		if err := r.ApplyFillReport(*ev.Fill); err != nil {
 			return err
@@ -77,8 +83,33 @@ func (r *Reconciler) ApplyOrderStatusReport(report model.OrderStatusReport) erro
 	if err := report.InstrumentID.Validate(); err != nil {
 		return err
 	}
+	if err := r.cache.PutOrderStatus(report); err != nil {
+		return err
+	}
 	flow := r.flowForOrderLocked(report.OrderID, report.ClientID)
 	flow.publishOrder(report)
+	return nil
+}
+
+func (r *Reconciler) ApplyOrderEvent(event model.OrderEvent) error {
+	flow := r.flowForOrderLocked(event.OrderID, event.ClientID)
+	current, ok := flow.Latest()
+	var currentPtr *model.OrderStatusReport
+	if ok {
+		currentPtr = &current
+	}
+	next, changed, err := r.orderSM.ApplyEvent(currentPtr, event)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	if err := r.cache.PutOrderStatus(next); err != nil {
+		return err
+	}
+	flow.publishOrder(next)
+	flow.publishEvent(event)
 	return nil
 }
 
@@ -88,6 +119,11 @@ func (r *Reconciler) ApplyFillReport(report model.FillReport) error {
 	}
 	if err := report.InstrumentID.Validate(); err != nil {
 		return err
+	}
+	if report.TradeID != "" {
+		if err := r.cache.PutFill(report); err != nil {
+			return err
+		}
 	}
 	flow := r.flowForOrderLocked(report.OrderID, report.ClientID)
 	flow.publishFill(report)
@@ -99,6 +135,9 @@ func (r *Reconciler) ApplyPositionStatusReport(report model.PositionStatusReport
 		return fmt.Errorf("%w: missing position account id", model.ErrInvalidAccountState)
 	}
 	if err := report.InstrumentID.Validate(); err != nil {
+		return err
+	}
+	if err := r.cache.PutPosition(report); err != nil {
 		return err
 	}
 	key := positionKey{

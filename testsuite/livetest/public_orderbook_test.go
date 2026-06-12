@@ -10,7 +10,6 @@ import (
 	exchanges "github.com/QuantProcessing/exchanges"
 	"github.com/QuantProcessing/exchanges/adapter/aster"
 	"github.com/QuantProcessing/exchanges/adapter/backpack"
-	"github.com/QuantProcessing/exchanges/adapter/binance"
 	"github.com/QuantProcessing/exchanges/adapter/bitget"
 	"github.com/QuantProcessing/exchanges/adapter/edgex"
 	"github.com/QuantProcessing/exchanges/adapter/grvt"
@@ -74,20 +73,6 @@ func TestPublicLiveWatchOrderBookAdapters(t *testing.T) {
 			symbol: envOrDefault("BACKPACK_SPOT_TEST_SYMBOL", "BTC"),
 			newAdapter: func(ctx context.Context) (exchanges.Exchange, error) {
 				return backpack.NewSpotAdapter(ctx, backpack.Options{})
-			},
-		},
-		{
-			name:   "binance/perp",
-			symbol: envOrDefault("BINANCE_PERP_TEST_SYMBOL", "BTC"),
-			newAdapter: func(ctx context.Context) (exchanges.Exchange, error) {
-				return binance.NewAdapter(ctx, binance.Options{})
-			},
-		},
-		{
-			name:   "binance/spot",
-			symbol: envOrDefault("BINANCE_SPOT_TEST_SYMBOL", "BTC"),
-			newAdapter: func(ctx context.Context) (exchanges.Exchange, error) {
-				return binance.NewSpotAdapter(ctx, binance.Options{})
 			},
 		},
 		{

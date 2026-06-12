@@ -9,8 +9,10 @@ import (
 type OrderTracker struct {
 	mu        sync.RWMutex
 	latest    *model.OrderStatusReport
+	events    []model.OrderEvent
 	fills     []model.FillReport
 	orderCh   chan model.OrderStatusReport
+	eventCh   chan model.OrderEvent
 	fillCh    chan model.FillReport
 	done      chan struct{}
 	closed    bool
@@ -20,6 +22,7 @@ type OrderTracker struct {
 func newOrderTracker(initial *model.OrderStatusReport) *OrderTracker {
 	f := &OrderTracker{
 		orderCh: make(chan model.OrderStatusReport, 64),
+		eventCh: make(chan model.OrderEvent, 64),
 		fillCh:  make(chan model.FillReport, 64),
 		done:    make(chan struct{}),
 	}
@@ -38,6 +41,10 @@ func (f *OrderTracker) Fills() <-chan model.FillReport {
 	return f.fillCh
 }
 
+func (f *OrderTracker) Events() <-chan model.OrderEvent {
+	return f.eventCh
+}
+
 func (f *OrderTracker) Latest() (model.OrderStatusReport, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -53,6 +60,12 @@ func (f *OrderTracker) FillsSnapshot() []model.FillReport {
 	return append([]model.FillReport(nil), f.fills...)
 }
 
+func (f *OrderTracker) EventsSnapshot() []model.OrderEvent {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]model.OrderEvent(nil), f.events...)
+}
+
 func (f *OrderTracker) publishOrder(report model.OrderStatusReport) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -64,6 +77,20 @@ func (f *OrderTracker) publishOrder(report model.OrderStatusReport) {
 
 	select {
 	case f.orderCh <- report:
+	default:
+	}
+}
+
+func (f *OrderTracker) publishEvent(event model.OrderEvent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
+	}
+	f.events = append(f.events, event)
+
+	select {
+	case f.eventCh <- event:
 	default:
 	}
 }
@@ -89,6 +116,7 @@ func (f *OrderTracker) Close() {
 		f.mu.Unlock()
 		close(f.done)
 		close(f.orderCh)
+		close(f.eventCh)
 		close(f.fillCh)
 	})
 }

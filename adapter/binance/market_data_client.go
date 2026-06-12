@@ -3,6 +3,7 @@ package binance
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/QuantProcessing/exchanges/model"
@@ -11,7 +12,7 @@ import (
 	"github.com/QuantProcessing/exchanges/venue"
 )
 
-var _ venue.MarketDataClient = (*marketDataClient)(nil)
+var _ venue.DataClient = (*marketDataClient)(nil)
 
 type binanceSpotMarketDataClient interface {
 	BookTicker(ctx context.Context, symbol string) (*spot.BookTickerResponse, error)
@@ -25,18 +26,162 @@ type binancePerpMarketDataClient interface {
 }
 
 type marketDataClient struct {
+	mu          sync.Mutex
+	clientID    string
 	instruments venue.InstrumentProvider
 	normalizer  symbolNormalizer
 	spot        binanceSpotMarketDataClient
 	perp        binancePerpMarketDataClient
+	spotStream  binanceSpotMarketStream
+	perpStream  binancePerpMarketStream
+	health      venue.DataHealth
+
+	spotBookRebuilders map[string]func(context.Context) error
+	perpBookRebuilders map[string]func(context.Context) error
 }
 
 func newMarketDataClient(instruments venue.InstrumentProvider, spotClient binanceSpotMarketDataClient, perpClient binancePerpMarketDataClient) *marketDataClient {
+	return newMarketDataClientWithID("binance-market-data", instruments, spotClient, perpClient)
+}
+
+func newMarketDataClientWithID(clientID string, instruments venue.InstrumentProvider, spotClient binanceSpotMarketDataClient, perpClient binancePerpMarketDataClient) *marketDataClient {
 	return &marketDataClient{
+		clientID:    clientID,
 		instruments: instruments,
 		spot:        spotClient,
 		perp:        perpClient,
 	}
+}
+
+func (c *marketDataClient) Venue() model.Venue { return model.VenueBinance }
+
+func (c *marketDataClient) ClientID() string { return c.clientID }
+
+func (c *marketDataClient) Instruments() venue.InstrumentProvider { return c.instruments }
+
+func (c *marketDataClient) Connect(ctx context.Context) error {
+	if c.instruments != nil {
+		if err := c.instruments.LoadAll(ctx); err != nil {
+			c.setDataError(err)
+			return err
+		}
+	}
+	if c.spotStream != nil {
+		if err := connectMarketStream(ctx, c.spotStream.Connect); err != nil {
+			c.setDataError(err)
+			return err
+		}
+	}
+	if c.perpStream != nil {
+		if err := connectMarketStream(ctx, c.perpStream.Connect); err != nil {
+			c.setDataError(err)
+			return err
+		}
+	}
+	c.mu.Lock()
+	c.health.Connected = true
+	c.health.InstrumentReady = c.instruments == nil || len(c.instruments.List()) > 0
+	c.health.LastEventTime = time.Now()
+	c.health.LastError = nil
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *marketDataClient) Disconnect(context.Context) error {
+	if c.spotStream != nil {
+		c.spotStream.Close()
+	}
+	if c.perpStream != nil {
+		c.perpStream.Close()
+	}
+	c.mu.Lock()
+	c.health.Connected = false
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *marketDataClient) Health() venue.DataHealth {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.health
+}
+
+func (c *marketDataClient) setDataError(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.health.LastError = err
+}
+
+func (c *marketDataClient) registerSpotBookRebuilder(key string, rebuild func(context.Context) error) func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.spotBookRebuilders == nil {
+		c.spotBookRebuilders = make(map[string]func(context.Context) error)
+	}
+	c.spotBookRebuilders[key] = rebuild
+	if stream, ok := c.spotStream.(binanceMarketReconnectStream); ok {
+		stream.SetPostReconnect(func() {
+			c.rebuildSpotOrderBooks(context.Background())
+		})
+	}
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		delete(c.spotBookRebuilders, key)
+	}
+}
+
+func (c *marketDataClient) registerPerpBookRebuilder(key string, rebuild func(context.Context) error) func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.perpBookRebuilders == nil {
+		c.perpBookRebuilders = make(map[string]func(context.Context) error)
+	}
+	c.perpBookRebuilders[key] = rebuild
+	if stream, ok := c.perpStream.(binanceMarketReconnectStream); ok {
+		stream.SetPostReconnect(func() {
+			c.rebuildPerpOrderBooks(context.Background())
+		})
+	}
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		delete(c.perpBookRebuilders, key)
+	}
+}
+
+func (c *marketDataClient) rebuildSpotOrderBooks(ctx context.Context) {
+	rebuilders := c.spotRebuilders()
+	for _, rebuild := range rebuilders {
+		_ = rebuild(ctx)
+	}
+}
+
+func (c *marketDataClient) rebuildPerpOrderBooks(ctx context.Context) {
+	rebuilders := c.perpRebuilders()
+	for _, rebuild := range rebuilders {
+		_ = rebuild(ctx)
+	}
+}
+
+func (c *marketDataClient) spotRebuilders() []func(context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rebuilders := make([]func(context.Context) error, 0, len(c.spotBookRebuilders))
+	for _, rebuild := range c.spotBookRebuilders {
+		rebuilders = append(rebuilders, rebuild)
+	}
+	return rebuilders
+}
+
+func (c *marketDataClient) perpRebuilders() []func(context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rebuilders := make([]func(context.Context) error, 0, len(c.perpBookRebuilders))
+	for _, rebuild := range c.perpBookRebuilders {
+		rebuilders = append(rebuilders, rebuild)
+	}
+	return rebuilders
 }
 
 func (c *marketDataClient) FetchTicker(ctx context.Context, id model.InstrumentID) (model.Ticker, error) {
@@ -147,22 +292,6 @@ func (c *marketDataClient) FetchTrades(context.Context, model.InstrumentID, venu
 }
 
 func (c *marketDataClient) FetchBars(context.Context, model.InstrumentID, model.BarSpec, venue.BarQuery) ([]model.Bar, error) {
-	return nil, model.ErrNotSupported
-}
-
-func (c *marketDataClient) SubscribeTicker(context.Context, model.InstrumentID, venue.TickerHandler) (venue.Subscription, error) {
-	return nil, model.ErrNotSupported
-}
-
-func (c *marketDataClient) SubscribeOrderBook(context.Context, model.InstrumentID, int, venue.OrderBookHandler) (venue.Subscription, error) {
-	return nil, model.ErrNotSupported
-}
-
-func (c *marketDataClient) SubscribeTrades(context.Context, model.InstrumentID, venue.TradeHandler) (venue.Subscription, error) {
-	return nil, model.ErrNotSupported
-}
-
-func (c *marketDataClient) SubscribeBars(context.Context, model.InstrumentID, model.BarSpec, venue.BarHandler) (venue.Subscription, error) {
 	return nil, model.ErrNotSupported
 }
 

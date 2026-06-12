@@ -104,6 +104,7 @@ type PositionStatusReport struct {
 
 type ExecutionEvent struct {
 	AccountState *AccountState
+	OrderEvent   *OrderEvent
 	Order        *OrderStatusReport
 	Fill         *FillReport
 	Position     *PositionStatusReport
