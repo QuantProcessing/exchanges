@@ -62,6 +62,7 @@ func (k OrderEventKind) TargetStatus() (OrderStatus, bool) {
 }
 
 type OrderLifecycleEvent struct {
+	Metadata       CommandMetadata
 	AccountID      AccountID
 	InstrumentID   InstrumentID
 	OrderID        OrderID

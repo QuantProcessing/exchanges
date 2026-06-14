@@ -71,6 +71,8 @@ func TestBacktestMatchesMarketOrderAgainstTicker(t *testing.T) {
 	order, ok := result.Cache.OrderByClientID("backtest", "bt-client-1")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusFilled, order.Status)
+	require.Equal(t, model.StrategyID("submitter"), order.Metadata.StrategyID)
+	require.False(t, order.Metadata.TsInit.IsZero())
 	require.True(t, decimal.RequireFromString("1").Equal(order.FilledQuantity))
 	require.True(t, decimal.RequireFromString("100").Equal(order.AveragePrice))
 
@@ -1018,12 +1020,15 @@ func TestBacktestBracketReleasesChildrenAndCancelsOcoSibling(t *testing.T) {
 	entry, ok := result.Cache.OrderByClientID("backtest", "backtest-1")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusFilled, entry.Status)
+	require.Equal(t, model.CommandID("list-command"), entry.Metadata.CommandID)
 	stopLoss, ok := result.Cache.OrderByClientID("backtest", "backtest-2")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusCanceled, stopLoss.Status)
+	require.Equal(t, model.CommandID("list-command"), stopLoss.Metadata.CommandID)
 	takeProfit, ok := result.Cache.OrderByClientID("backtest", "backtest-3")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusFilled, takeProfit.Status)
+	require.Equal(t, model.CommandID("list-command"), takeProfit.Metadata.CommandID)
 }
 
 func TestBacktestDispatchesPositionLifecycleCallbacks(t *testing.T) {
@@ -1081,6 +1086,9 @@ func TestBacktestModifyOrderUpdatesRestingOrderAndMatches(t *testing.T) {
 	require.Equal(t, model.OrderStatusFilled, order.Status)
 	require.Equal(t, "101", order.Price.String())
 	require.Equal(t, "101", order.AveragePrice.String())
+	require.Equal(t, model.CommandID("modify-command"), order.Metadata.CommandID)
+	require.Equal(t, model.CommandID("modify-command"), impl.pendingUpdateCommandID)
+	require.Equal(t, model.CommandID("modify-command"), impl.updatedCommandID)
 }
 
 func TestBacktestSubmitOrderDispatchesSubmittedAndAcceptedLifecycle(t *testing.T) {
@@ -1120,6 +1128,7 @@ func TestBacktestQueryOrderReturnsCachedOrderToStrategy(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, impl.queried)
 	require.Equal(t, model.OrderStatusAccepted, impl.queryStatus)
+	require.Equal(t, model.CommandID("query-command"), impl.queryCommandID)
 }
 
 func TestBacktestQueryAccountReturnsSnapshotToStrategy(t *testing.T) {
@@ -1165,6 +1174,9 @@ func TestBacktestCancelOrderDispatchesPendingCancelAndCanceled(t *testing.T) {
 	order, ok := result.Cache.OrderByClientID("backtest", "cancel-client")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusCanceled, order.Status)
+	require.Equal(t, model.CommandID("cancel-command"), order.Metadata.CommandID)
+	require.Equal(t, model.CommandID("cancel-command"), impl.pendingCancelCommandID)
+	require.Equal(t, model.CommandID("cancel-command"), impl.canceledCommandID)
 }
 
 func TestBacktestExpiresGTDOrdersOnSimulatedClock(t *testing.T) {
@@ -1286,6 +1298,9 @@ func TestBacktestCancelAllOrdersCancelsOpenOrdersForInstrument(t *testing.T) {
 	result, err := engine.Run(context.Background())
 	require.NoError(t, err)
 	require.Len(t, impl.canceledReports, 2)
+	for _, report := range impl.canceledReports {
+		require.Equal(t, model.CommandID("cancel-all-command"), report.Metadata.CommandID)
+	}
 	require.Empty(t, result.Cache.OpenOrders("backtest"))
 	for _, clientOrderID := range []model.ClientOrderID{"cancel-all-1", "cancel-all-2"} {
 		order, ok := result.Cache.OrderByClientID("backtest", clientOrderID)
@@ -1695,23 +1710,27 @@ type positionLifecycleBacktestStrategy struct {
 }
 
 type modifyBacktestStrategy struct {
-	accountID     model.AccountID
-	instrumentID  model.InstrumentID
-	runtime       strategy.Runtime
-	submitted     bool
-	modified      bool
-	pendingUpdate bool
-	updated       bool
+	accountID              model.AccountID
+	instrumentID           model.InstrumentID
+	runtime                strategy.Runtime
+	submitted              bool
+	modified               bool
+	pendingUpdate          bool
+	updated                bool
+	pendingUpdateCommandID model.CommandID
+	updatedCommandID       model.CommandID
 }
 
 type cancelBacktestStrategy struct {
-	accountID     model.AccountID
-	instrumentID  model.InstrumentID
-	runtime       strategy.Runtime
-	submitted     bool
-	canceledOnce  bool
-	pendingCancel bool
-	canceled      bool
+	accountID              model.AccountID
+	instrumentID           model.InstrumentID
+	runtime                strategy.Runtime
+	submitted              bool
+	canceledOnce           bool
+	pendingCancel          bool
+	canceled               bool
+	pendingCancelCommandID model.CommandID
+	canceledCommandID      model.CommandID
 }
 
 type gtdExpiryBacktestStrategy struct {
@@ -1745,12 +1764,13 @@ type submitLifecycleBacktestStrategy struct {
 }
 
 type queryOrderBacktestStrategy struct {
-	accountID    model.AccountID
-	instrumentID model.InstrumentID
-	runtime      strategy.Runtime
-	submitted    bool
-	queried      bool
-	queryStatus  model.OrderStatus
+	accountID      model.AccountID
+	instrumentID   model.InstrumentID
+	runtime        strategy.Runtime
+	submitted      bool
+	queried        bool
+	queryStatus    model.OrderStatus
+	queryCommandID model.CommandID
 }
 
 type queryAccountBacktestStrategy struct {
@@ -1810,6 +1830,7 @@ func (s *modifyBacktestStrategy) OnOrderBook(ctx context.Context, book model.Ord
 			decimal.RequireFromString("1"),
 			decimal.RequireFromString("99"),
 			model.WithClientOrderID("modify-client"),
+			model.WithCommandMetadata(model.CommandMetadata{CommandID: "submit-command"}),
 		)
 		_, err := s.runtime.SubmitOrder(ctx, order)
 		return err
@@ -1819,6 +1840,7 @@ func (s *modifyBacktestStrategy) OnOrderBook(ctx context.Context, book model.Ord
 	}
 	s.modified = true
 	_, err := s.runtime.ModifyOrder(ctx, model.ModifyOrder{
+		Metadata:      model.CommandMetadata{CommandID: "modify-command"},
 		AccountID:     s.accountID,
 		InstrumentID:  book.InstrumentID,
 		ClientOrderID: "modify-client",
@@ -1827,13 +1849,15 @@ func (s *modifyBacktestStrategy) OnOrderBook(ctx context.Context, book model.Ord
 	return err
 }
 
-func (s *modifyBacktestStrategy) OnOrderPendingUpdate(context.Context, model.OrderLifecycleEvent) error {
+func (s *modifyBacktestStrategy) OnOrderPendingUpdate(_ context.Context, event model.OrderLifecycleEvent) error {
 	s.pendingUpdate = true
+	s.pendingUpdateCommandID = event.Metadata.CommandID
 	return nil
 }
 
-func (s *modifyBacktestStrategy) OnOrderUpdated(context.Context, model.OrderLifecycleEvent) error {
+func (s *modifyBacktestStrategy) OnOrderUpdated(_ context.Context, event model.OrderLifecycleEvent) error {
 	s.updated = true
+	s.updatedCommandID = event.Metadata.CommandID
 	return nil
 }
 
@@ -1851,6 +1875,7 @@ func (s *cancelBacktestStrategy) OnOrderBook(ctx context.Context, book model.Ord
 			decimal.RequireFromString("1"),
 			decimal.RequireFromString("99"),
 			model.WithClientOrderID("cancel-client"),
+			model.WithCommandMetadata(model.CommandMetadata{CommandID: "submit-command"}),
 		)
 		_, err := s.runtime.SubmitOrder(ctx, order)
 		return err
@@ -1860,6 +1885,7 @@ func (s *cancelBacktestStrategy) OnOrderBook(ctx context.Context, book model.Ord
 	}
 	s.canceledOnce = true
 	_, err := s.runtime.CancelOrder(ctx, model.CancelOrder{
+		Metadata:      model.CommandMetadata{CommandID: "cancel-command"},
 		AccountID:     s.accountID,
 		InstrumentID:  book.InstrumentID,
 		ClientOrderID: "cancel-client",
@@ -1867,13 +1893,15 @@ func (s *cancelBacktestStrategy) OnOrderBook(ctx context.Context, book model.Ord
 	return err
 }
 
-func (s *cancelBacktestStrategy) OnOrderPendingCancel(context.Context, model.OrderLifecycleEvent) error {
+func (s *cancelBacktestStrategy) OnOrderPendingCancel(_ context.Context, event model.OrderLifecycleEvent) error {
 	s.pendingCancel = true
+	s.pendingCancelCommandID = event.Metadata.CommandID
 	return nil
 }
 
-func (s *cancelBacktestStrategy) OnOrderCanceled(context.Context, model.OrderStatusReport) error {
+func (s *cancelBacktestStrategy) OnOrderCanceled(_ context.Context, report model.OrderStatusReport) error {
 	s.canceled = true
+	s.canceledCommandID = report.Metadata.CommandID
 	return nil
 }
 
@@ -1986,6 +2014,7 @@ func (s *queryOrderBacktestStrategy) OnOrderBook(ctx context.Context, book model
 		return err
 	}
 	report, err := s.runtime.QueryOrder(ctx, model.QueryOrder{
+		Metadata:      model.CommandMetadata{CommandID: "query-command"},
 		AccountID:     s.accountID,
 		InstrumentID:  book.InstrumentID,
 		ClientOrderID: "query-order-client",
@@ -1995,6 +2024,7 @@ func (s *queryOrderBacktestStrategy) OnOrderBook(ctx context.Context, book model
 	}
 	s.queried = true
 	s.queryStatus = report.Status
+	s.queryCommandID = report.Metadata.CommandID
 	return nil
 }
 
@@ -2123,6 +2153,7 @@ func (s *cancelAllBacktestStrategy) OnOrderBook(ctx context.Context, book model.
 	}
 	s.canceledOnce = true
 	_, err := s.runtime.CancelAllOrders(ctx, model.CancelAllOrders{
+		Metadata:     model.CommandMetadata{CommandID: "cancel-all-command"},
 		AccountID:    s.accountID,
 		InstrumentID: book.InstrumentID,
 		OrderSide:    s.cancelSide,
@@ -2190,6 +2221,7 @@ func (s *bracketBacktestStrategy) OnOrderBook(ctx context.Context, book model.Or
 		TakeProfit:   decimal.RequireFromString("103"),
 		StopLoss:     decimal.RequireFromString("99"),
 	})
+	list.Metadata = model.CommandMetadata{CommandID: "list-command"}
 	_, err := s.runtime.SubmitOrderList(ctx, list)
 	return err
 }

@@ -95,11 +95,19 @@ func TestNodeSubmitOrderAppliesPublishesAndTracksReport(t *testing.T) {
 		TimeInForce:   model.TimeInForceGTC,
 		Quantity:      decimal.RequireFromString("0.5"),
 		Price:         decimal.RequireFromString("100"),
+		Metadata: model.CommandMetadata{
+			TraderID:      "trader-1",
+			StrategyID:    "strategy-1",
+			CommandID:     "command-1",
+			CorrelationID: "corr-1",
+			Params:        map[string]string{"route": "platform"},
+		},
 	}
 
 	report, err := node.SubmitOrder(context.Background(), submit)
 	require.NoError(t, err)
 	require.Equal(t, model.OrderID("submitted-1"), report.OrderID)
+	require.Equal(t, submit.Metadata.CommandID, report.Metadata.CommandID)
 	require.Equal(t, []string{
 		"exec_connect",
 		"query_account",
@@ -112,9 +120,11 @@ func TestNodeSubmitOrderAppliesPublishesAndTracksReport(t *testing.T) {
 	got, ok := node.Cache().OrderByClientID("acct", "client-submit-1")
 	require.True(t, ok)
 	require.Equal(t, report, got)
+	require.Equal(t, "platform", got.Metadata.Params["route"])
 
 	orderEvent := readOrderReport(t, events)
 	require.Equal(t, model.OrderID("submitted-1"), orderEvent.OrderID)
+	require.Equal(t, submit.Metadata.CorrelationID, orderEvent.Metadata.CorrelationID)
 	require.NoError(t, node.Stop(context.Background()))
 }
 
@@ -199,6 +209,9 @@ func TestNodeQueryOrderReturnsCachedOrderByClientID(t *testing.T) {
 	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
 	submitted := submitRestingOrder(t, node, instID, "client-query-1")
 	report, err := node.QueryOrder(context.Background(), model.QueryOrder{
+		Metadata: model.CommandMetadata{
+			CommandID: "query-command",
+		},
 		AccountID:     "acct",
 		InstrumentID:  instID,
 		ClientOrderID: "client-query-1",
@@ -206,6 +219,7 @@ func TestNodeQueryOrderReturnsCachedOrderByClientID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, submitted.OrderID, report.OrderID)
 	require.Equal(t, model.OrderStatusAccepted, report.Status)
+	require.Equal(t, model.CommandID("query-command"), report.Metadata.CommandID)
 	require.NoError(t, node.Stop(context.Background()))
 }
 
@@ -249,15 +263,18 @@ func TestNodeSubmitOrderListHoldsChildrenUntilParentFilledAndCancelsOcoSibling(t
 		TakeProfit:   decimal.RequireFromString("110"),
 		StopLoss:     decimal.RequireFromString("95"),
 	})
+	list.Metadata = model.CommandMetadata{CommandID: "list-command"}
 	reports, err := node.SubmitOrderList(context.Background(), list)
 	require.NoError(t, err)
 	require.Len(t, reports, 1)
+	require.Equal(t, model.CommandID("list-command"), reports[0].Metadata.CommandID)
 	require.Contains(t, exec.Calls(), "submit:acct-1")
 	require.NotContains(t, exec.Calls(), "submit:acct-2")
 	require.NotContains(t, exec.Calls(), "submit:acct-3")
 
 	entry, ok := node.Cache().OrderByClientID("acct", "acct-1")
 	require.True(t, ok)
+	require.Equal(t, model.CommandID("list-command"), entry.Metadata.CommandID)
 	_, ok = node.Cache().OrderByClientID("acct", "acct-2")
 	require.False(t, ok)
 	_, ok = node.Cache().OrderByClientID("acct", "acct-3")
@@ -279,9 +296,11 @@ func TestNodeSubmitOrderListHoldsChildrenUntilParentFilledAndCancelsOcoSibling(t
 	stopLoss, ok := node.Cache().OrderByClientID("acct", "acct-2")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusAccepted, stopLoss.Status)
+	require.Equal(t, model.CommandID("list-command"), stopLoss.Metadata.CommandID)
 	takeProfit, ok := node.Cache().OrderByClientID("acct", "acct-3")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusAccepted, takeProfit.Status)
+	require.Equal(t, model.CommandID("list-command"), takeProfit.Metadata.CommandID)
 
 	require.NoError(t, node.applyAndPublish(context.Background(), node.reconcilerFor("acct"), model.ExecutionEvent{Fill: &model.FillReport{
 		AccountID:     "acct",
@@ -297,6 +316,7 @@ func TestNodeSubmitOrderListHoldsChildrenUntilParentFilledAndCancelsOcoSibling(t
 	stopLoss, ok = node.Cache().OrderByClientID("acct", "acct-2")
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusCanceled, stopLoss.Status)
+	require.Equal(t, model.CommandID("list-command"), stopLoss.Metadata.CommandID)
 	require.Contains(t, exec.Calls(), "cancel:acct-2")
 	require.NoError(t, node.Stop(context.Background()))
 }
@@ -325,6 +345,9 @@ func TestNodeModifyOrderPublishesPendingUpdateAndUpdated(t *testing.T) {
 	require.NoError(t, err)
 
 	report, err := node.ModifyOrder(context.Background(), model.ModifyOrder{
+		Metadata: model.CommandMetadata{
+			CommandID: "modify-command",
+		},
 		AccountID:     "acct",
 		InstrumentID:  submit.InstrumentID,
 		OrderID:       accepted.OrderID,
@@ -333,12 +356,15 @@ func TestNodeModifyOrderPublishesPendingUpdateAndUpdated(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "101", report.Price.String())
+	require.Equal(t, model.CommandID("modify-command"), report.Metadata.CommandID)
 	require.Contains(t, exec.Calls(), "modify:client-modify-1")
 
 	pending := readOrderLifecycleKind(t, events, model.OrderEventPendingUpdate)
 	require.Equal(t, model.OrderEventPendingUpdate, pending.Kind)
+	require.Equal(t, model.CommandID("modify-command"), pending.Metadata.CommandID)
 	updated := readOrderLifecycleKind(t, events, model.OrderEventUpdated)
 	require.Equal(t, model.OrderEventUpdated, updated.Kind)
+	require.Equal(t, model.CommandID("modify-command"), updated.Metadata.CommandID)
 
 	got, ok := node.Cache().OrderByClientID("acct", "client-modify-1")
 	require.True(t, ok)
@@ -359,6 +385,9 @@ func TestNodeModifyOrderPublishesRejectedWhenVenueRejects(t *testing.T) {
 	defer events.Close()
 
 	submit := model.SubmitOrder{
+		Metadata: model.CommandMetadata{
+			CommandID: "submit-command",
+		},
 		AccountID:     "acct",
 		InstrumentID:  model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
 		ClientOrderID: "client-modify-rejected",
@@ -463,6 +492,9 @@ func TestNodeCancelOrderPublishesPendingCancelAndCanceled(t *testing.T) {
 	require.NoError(t, err)
 
 	report, err := node.CancelOrder(context.Background(), model.CancelOrder{
+		Metadata: model.CommandMetadata{
+			CommandID: "cancel-command",
+		},
 		AccountID:     "acct",
 		InstrumentID:  submit.InstrumentID,
 		OrderID:       accepted.OrderID,
@@ -470,11 +502,14 @@ func TestNodeCancelOrderPublishesPendingCancelAndCanceled(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, model.OrderStatusCanceled, report.Status)
+	require.Equal(t, model.CommandID("cancel-command"), report.Metadata.CommandID)
 
 	pending := readOrderLifecycleKind(t, events, model.OrderEventPendingCancel)
 	require.Equal(t, model.OrderEventPendingCancel, pending.Kind)
+	require.Equal(t, model.CommandID("cancel-command"), pending.Metadata.CommandID)
 	canceled := readOrderLifecycleKind(t, events, model.OrderEventCanceled)
 	require.Equal(t, model.OrderEventCanceled, canceled.Kind)
+	require.Equal(t, model.CommandID("cancel-command"), canceled.Metadata.CommandID)
 
 	got, ok := node.Cache().OrderByClientID("acct", "client-cancel-1")
 	require.True(t, ok)
@@ -568,6 +603,9 @@ func TestNodeCancelAllOrdersCancelsOpenOrdersForInstrument(t *testing.T) {
 	submitRestingOrder(t, node, instID, "cancel-all-2")
 
 	reports, err := node.CancelAllOrders(context.Background(), model.CancelAllOrders{
+		Metadata: model.CommandMetadata{
+			CommandID: "cancel-all-command",
+		},
 		AccountID:    "acct",
 		InstrumentID: instID,
 	})
@@ -575,6 +613,7 @@ func TestNodeCancelAllOrdersCancelsOpenOrdersForInstrument(t *testing.T) {
 	require.Len(t, reports, 3)
 	for _, report := range reports {
 		require.Equal(t, model.OrderStatusCanceled, report.Status)
+		require.Equal(t, model.CommandID("cancel-all-command"), report.Metadata.CommandID)
 	}
 	require.Empty(t, node.Cache().OpenOrders("acct"))
 	require.NoError(t, node.Stop(context.Background()))

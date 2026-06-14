@@ -416,6 +416,7 @@ func (r *runtime) SubmitOrder(ctx context.Context, order model.SubmitOrder) (mod
 }
 
 func (r *runtime) SubmitOrderList(ctx context.Context, list model.OrderList) ([]model.OrderStatusReport, error) {
+	list = list.WithCommandMetadataDefaults()
 	if err := list.Validate(); err != nil {
 		return nil, err
 	}
@@ -451,7 +452,9 @@ func (r *runtime) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (mo
 		_ = r.dispatchOrderModifyRejected(ctx, modify, model.OrderStatusAccepted, &existing, err)
 		return model.OrderStatusReport{}, err
 	}
+	updated.Metadata = modify.Metadata.WithDefaults(updated.Metadata)
 	pending := existing
+	pending.Metadata = modify.Metadata.WithDefaults(existing.Metadata)
 	pending.Status = model.OrderStatusPendingUpdate
 	pending.LastUpdatedTime = r.now()
 	if err := r.apply(ctx, model.ExecutionEvent{Order: &pending}); err != nil {
@@ -485,6 +488,7 @@ func (r *runtime) acceptOrder(ctx context.Context, order model.SubmitOrder) (mod
 	}
 	r.nextOrder++
 	report := model.OrderStatusReport{
+		Metadata:            order.Metadata,
 		AccountID:           order.AccountID,
 		InstrumentID:        order.InstrumentID,
 		OrderListID:         order.OrderListID,
@@ -540,6 +544,7 @@ func (r *runtime) CancelOrder(ctx context.Context, cancel model.CancelOrder) (mo
 	}
 	cancel = fillBacktestCancelIdentity(cancel, order)
 	pending := order
+	pending.Metadata = cancel.Metadata.WithDefaults(order.Metadata)
 	pending.Status = model.OrderStatusPendingCancel
 	pending.LastUpdatedTime = r.now()
 	if err := r.apply(ctx, model.ExecutionEvent{Order: &pending}); err != nil {
@@ -549,6 +554,7 @@ func (r *runtime) CancelOrder(ctx context.Context, cancel model.CancelOrder) (mo
 		return model.OrderStatusReport{}, err
 	}
 	order.Status = model.OrderStatusCanceled
+	order.Metadata = cancel.Metadata.WithDefaults(order.Metadata)
 	order.LeavesQuantity = decimal.Zero
 	if err := r.apply(ctx, model.ExecutionEvent{Order: &order}); err != nil {
 		return model.OrderStatusReport{}, err
@@ -566,6 +572,7 @@ func (r *runtime) BatchCancelOrders(ctx context.Context, batch model.BatchCancel
 	reports := make([]model.OrderStatusReport, 0, len(batch.Cancels))
 	var batchErr error
 	for _, cancel := range batch.Cancels {
+		cancel.Metadata = cancel.Metadata.WithDefaults(batch.Metadata)
 		cancel = fillBacktestBatchCancelIdentity(cancel, batch.AccountID, batch.InstrumentID)
 		report, err := r.CancelOrder(ctx, cancel)
 		if err != nil {
@@ -583,6 +590,7 @@ func (r *runtime) CancelAllOrders(ctx context.Context, cancelAll model.CancelAll
 	}
 	orders := r.cache.OpenOrders(cancelAll.AccountID)
 	batch := model.BatchCancelOrders{
+		Metadata:     cancelAll.Metadata,
 		AccountID:    cancelAll.AccountID,
 		InstrumentID: cancelAll.InstrumentID,
 	}
@@ -591,6 +599,7 @@ func (r *runtime) CancelAllOrders(ctx context.Context, cancelAll model.CancelAll
 			continue
 		}
 		batch.Cancels = append(batch.Cancels, model.CancelOrder{
+			Metadata:      cancelAll.Metadata,
 			AccountID:     order.AccountID,
 			InstrumentID:  order.InstrumentID,
 			OrderID:       order.OrderID,
@@ -608,6 +617,7 @@ func (r *runtime) QueryOrder(_ context.Context, query model.QueryOrder) (model.O
 		return model.OrderStatusReport{}, err
 	}
 	if order, ok := r.findQueriedOrder(query); ok {
+		order.Metadata = query.Metadata.WithDefaults(order.Metadata)
 		return order, nil
 	}
 	return model.OrderStatusReport{}, fmt.Errorf("%w: order not found", model.ErrInvalidOrder)
@@ -670,6 +680,7 @@ func (r *runtime) findQueriedOrder(query model.QueryOrder) (model.OrderStatusRep
 
 func (r *runtime) dispatchOrderModifyRejected(ctx context.Context, modify model.ModifyOrder, previous model.OrderStatus, report *model.OrderStatusReport, cause error) error {
 	lifecycle := model.OrderLifecycleEvent{
+		Metadata:       modify.Metadata,
 		AccountID:      modify.AccountID,
 		InstrumentID:   modify.InstrumentID,
 		OrderID:        modify.OrderID,
@@ -692,6 +703,7 @@ func (r *runtime) dispatchOrderModifyRejected(ctx context.Context, modify model.
 
 func (r *runtime) dispatchOrderCancelRejected(ctx context.Context, cancel model.CancelOrder, previous model.OrderStatus, report *model.OrderStatusReport, cause error) error {
 	lifecycle := model.OrderLifecycleEvent{
+		Metadata:       cancel.Metadata,
 		AccountID:      cancel.AccountID,
 		InstrumentID:   cancel.InstrumentID,
 		OrderID:        cancel.OrderID,
@@ -1871,6 +1883,7 @@ func fillBacktestBatchCancelIdentity(cancel model.CancelOrder, accountID model.A
 
 func backtestOrderLifecycleFromReport(report model.OrderStatusReport, kind model.OrderEventKind, previous model.OrderStatus, reason string) model.OrderLifecycleEvent {
 	return model.OrderLifecycleEvent{
+		Metadata:       report.Metadata,
 		AccountID:      report.AccountID,
 		InstrumentID:   report.InstrumentID,
 		OrderID:        report.OrderID,
@@ -1886,6 +1899,7 @@ func backtestOrderLifecycleFromReport(report model.OrderStatusReport, kind model
 
 func backtestOrderSubmittedLifecycle(order model.SubmitOrder) model.OrderLifecycleEvent {
 	return model.OrderLifecycleEvent{
+		Metadata:       order.Metadata,
 		AccountID:      order.AccountID,
 		InstrumentID:   order.InstrumentID,
 		ClientOrderID:  order.ClientOrderID,

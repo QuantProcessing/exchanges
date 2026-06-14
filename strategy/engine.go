@@ -104,7 +104,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	for _, s := range e.strategies {
-		if err := s.OnStart(ctx, e.runtime); err != nil {
+		if err := s.OnStart(ctx, e.runtimeForStrategy(s)); err != nil {
 			return err
 		}
 	}
@@ -124,6 +124,73 @@ func (e *Engine) Start(ctx context.Context) error {
 		go e.forward(runCtx, sub)
 	}
 	return nil
+}
+
+func (e *Engine) runtimeForStrategy(s Strategy) Runtime {
+	if e.runtime == nil || s == nil {
+		return e.runtime
+	}
+	return commandMetadataRuntime{
+		Runtime:    e.runtime,
+		strategyID: model.StrategyID(s.ID()),
+	}
+}
+
+type commandMetadataRuntime struct {
+	Runtime
+	strategyID model.StrategyID
+}
+
+func (r commandMetadataRuntime) commandMetadata(metadata model.CommandMetadata) model.CommandMetadata {
+	defaults := model.CommandMetadata{
+		StrategyID: r.strategyID,
+		TsInit:     r.Clock().Now(),
+	}
+	return metadata.WithDefaults(defaults)
+}
+
+func (r commandMetadataRuntime) SubmitOrder(ctx context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {
+	order.Metadata = r.commandMetadata(order.Metadata)
+	return r.Runtime.SubmitOrder(ctx, order)
+}
+
+func (r commandMetadataRuntime) SubmitOrderList(ctx context.Context, list model.OrderList) ([]model.OrderStatusReport, error) {
+	list.Metadata = r.commandMetadata(list.Metadata)
+	list = list.WithCommandMetadataDefaults()
+	return r.Runtime.SubmitOrderList(ctx, list)
+}
+
+func (r commandMetadataRuntime) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (model.OrderStatusReport, error) {
+	modify.Metadata = r.commandMetadata(modify.Metadata)
+	return r.Runtime.ModifyOrder(ctx, modify)
+}
+
+func (r commandMetadataRuntime) CancelOrder(ctx context.Context, cancel model.CancelOrder) (model.OrderStatusReport, error) {
+	cancel.Metadata = r.commandMetadata(cancel.Metadata)
+	return r.Runtime.CancelOrder(ctx, cancel)
+}
+
+func (r commandMetadataRuntime) BatchCancelOrders(ctx context.Context, batch model.BatchCancelOrders) ([]model.OrderStatusReport, error) {
+	batch.Metadata = r.commandMetadata(batch.Metadata)
+	for i := range batch.Cancels {
+		batch.Cancels[i].Metadata = batch.Cancels[i].Metadata.WithDefaults(batch.Metadata)
+	}
+	return r.Runtime.BatchCancelOrders(ctx, batch)
+}
+
+func (r commandMetadataRuntime) CancelAllOrders(ctx context.Context, cancelAll model.CancelAllOrders) ([]model.OrderStatusReport, error) {
+	cancelAll.Metadata = r.commandMetadata(cancelAll.Metadata)
+	return r.Runtime.CancelAllOrders(ctx, cancelAll)
+}
+
+func (r commandMetadataRuntime) QueryOrder(ctx context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
+	query.Metadata = r.commandMetadata(query.Metadata)
+	return r.Runtime.QueryOrder(ctx, query)
+}
+
+func (r commandMetadataRuntime) QueryAccount(ctx context.Context, query model.QueryAccount) (model.AccountSnapshot, error) {
+	query.Metadata = r.commandMetadata(query.Metadata)
+	return r.Runtime.QueryAccount(ctx, query)
 }
 
 func (e *Engine) forward(ctx context.Context, sub bus.Subscription) {

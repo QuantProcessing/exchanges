@@ -375,7 +375,7 @@ for {
             return
         }
         fmt.Printf("order=%s status=%s filled=%s\n",
-            order.OrderID, order.Status, order.FilledQty)
+            order.OrderID, order.Status, order.FilledQuantity)
     case fill, ok := <-tracker.Fills():
         if !ok {
             return

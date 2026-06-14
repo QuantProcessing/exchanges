@@ -404,6 +404,7 @@ func (n *Node) SubmitOrder(ctx context.Context, order model.SubmitOrder) (model.
 }
 
 func (n *Node) SubmitOrderList(ctx context.Context, list model.OrderList) ([]model.OrderStatusReport, error) {
+	list = list.WithCommandMetadataDefaults()
 	if err := list.Validate(); err != nil {
 		return nil, err
 	}
@@ -453,9 +454,11 @@ func (n *Node) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (model
 		_ = n.publishOrderModifyRejected(ctx, modify, model.OrderStatusAccepted, &existing, err)
 		return model.OrderStatusReport{}, err
 	}
+	updated.Metadata = modify.Metadata.WithDefaults(updated.Metadata)
 
 	reconciler := n.reconcilerFor(modify.AccountID)
 	pending := existing
+	pending.Metadata = modify.Metadata.WithDefaults(existing.Metadata)
 	pending.Status = model.OrderStatusPendingUpdate
 	pending.LastUpdatedTime = time.Now()
 	if err := n.applyAndPublish(ctx, reconciler, model.ExecutionEvent{Order: &pending}); err != nil {
@@ -488,7 +491,7 @@ func (n *Node) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (model
 		_ = n.restoreAndRejectModify(ctx, reconciler, existing, modify, err)
 		return model.OrderStatusReport{}, err
 	}
-	report = fillModifiedReport(report, updated)
+	report = fillModifiedReport(report, modify, updated)
 	if err := n.applyAndPublish(ctx, reconciler, model.ExecutionEvent{Order: &report}); err != nil {
 		return model.OrderStatusReport{}, err
 	}
@@ -503,6 +506,7 @@ func (n *Node) publishOrderDenied(ctx context.Context, order model.SubmitOrder, 
 		return nil
 	}
 	lifecycle := model.OrderLifecycleEvent{
+		Metadata:      order.Metadata,
 		AccountID:     order.AccountID,
 		InstrumentID:  order.InstrumentID,
 		ClientOrderID: order.ClientOrderID,
@@ -524,6 +528,7 @@ func (n *Node) publishOrderDenied(ctx context.Context, order model.SubmitOrder, 
 
 func (n *Node) publishOrderModifyRejected(ctx context.Context, modify model.ModifyOrder, previous model.OrderStatus, report *model.OrderStatusReport, cause error) error {
 	lifecycle := model.OrderLifecycleEvent{
+		Metadata:       modify.Metadata,
 		AccountID:      modify.AccountID,
 		InstrumentID:   modify.InstrumentID,
 		OrderID:        modify.OrderID,
@@ -550,6 +555,7 @@ func (n *Node) publishOrderModifyRejected(ctx context.Context, modify model.Modi
 
 func (n *Node) publishOrderCancelRejected(ctx context.Context, cancel model.CancelOrder, previous model.OrderStatus, report *model.OrderStatusReport, cause error) error {
 	lifecycle := model.OrderLifecycleEvent{
+		Metadata:       cancel.Metadata,
 		AccountID:      cancel.AccountID,
 		InstrumentID:   cancel.InstrumentID,
 		OrderID:        cancel.OrderID,
@@ -618,6 +624,7 @@ func (n *Node) CancelOrder(ctx context.Context, cancel model.CancelOrder) (model
 	cancel = fillCancelIdentity(cancel, existing)
 	reconciler := n.reconcilerFor(cancel.AccountID)
 	pending := existing
+	pending.Metadata = cancel.Metadata.WithDefaults(existing.Metadata)
 	pending.Status = model.OrderStatusPendingCancel
 	pending.LastUpdatedTime = time.Now()
 	if err := n.applyAndPublish(ctx, reconciler, model.ExecutionEvent{Order: &pending}); err != nil {
@@ -654,6 +661,7 @@ func (n *Node) BatchCancelOrders(ctx context.Context, batch model.BatchCancelOrd
 	reports := make([]model.OrderStatusReport, 0, len(batch.Cancels))
 	var batchErr error
 	for _, cancel := range batch.Cancels {
+		cancel.Metadata = cancel.Metadata.WithDefaults(batch.Metadata)
 		cancel = fillBatchCancelIdentity(cancel, batch.AccountID, batch.InstrumentID)
 		report, err := n.CancelOrder(ctx, cancel)
 		if err != nil {
@@ -671,6 +679,7 @@ func (n *Node) CancelAllOrders(ctx context.Context, cancelAll model.CancelAllOrd
 	}
 	orders := n.cache.OpenOrders(cancelAll.AccountID)
 	batch := model.BatchCancelOrders{
+		Metadata:     cancelAll.Metadata,
 		AccountID:    cancelAll.AccountID,
 		InstrumentID: cancelAll.InstrumentID,
 	}
@@ -679,6 +688,7 @@ func (n *Node) CancelAllOrders(ctx context.Context, cancelAll model.CancelAllOrd
 			continue
 		}
 		batch.Cancels = append(batch.Cancels, model.CancelOrder{
+			Metadata:      cancelAll.Metadata,
 			AccountID:     order.AccountID,
 			InstrumentID:  order.InstrumentID,
 			OrderID:       order.OrderID,
@@ -696,7 +706,7 @@ func (n *Node) QueryOrder(ctx context.Context, query model.QueryOrder) (model.Or
 		return model.OrderStatusReport{}, err
 	}
 	if order, ok := n.findQueriedOrder(query); ok {
-		return order, nil
+		return fillQueriedReport(order, query), nil
 	}
 	client, ok := n.executionClient(query.AccountID)
 	if !ok {
@@ -1112,6 +1122,7 @@ func (n *Node) findQueriedOrder(query model.QueryOrder) (model.OrderStatusReport
 }
 
 func fillSubmittedReport(report model.OrderStatusReport, order model.SubmitOrder) model.OrderStatusReport {
+	report.Metadata = report.Metadata.WithDefaults(order.Metadata)
 	if report.AccountID == "" {
 		report.AccountID = order.AccountID
 	}
@@ -1166,6 +1177,7 @@ func fillSubmittedReport(report model.OrderStatusReport, order model.SubmitOrder
 }
 
 func fillQueriedReport(report model.OrderStatusReport, query model.QueryOrder) model.OrderStatusReport {
+	report.Metadata = query.Metadata.WithDefaults(report.Metadata)
 	if report.AccountID == "" {
 		report.AccountID = query.AccountID
 	}
@@ -1255,10 +1267,12 @@ func submitFromOrderReport(report model.OrderStatusReport) model.SubmitOrder {
 		PostOnly:            report.PostOnly,
 		ReduceOnly:          report.ReduceOnly,
 		ExpireTime:          report.ExpireTime,
+		Metadata:            report.Metadata,
 	}
 }
 
-func fillModifiedReport(report model.OrderStatusReport, updated model.OrderStatusReport) model.OrderStatusReport {
+func fillModifiedReport(report model.OrderStatusReport, modify model.ModifyOrder, updated model.OrderStatusReport) model.OrderStatusReport {
+	report.Metadata = modify.Metadata.WithDefaults(report.Metadata).WithDefaults(updated.Metadata)
 	if report.AccountID == "" {
 		report.AccountID = updated.AccountID
 	}
@@ -1329,6 +1343,7 @@ func fillModifiedReport(report model.OrderStatusReport, updated model.OrderStatu
 
 func orderLifecycleFromReport(report model.OrderStatusReport, kind model.OrderEventKind, previous model.OrderStatus, reason string) model.OrderLifecycleEvent {
 	return model.OrderLifecycleEvent{
+		Metadata:       report.Metadata,
 		AccountID:      report.AccountID,
 		InstrumentID:   report.InstrumentID,
 		OrderID:        report.OrderID,
@@ -1344,6 +1359,7 @@ func orderLifecycleFromReport(report model.OrderStatusReport, kind model.OrderEv
 
 func orderSubmittedLifecycle(order model.SubmitOrder) model.OrderLifecycleEvent {
 	return model.OrderLifecycleEvent{
+		Metadata:       order.Metadata,
 		AccountID:      order.AccountID,
 		InstrumentID:   order.InstrumentID,
 		ClientOrderID:  order.ClientOrderID,
@@ -1355,6 +1371,7 @@ func orderSubmittedLifecycle(order model.SubmitOrder) model.OrderLifecycleEvent 
 
 func orderRejectedLifecycle(order model.SubmitOrder, cause error) model.OrderLifecycleEvent {
 	event := model.OrderLifecycleEvent{
+		Metadata:       order.Metadata,
 		AccountID:      order.AccountID,
 		InstrumentID:   order.InstrumentID,
 		ClientOrderID:  order.ClientOrderID,
@@ -1451,6 +1468,7 @@ func appendUniqueClientOrderID(ids []model.ClientOrderID, id model.ClientOrderID
 }
 
 func fillCanceledReport(report model.OrderStatusReport, cancel model.CancelOrder, existing model.OrderStatusReport) model.OrderStatusReport {
+	report.Metadata = cancel.Metadata.WithDefaults(report.Metadata).WithDefaults(existing.Metadata)
 	if report.AccountID == "" {
 		report.AccountID = cancel.AccountID
 	}

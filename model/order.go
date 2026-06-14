@@ -113,6 +113,7 @@ func (s OrderStatus) IsOpen() bool {
 }
 
 type SubmitOrder struct {
+	Metadata            CommandMetadata
 	AccountID           AccountID
 	InstrumentID        InstrumentID
 	OrderListID         OrderListID
@@ -171,6 +172,7 @@ func (o SubmitOrder) Validate() error {
 }
 
 type CancelOrder struct {
+	Metadata      CommandMetadata
 	AccountID     AccountID
 	InstrumentID  InstrumentID
 	OrderID       OrderID
@@ -185,6 +187,7 @@ func (o CancelOrder) Validate() error {
 }
 
 type BatchCancelOrders struct {
+	Metadata     CommandMetadata
 	AccountID    AccountID
 	InstrumentID InstrumentID
 	Cancels      []CancelOrder
@@ -212,6 +215,7 @@ func (b BatchCancelOrders) Validate() error {
 }
 
 type CancelAllOrders struct {
+	Metadata     CommandMetadata
 	AccountID    AccountID
 	InstrumentID InstrumentID
 	OrderSide    OrderSide
@@ -235,6 +239,7 @@ func (c CancelAllOrders) MatchesOrder(order OrderStatusReport) bool {
 }
 
 type QueryOrder struct {
+	Metadata      CommandMetadata
 	AccountID     AccountID
 	InstrumentID  InstrumentID
 	OrderID       OrderID
@@ -250,6 +255,7 @@ func (q QueryOrder) Validate() error {
 }
 
 type ModifyOrder struct {
+	Metadata        CommandMetadata
 	AccountID       AccountID
 	InstrumentID    InstrumentID
 	OrderID         OrderID
@@ -393,6 +399,7 @@ func orderTypeAllowsTrailing(t OrderType) bool {
 }
 
 type OrderStatusReport struct {
+	Metadata            CommandMetadata
 	AccountID           AccountID
 	InstrumentID        InstrumentID
 	OrderListID         OrderListID

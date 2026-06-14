@@ -45,9 +45,7 @@ func TestRunnerPassesPlatformNodeRuntimeToStrategies(t *testing.T) {
 	runner := NewRunner(Config{Node: node, Bus: b, Strategies: []strategy.Strategy{rec}})
 
 	require.NoError(t, runner.Start(context.Background()))
-	gotNode, ok := rec.runtime.(*platform.Node)
-	require.True(t, ok)
-	require.Same(t, node, gotNode)
+	require.Same(t, node.Cache(), rec.runtime.Cache())
 
 	report, err := rec.runtime.SubmitOrder(context.Background(), model.SubmitOrder{
 		AccountID:     "acct",
@@ -59,6 +57,7 @@ func TestRunnerPassesPlatformNodeRuntimeToStrategies(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, model.OrderID("live-order-1"), report.OrderID)
+	require.Equal(t, model.StrategyID("runtime"), report.Metadata.StrategyID)
 	_, orderCached := node.Cache().OrderByClientID("acct", "live-client-1")
 	require.True(t, orderCached)
 	require.NoError(t, runner.Stop(context.Background()))

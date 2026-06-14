@@ -22,10 +22,14 @@ type MarketDataCapabilities struct {
 }
 
 type ExecutionCapabilities struct {
-	Submit        bool
-	Cancel        bool
-	OrderReports  bool
-	PrivateStream bool
+	Submit          bool
+	Cancel          bool
+	Modify          bool
+	Query           bool
+	OrderReports    bool
+	FillReports     bool
+	PositionReports bool
+	PrivateStream   bool
 }
 
 type AccountCapabilities struct {

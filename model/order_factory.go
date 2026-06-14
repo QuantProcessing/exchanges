@@ -14,6 +14,7 @@ type OrderFactory struct {
 	prefix    string
 	nextID    int
 	nextList  int
+	metadata  CommandMetadata
 }
 
 type OrderFactoryOption func(*OrderFactory)
@@ -21,6 +22,12 @@ type OrderFactoryOption func(*OrderFactory)
 func WithClientOrderIDPrefix(prefix string) OrderFactoryOption {
 	return func(f *OrderFactory) {
 		f.prefix = prefix
+	}
+}
+
+func WithOrderMetadata(metadata CommandMetadata) OrderFactoryOption {
+	return func(f *OrderFactory) {
+		f.metadata = metadata.Clone()
 	}
 }
 
@@ -119,6 +126,7 @@ func (f *OrderFactory) Bracket(req BracketOrderRequest) OrderList {
 
 func (f *OrderFactory) newOrder(instrumentID InstrumentID, side OrderSide, typ OrderType, quantity decimal.Decimal, price decimal.Decimal, opts ...SubmitOrderOption) SubmitOrder {
 	order := SubmitOrder{
+		Metadata:      f.metadata.Clone(),
 		AccountID:     f.accountID,
 		InstrumentID:  instrumentID,
 		ClientOrderID: f.nextClientOrderID(),
@@ -149,6 +157,12 @@ func (f *OrderFactory) nextOrderListID() OrderListID {
 }
 
 type SubmitOrderOption func(*SubmitOrder)
+
+func WithCommandMetadata(metadata CommandMetadata) SubmitOrderOption {
+	return func(order *SubmitOrder) {
+		order.Metadata = metadata.Clone()
+	}
+}
 
 func WithClientOrderID(id ClientOrderID) SubmitOrderOption {
 	return func(order *SubmitOrder) {

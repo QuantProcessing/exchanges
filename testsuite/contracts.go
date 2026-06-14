@@ -2,6 +2,7 @@ package testsuite
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/QuantProcessing/exchanges/model"
@@ -82,9 +83,9 @@ func requiredDataCaseIDs(caps venue.DeclaredCapabilities) []string {
 
 func requiredExecutionCaseIDs(caps venue.DeclaredCapabilities, requirePrivateStream bool) []string {
 	if caps.Venue == "" && caps.Execution == (venue.ExecutionCapabilities{}) && caps.Account == (venue.AccountCapabilities{}) {
-		return []string{"TC-E01", "TC-E02", "TC-E03", "TC-E80", "TC-E84"}
+		return []string{"TC-E01", "TC-E02", "TC-E03", "TC-E04", "TC-E05", "TC-E80", "TC-E81", "TC-E82", "TC-E84"}
 	}
-	ids := make([]string, 0, 5)
+	ids := make([]string, 0, 9)
 	if caps.Account.Snapshot {
 		ids = append(ids, "TC-E01")
 	}
@@ -94,8 +95,20 @@ func requiredExecutionCaseIDs(caps venue.DeclaredCapabilities, requirePrivateStr
 	if caps.Execution.Cancel {
 		ids = append(ids, "TC-E03")
 	}
+	if caps.Execution.Modify {
+		ids = append(ids, "TC-E04")
+	}
+	if caps.Execution.Query {
+		ids = append(ids, "TC-E05")
+	}
 	if caps.Execution.OrderReports {
 		ids = append(ids, "TC-E80")
+	}
+	if caps.Execution.FillReports {
+		ids = append(ids, "TC-E81")
+	}
+	if caps.Execution.PositionReports {
+		ids = append(ids, "TC-E82")
 	}
 	if caps.Execution.PrivateStream && requirePrivateStream {
 		ids = append(ids, "TC-E84")
@@ -133,27 +146,156 @@ type AdapterCapabilityConfig struct {
 
 func RunAdapterCapabilitySuite(t *testing.T, cfg AdapterCapabilityConfig) {
 	t.Helper()
-	require.NotNil(t, cfg.Adapter)
+	report := AdapterCapabilityReport(t, cfg.Adapter)
+	require.True(t, report.AllPassed(), "adapter capability contract failed: %#v", report.Cases)
+}
 
-	caps := cfg.Adapter.Capabilities()
-	require.Equal(t, cfg.Adapter.Venue(), caps.Venue)
+func AdapterCapabilityReport(t *testing.T, adapter venue.Adapter) ContractReport {
+	t.Helper()
+	return runContractCases(t, "adapter", []contractCase{
+		{id: "TC-A01", name: "Venue capability identity", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if caps.Venue != adapter.Venue() {
+				return fmt.Errorf("venue mismatch: adapter=%s caps=%s", adapter.Venue(), caps.Venue)
+			}
+			return nil
+		}},
+		{id: "TC-A02", name: "Instrument provider capability", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if caps.Instruments && adapter.Instruments() == nil {
+				return fmt.Errorf("instrument capability requires an instrument provider")
+			}
+			return nil
+		}},
+		{id: "TC-A03", name: "Market data capability", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if !declaresMarketData(caps.MarketData) {
+				return nil
+			}
+			data := adapter.Data()
+			if data == nil {
+				return fmt.Errorf("market-data capability requires a data client")
+			}
+			if data.Venue() != adapter.Venue() {
+				return fmt.Errorf("market-data venue mismatch: %s", data.Venue())
+			}
+			return nil
+		}},
+		{id: "TC-A04", name: "Streaming market data capability", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if !declaresStreamingMarketData(caps.MarketData) {
+				return nil
+			}
+			data := adapter.Data()
+			if data == nil {
+				return fmt.Errorf("stream capability requires a data client")
+			}
+			if _, ok := data.(venue.StreamingDataClient); !ok {
+				return fmt.Errorf("stream capability requires venue.StreamingDataClient")
+			}
+			return nil
+		}},
+		{id: "TC-A05", name: "Execution capability", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if !declaresExecution(caps.Execution, caps.Account) {
+				return nil
+			}
+			exec := adapter.Execution()
+			if exec == nil {
+				return fmt.Errorf("execution or account capability requires an execution client")
+			}
+			if exec.Venue() != adapter.Venue() {
+				return fmt.Errorf("execution venue mismatch: %s", exec.Venue())
+			}
+			return nil
+		}},
+		{id: "TC-A06", name: "Private execution stream capability", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if !caps.Execution.PrivateStream {
+				return nil
+			}
+			exec := adapter.Execution()
+			if exec == nil {
+				return fmt.Errorf("private-stream capability requires an execution client")
+			}
+			if exec.Events() == nil {
+				return fmt.Errorf("private-stream capability requires execution events")
+			}
+			if _, ok := exec.(venue.ExecutionResubscriber); !ok {
+				return fmt.Errorf("private-stream capability requires explicit resubscribe support")
+			}
+			return nil
+		}},
+		{id: "TC-A07", name: "Granular execution capability interfaces", run: func() error {
+			if adapter == nil {
+				return fmt.Errorf("adapter is nil")
+			}
+			caps := adapter.Capabilities()
+			if !declaresGranularExecution(caps.Execution) {
+				return nil
+			}
+			exec := adapter.Execution()
+			if exec == nil {
+				return fmt.Errorf("granular execution capability requires an execution client")
+			}
+			if caps.Execution.Modify {
+				if _, ok := exec.(venue.OrderModifier); !ok {
+					return fmt.Errorf("modify capability requires venue.OrderModifier")
+				}
+			}
+			if caps.Execution.Query {
+				if _, ok := exec.(venue.OrderQuerier); !ok {
+					return fmt.Errorf("query capability requires venue.OrderQuerier")
+				}
+			}
+			if caps.Execution.FillReports {
+				if _, ok := exec.(venue.FillReportGenerator); !ok {
+					return fmt.Errorf("fill-report capability requires venue.FillReportGenerator")
+				}
+			}
+			if caps.Execution.PositionReports {
+				if _, ok := exec.(venue.PositionStatusReportGenerator); !ok {
+					return fmt.Errorf("position-report capability requires venue.PositionStatusReportGenerator")
+				}
+			}
+			return nil
+		}},
+	})
+}
 
-	if caps.Instruments {
-		require.NotNil(t, cfg.Adapter.Instruments(), "instrument capability requires an instrument provider")
-	}
-	if caps.MarketData.Ticker || caps.MarketData.OrderBook || caps.MarketData.TickerStream || caps.MarketData.OrderBookStream || caps.MarketData.TradeTicks || caps.MarketData.QuoteTicks || caps.MarketData.Bars || caps.MarketData.Streams {
-		require.NotNil(t, cfg.Adapter.Data(), "market-data capability requires a data client")
-		require.Equal(t, cfg.Adapter.Venue(), cfg.Adapter.Data().Venue())
-	}
-	if caps.MarketData.Streams || caps.MarketData.TickerStream || caps.MarketData.OrderBookStream || caps.MarketData.TradeTicks || caps.MarketData.QuoteTicks || caps.MarketData.Bars {
-		require.Implements(t, (*venue.StreamingDataClient)(nil), cfg.Adapter.Data(), "stream capability requires venue.StreamingDataClient")
-	}
-	if caps.Execution.Submit || caps.Execution.Cancel || caps.Execution.OrderReports || caps.Execution.PrivateStream || caps.Account.Snapshot {
-		require.NotNil(t, cfg.Adapter.Execution(), "execution or account capability requires an execution client")
-		require.Equal(t, cfg.Adapter.Venue(), cfg.Adapter.Execution().Venue())
-	}
-	if caps.Execution.PrivateStream {
-		require.NotNil(t, cfg.Adapter.Execution().Events(), "private-stream capability requires execution events")
-		require.Implements(t, (*venue.ExecutionResubscriber)(nil), cfg.Adapter.Execution(), "private-stream capability requires explicit resubscribe support")
-	}
+func declaresMarketData(caps venue.MarketDataCapabilities) bool {
+	return caps.Ticker || caps.OrderBook || caps.TickerStream || caps.OrderBookStream ||
+		caps.TradeTicks || caps.QuoteTicks || caps.Bars || caps.Streams
+}
+
+func declaresStreamingMarketData(caps venue.MarketDataCapabilities) bool {
+	return caps.Streams || caps.TickerStream || caps.OrderBookStream ||
+		caps.TradeTicks || caps.QuoteTicks || caps.Bars
+}
+
+func declaresExecution(caps venue.ExecutionCapabilities, account venue.AccountCapabilities) bool {
+	return caps.Submit || caps.Cancel || caps.Modify || caps.Query || caps.OrderReports ||
+		caps.FillReports || caps.PositionReports || caps.PrivateStream || account.Snapshot
+}
+
+func declaresGranularExecution(caps venue.ExecutionCapabilities) bool {
+	return caps.Modify || caps.Query || caps.FillReports || caps.PositionReports
 }

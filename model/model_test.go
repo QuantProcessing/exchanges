@@ -216,6 +216,83 @@ func TestQueryAccountRequiresAccountID(t *testing.T) {
 	require.ErrorIs(t, query.Validate(), ErrInvalidAccount)
 }
 
+func TestCommandMetadataCanBeAttachedToOrderFactoryCommands(t *testing.T) {
+	inst := MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	params := map[string]string{"source": "test"}
+	factory := NewOrderFactory("acct", WithOrderMetadata(CommandMetadata{
+		TraderID:      "trader-1",
+		StrategyID:    "strategy-1",
+		CommandID:     "command-1",
+		CorrelationID: "corr-1",
+		ClientID:      "client-1",
+		Params:        params,
+	}))
+	params["source"] = "mutated"
+
+	order := factory.Limit(inst, OrderSideBuy, decimal.RequireFromString("1"), decimal.RequireFromString("100"))
+	order.Metadata.Params["source"] = "order-mutated"
+	next := factory.Limit(inst, OrderSideBuy, decimal.RequireFromString("1"), decimal.RequireFromString("100"))
+	overrideParams := map[string]string{"source": "override"}
+	override := factory.Limit(inst, OrderSideBuy, decimal.RequireFromString("1"), decimal.RequireFromString("100"), WithCommandMetadata(CommandMetadata{
+		CommandID: "command-2",
+		Params:    overrideParams,
+	}))
+	overrideParams["source"] = "override-mutated"
+
+	require.Equal(t, TraderID("trader-1"), order.Metadata.TraderID)
+	require.Equal(t, StrategyID("strategy-1"), order.Metadata.StrategyID)
+	require.Equal(t, CommandID("command-1"), order.Metadata.CommandID)
+	require.Equal(t, CorrelationID("corr-1"), order.Metadata.CorrelationID)
+	require.Equal(t, ExecutionClientID("client-1"), order.Metadata.ClientID)
+	require.Equal(t, "order-mutated", order.Metadata.Params["source"])
+	require.Equal(t, "test", next.Metadata.Params["source"])
+	require.Equal(t, "override", override.Metadata.Params["source"])
+}
+
+func TestOrderListAppliesCommandMetadataDefaultsToChildren(t *testing.T) {
+	inst := MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	list := OrderList{
+		Metadata: CommandMetadata{
+			CommandID: "list-command",
+			Params:    map[string]string{"scope": "list"},
+		},
+		ID: "list-1",
+		Orders: []SubmitOrder{
+			{
+				AccountID:     "acct",
+				InstrumentID:  inst,
+				OrderListID:   "list-1",
+				ClientOrderID: "child-1",
+				Side:          OrderSideBuy,
+				Type:          OrderTypeLimit,
+				TimeInForce:   TimeInForceGTC,
+				Quantity:      decimal.RequireFromString("1"),
+				Price:         decimal.RequireFromString("100"),
+			},
+			{
+				Metadata:      CommandMetadata{CommandID: "child-command"},
+				AccountID:     "acct",
+				InstrumentID:  inst,
+				OrderListID:   "list-1",
+				ClientOrderID: "child-2",
+				Side:          OrderSideSell,
+				Type:          OrderTypeLimit,
+				TimeInForce:   TimeInForceGTC,
+				Quantity:      decimal.RequireFromString("1"),
+				Price:         decimal.RequireFromString("101"),
+			},
+		},
+	}
+
+	withDefaults := list.WithCommandMetadataDefaults()
+	withDefaults.Orders[0].Metadata.Params["scope"] = "mutated"
+
+	require.Equal(t, CommandID("list-command"), withDefaults.Orders[0].Metadata.CommandID)
+	require.Equal(t, CommandID("child-command"), withDefaults.Orders[1].Metadata.CommandID)
+	require.Equal(t, "list", withDefaults.Orders[1].Metadata.Params["scope"])
+	require.Empty(t, list.Orders[0].Metadata.CommandID)
+}
+
 func TestAccountSnapshotValidatesBalancesAndMargins(t *testing.T) {
 	snapshot := AccountSnapshot{
 		AccountID: "acct",

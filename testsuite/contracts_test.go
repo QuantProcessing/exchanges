@@ -17,6 +17,13 @@ func TestAdapterCapabilitySuiteAcceptsImplementedCapabilities(t *testing.T) {
 	})
 }
 
+func TestAdapterCapabilityReportRejectsClaimedGranularExecutionWithoutInterface(t *testing.T) {
+	report := AdapterCapabilityReport(t, fakeClaimedModifyAdapter{})
+
+	require.False(t, report.AllPassed(), "claimed modify without OrderModifier must fail: %#v", report)
+	requireCaseFailed(t, report, "TC-A07", "modify capability requires venue.OrderModifier")
+}
+
 type fakeCapabilityAdapter struct{}
 
 func (fakeCapabilityAdapter) Venue() model.Venue { return "FAKE" }
@@ -34,11 +41,36 @@ func (fakeCapabilityAdapter) Capabilities() venue.DeclaredCapabilities {
 		Venue:       "FAKE",
 		Instruments: true,
 		MarketData:  venue.MarketDataCapabilities{Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, Streams: true},
-		Execution:   venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true},
-		Account:     venue.AccountCapabilities{Snapshot: true},
+		Execution: venue.ExecutionCapabilities{
+			Submit:          true,
+			Cancel:          true,
+			Modify:          true,
+			Query:           true,
+			OrderReports:    true,
+			FillReports:     true,
+			PositionReports: true,
+			PrivateStream:   true,
+		},
+		Account: venue.AccountCapabilities{Snapshot: true},
 	}
 }
 func (fakeCapabilityAdapter) Close(context.Context) error { return nil }
+
+type fakeClaimedModifyAdapter struct{}
+
+func (fakeClaimedModifyAdapter) Venue() model.Venue                    { return "FAKE" }
+func (fakeClaimedModifyAdapter) Instruments() venue.InstrumentProvider { return nil }
+func (fakeClaimedModifyAdapter) Data() venue.DataClient                { return nil }
+func (fakeClaimedModifyAdapter) Execution() venue.ExecutionClient {
+	return fakeCoreExecution{events: make(chan model.ExecutionEvent)}
+}
+func (fakeClaimedModifyAdapter) Capabilities() venue.DeclaredCapabilities {
+	return venue.DeclaredCapabilities{
+		Venue:     "FAKE",
+		Execution: venue.ExecutionCapabilities{Modify: true},
+	}
+}
+func (fakeClaimedModifyAdapter) Close(context.Context) error { return nil }
 
 type fakeProvider struct{}
 
@@ -92,13 +124,50 @@ func (fakeExecution) SubmitOrder(context.Context, model.SubmitOrder) (model.Orde
 func (fakeExecution) CancelOrder(context.Context, model.CancelOrder) (model.OrderStatusReport, error) {
 	return model.OrderStatusReport{}, nil
 }
+func (fakeExecution) ModifyOrder(context.Context, model.ModifyOrder) (model.OrderStatusReport, error) {
+	return model.OrderStatusReport{}, nil
+}
+func (fakeExecution) QueryOrder(context.Context, model.QueryOrder) (model.OrderStatusReport, error) {
+	return model.OrderStatusReport{}, nil
+}
 func (fakeExecution) GenerateOrderStatusReports(context.Context, model.InstrumentID) ([]model.OrderStatusReport, error) {
+	return nil, nil
+}
+func (fakeExecution) GenerateFillReports(context.Context, model.InstrumentID) ([]model.FillReport, error) {
+	return nil, nil
+}
+func (fakeExecution) GeneratePositionStatusReports(context.Context, model.InstrumentID) ([]model.PositionStatusReport, error) {
 	return nil, nil
 }
 func (f fakeExecution) Events() <-chan model.ExecutionEvent { return f.events }
 func (fakeExecution) ResubscribeExecution(context.Context) error {
 	return nil
 }
+
+type fakeCoreExecution struct {
+	events chan model.ExecutionEvent
+}
+
+func (fakeCoreExecution) Venue() model.Venue               { return "FAKE" }
+func (fakeCoreExecution) AccountID() model.AccountID       { return "acct" }
+func (fakeCoreExecution) Connect(context.Context) error    { return nil }
+func (fakeCoreExecution) Disconnect(context.Context) error { return nil }
+func (fakeCoreExecution) Health() venue.ExecutionHealth {
+	return venue.ExecutionHealth{Connected: true, AccountReady: true}
+}
+func (fakeCoreExecution) QueryAccount(context.Context) (model.AccountSnapshot, error) {
+	return model.AccountSnapshot{AccountID: "acct", Venue: "FAKE"}, nil
+}
+func (fakeCoreExecution) SubmitOrder(context.Context, model.SubmitOrder) (model.OrderStatusReport, error) {
+	return model.OrderStatusReport{}, nil
+}
+func (fakeCoreExecution) CancelOrder(context.Context, model.CancelOrder) (model.OrderStatusReport, error) {
+	return model.OrderStatusReport{}, nil
+}
+func (fakeCoreExecution) GenerateOrderStatusReports(context.Context, model.InstrumentID) ([]model.OrderStatusReport, error) {
+	return nil, nil
+}
+func (f fakeCoreExecution) Events() <-chan model.ExecutionEvent { return f.events }
 
 func TestDataTesterReportsNautilusStyleCaseResults(t *testing.T) {
 	tester := NewDataTester(DataTesterConfig{
@@ -167,8 +236,25 @@ func TestExecTesterReportsNautilusStyleCaseResults(t *testing.T) {
 	requireCasePassed(t, report, "TC-E01", "Query account snapshot")
 	requireCasePassed(t, report, "TC-E02", "Submit market order")
 	requireCasePassed(t, report, "TC-E03", "Cancel order")
+	requireCasePassed(t, report, "TC-E04", "Modify order")
+	requireCasePassed(t, report, "TC-E05", "Query order")
 	requireCasePassed(t, report, "TC-E80", "Generate order status reports")
+	requireCasePassed(t, report, "TC-E81", "Generate fill reports")
+	requireCasePassed(t, report, "TC-E82", "Generate position status reports")
 	requireCasePassed(t, report, "TC-E84", "Resubscribe private stream")
+}
+
+func TestExecTesterModifyCaseCleansUpSubmittedLimitOrder(t *testing.T) {
+	exec := &cleanupTrackingExecution{fakeExecutionWithLifecycle: fakeExecutionWithLifecycle{events: make(chan model.ExecutionEvent, 2)}}
+	tester := NewExecTester(ExecTesterConfig{
+		Execution:    exec,
+		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.FAKE"),
+	})
+
+	report := tester.Run(context.Background(), t)
+
+	require.True(t, report.Passed(), "all cases should pass: %#v", report)
+	require.Contains(t, exec.canceledClientIDs, model.ClientOrderID("tc-e04-limit"))
 }
 
 func TestExecTesterAllPassedRejectsSkippedPrivateResubscribe(t *testing.T) {
@@ -216,6 +302,18 @@ func requireCaseSkipped(t *testing.T, report ContractReport, id string, reason s
 	for _, result := range report.Cases {
 		if result.ID == id {
 			require.Equal(t, CaseSkipped, result.Status, "case %s status", id)
+			require.Contains(t, result.Error, reason)
+			return
+		}
+	}
+	require.Failf(t, "missing case", "case %s not found in %#v", id, report.Cases)
+}
+
+func requireCaseFailed(t *testing.T, report ContractReport, id string, reason string) {
+	t.Helper()
+	for _, result := range report.Cases {
+		if result.ID == id {
+			require.Equal(t, CaseFailed, result.Status, "case %s status", id)
 			require.Contains(t, result.Error, reason)
 			return
 		}
@@ -346,6 +444,16 @@ type fakeExecutionWithLifecycle struct {
 	events chan model.ExecutionEvent
 }
 
+type cleanupTrackingExecution struct {
+	fakeExecutionWithLifecycle
+	canceledClientIDs []model.ClientOrderID
+}
+
+func (e *cleanupTrackingExecution) CancelOrder(ctx context.Context, cancel model.CancelOrder) (model.OrderStatusReport, error) {
+	e.canceledClientIDs = append(e.canceledClientIDs, cancel.ClientOrderID)
+	return e.fakeExecutionWithLifecycle.CancelOrder(ctx, cancel)
+}
+
 func (fakeExecutionWithLifecycle) Venue() model.Venue         { return "FAKE" }
 func (fakeExecutionWithLifecycle) AccountID() model.AccountID { return "acct" }
 func (fakeExecutionWithLifecycle) Connect(context.Context) error {
@@ -375,10 +483,38 @@ func (fakeExecutionWithLifecycle) SubmitOrder(_ context.Context, order model.Sub
 }
 func (fakeExecutionWithLifecycle) CancelOrder(_ context.Context, cancel model.CancelOrder) (model.OrderStatusReport, error) {
 	return model.OrderStatusReport{
-		AccountID:    cancel.AccountID,
-		InstrumentID: cancel.InstrumentID,
-		OrderID:      cancel.OrderID,
-		Status:       model.OrderStatusCanceled,
+		AccountID:     cancel.AccountID,
+		InstrumentID:  cancel.InstrumentID,
+		OrderID:       cancel.OrderID,
+		ClientOrderID: cancel.ClientOrderID,
+		Status:        model.OrderStatusCanceled,
+	}, nil
+}
+func (fakeExecutionWithLifecycle) ModifyOrder(_ context.Context, modify model.ModifyOrder) (model.OrderStatusReport, error) {
+	return model.OrderStatusReport{
+		AccountID:      modify.AccountID,
+		InstrumentID:   modify.InstrumentID,
+		OrderID:        modify.OrderID,
+		ClientOrderID:  modify.ClientOrderID,
+		Status:         model.OrderStatusAccepted,
+		Side:           model.OrderSideBuy,
+		Type:           model.OrderTypeLimit,
+		Quantity:       decimal.RequireFromString("0.01"),
+		LeavesQuantity: decimal.RequireFromString("0.01"),
+		Price:          modify.Price,
+	}, nil
+}
+func (fakeExecutionWithLifecycle) QueryOrder(_ context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
+	return model.OrderStatusReport{
+		AccountID:      query.AccountID,
+		InstrumentID:   query.InstrumentID,
+		OrderID:        query.OrderID,
+		ClientOrderID:  query.ClientOrderID,
+		Status:         model.OrderStatusAccepted,
+		Side:           model.OrderSideBuy,
+		Type:           model.OrderTypeMarket,
+		Quantity:       decimal.RequireFromString("0.01"),
+		LeavesQuantity: decimal.RequireFromString("0.01"),
 	}, nil
 }
 func (fakeExecutionWithLifecycle) GenerateOrderStatusReports(context.Context, model.InstrumentID) ([]model.OrderStatusReport, error) {
@@ -387,6 +523,29 @@ func (fakeExecutionWithLifecycle) GenerateOrderStatusReports(context.Context, mo
 		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.FAKE"),
 		OrderID:      "order-1",
 		Status:       model.OrderStatusAccepted,
+	}}, nil
+}
+func (fakeExecutionWithLifecycle) GenerateFillReports(context.Context, model.InstrumentID) ([]model.FillReport, error) {
+	return []model.FillReport{{
+		AccountID:    "acct",
+		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.FAKE"),
+		OrderID:      "order-1",
+		TradeID:      "trade-1",
+		Side:         model.OrderSideBuy,
+		Price:        decimal.RequireFromString("100"),
+		Quantity:     decimal.RequireFromString("0.01"),
+		Fee:          decimal.Zero,
+		FeeCurrency:  "USDT",
+	}}, nil
+}
+func (fakeExecutionWithLifecycle) GeneratePositionStatusReports(context.Context, model.InstrumentID) ([]model.PositionStatusReport, error) {
+	return []model.PositionStatusReport{{
+		AccountID:    "acct",
+		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.FAKE"),
+		PositionID:   "pos-1",
+		Side:         model.PositionSideLong,
+		Quantity:     decimal.RequireFromString("0.01"),
+		EntryPrice:   decimal.RequireFromString("100"),
 	}}, nil
 }
 func (f fakeExecutionWithLifecycle) Events() <-chan model.ExecutionEvent { return f.events }
@@ -422,8 +581,20 @@ func (f fakeExecutionWithoutResubscribe) SubmitOrder(ctx context.Context, order 
 func (f fakeExecutionWithoutResubscribe) CancelOrder(ctx context.Context, cancel model.CancelOrder) (model.OrderStatusReport, error) {
 	return fakeExecutionWithLifecycle{}.CancelOrder(ctx, cancel)
 }
+func (f fakeExecutionWithoutResubscribe) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (model.OrderStatusReport, error) {
+	return fakeExecutionWithLifecycle{}.ModifyOrder(ctx, modify)
+}
+func (f fakeExecutionWithoutResubscribe) QueryOrder(ctx context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
+	return fakeExecutionWithLifecycle{}.QueryOrder(ctx, query)
+}
 func (f fakeExecutionWithoutResubscribe) GenerateOrderStatusReports(ctx context.Context, id model.InstrumentID) ([]model.OrderStatusReport, error) {
 	return fakeExecutionWithLifecycle{}.GenerateOrderStatusReports(ctx, id)
+}
+func (f fakeExecutionWithoutResubscribe) GenerateFillReports(ctx context.Context, id model.InstrumentID) ([]model.FillReport, error) {
+	return fakeExecutionWithLifecycle{}.GenerateFillReports(ctx, id)
+}
+func (f fakeExecutionWithoutResubscribe) GeneratePositionStatusReports(ctx context.Context, id model.InstrumentID) ([]model.PositionStatusReport, error) {
+	return fakeExecutionWithLifecycle{}.GeneratePositionStatusReports(ctx, id)
 }
 func (f fakeExecutionWithoutResubscribe) Events() <-chan model.ExecutionEvent { return f.events }
 

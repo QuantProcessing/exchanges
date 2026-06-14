@@ -366,7 +366,7 @@ for {
             return
         }
         fmt.Printf("订单=%s 状态=%s 已成交=%s\n",
-            order.OrderID, order.Status, order.FilledQty)
+            order.OrderID, order.Status, order.FilledQuantity)
     case fill, ok := <-tracker.Fills():
         if !ok {
             return

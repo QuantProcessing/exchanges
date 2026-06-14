@@ -3,8 +3,18 @@ package model
 import "fmt"
 
 type OrderList struct {
-	ID     OrderListID
-	Orders []SubmitOrder
+	Metadata CommandMetadata
+	ID       OrderListID
+	Orders   []SubmitOrder
+}
+
+func (l OrderList) WithCommandMetadataDefaults() OrderList {
+	l.Metadata = l.Metadata.Clone()
+	l.Orders = append([]SubmitOrder(nil), l.Orders...)
+	for i := range l.Orders {
+		l.Orders[i].Metadata = l.Orders[i].Metadata.WithDefaults(l.Metadata)
+	}
+	return l
 }
 
 func (l OrderList) Validate() error {

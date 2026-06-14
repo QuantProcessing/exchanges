@@ -32,7 +32,7 @@ func TestPerpWsMarketClientKeepsLegacyEmbeddedFieldName(t *testing.T) {
 		t.Fatal("expected legacy WsClient embedded field to be populated")
 	}
 
-	field, ok := reflect.TypeOf(*client).FieldByName("WsClient")
+	field, ok := reflect.TypeOf(client).Elem().FieldByName("WsClient")
 	if !ok {
 		t.Fatal("expected WsMarketClient to keep embedded field named WsClient")
 	}
@@ -51,7 +51,7 @@ func TestPerpWsAccountClientKeepsLegacyEmbeddedFieldName(t *testing.T) {
 		t.Fatal("expected legacy WsClient embedded field to be populated")
 	}
 
-	field, ok := reflect.TypeOf(*client).FieldByName("WsClient")
+	field, ok := reflect.TypeOf(client).Elem().FieldByName("WsClient")
 	if !ok {
 		t.Fatal("expected WsAccountClient to keep embedded field named WsClient")
 	}

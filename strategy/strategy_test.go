@@ -38,7 +38,6 @@ func TestEnginePassesCommandRuntimeToStrategies(t *testing.T) {
 	require.NoError(t, engine.Add(s))
 	require.NoError(t, engine.Start(context.Background()))
 
-	require.Same(t, rt, s.runtime)
 	report, err := s.runtime.SubmitOrder(context.Background(), model.SubmitOrder{
 		AccountID:     "acct",
 		InstrumentID:  model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
@@ -46,10 +45,20 @@ func TestEnginePassesCommandRuntimeToStrategies(t *testing.T) {
 		Side:          model.OrderSideBuy,
 		Type:          model.OrderTypeMarket,
 		Quantity:      decimal.RequireFromString("1"),
+		Metadata: model.CommandMetadata{
+			CommandID:     "cmd-1",
+			CorrelationID: "corr-1",
+			Params:        map[string]string{"intent": "entry"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, model.OrderID("order-1"), report.OrderID)
 	require.Same(t, rt.cache, s.runtime.Cache())
+	require.Equal(t, model.StrategyID("runtime"), rt.lastSubmit.Metadata.StrategyID)
+	require.Equal(t, model.CommandID("cmd-1"), rt.lastSubmit.Metadata.CommandID)
+	require.Equal(t, model.CorrelationID("corr-1"), rt.lastSubmit.Metadata.CorrelationID)
+	require.Equal(t, "entry", rt.lastSubmit.Metadata.Params["intent"])
+	require.False(t, rt.lastSubmit.Metadata.TsInit.IsZero())
 	require.NoError(t, engine.Stop(context.Background()))
 }
 
@@ -163,8 +172,9 @@ func (s *nonReentrantStrategy) OnEvent(context.Context, bus.Envelope) error {
 func (s *nonReentrantStrategy) OnStop(context.Context) error { return nil }
 
 type fakeRuntime struct {
-	cache     *cache.Cache
-	factories map[model.AccountID]*model.OrderFactory
+	cache      *cache.Cache
+	factories  map[model.AccountID]*model.OrderFactory
+	lastSubmit model.SubmitOrder
 }
 
 func (r *fakeRuntime) Cache() *cache.Cache { return r.cache }
@@ -215,7 +225,8 @@ func (r *fakeRuntime) SubscribeOrderBookDepth(ctx context.Context, instrumentID 
 func (r *fakeRuntime) UnsubscribeOrderBookDepth(context.Context, model.InstrumentID, int) error {
 	return nil
 }
-func (r *fakeRuntime) SubmitOrder(context.Context, model.SubmitOrder) (model.OrderStatusReport, error) {
+func (r *fakeRuntime) SubmitOrder(_ context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {
+	r.lastSubmit = order
 	return model.OrderStatusReport{
 		AccountID:    "acct",
 		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),

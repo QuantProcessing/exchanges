@@ -144,6 +144,7 @@ func (a AccountSnapshot) Validate() error {
 }
 
 type QueryAccount struct {
+	Metadata  CommandMetadata
 	AccountID AccountID
 }
 
