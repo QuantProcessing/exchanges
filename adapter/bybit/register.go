@@ -3,52 +3,22 @@ package bybit
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("BYBIT", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		FetchOpenOrders:     true,
-		FetchOrderHistory:   true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.RegisterCapabilities("BYBIT", exchanges.MarketTypeSpot, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		FetchOpenOrders:     true,
-		FetchOrderHistory:   true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("BYBIT", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			APIKey:        opts["api_key"],
-			SecretKey:     opts["secret_key"],
-			AccountMode:   AccountMode(opts["account_mode"]),
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-		}
-
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
-		case exchanges.MarketTypeSpot:
-			return NewSpotAdapter(ctx, o)
-		case exchanges.MarketTypeOption:
-			return NewOptionAdapter(ctx, o)
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{APIKey: cfg["api_key"], SecretKey: cfg["secret_key"], AccountID: model.AccountID(cfg["account_id"])}
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "spot":
+			return NewSpotAdapter(ctx, opts)
+		case "linear", "perp":
+			return NewLinearAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("bybit: unsupported market type %q", mt)
+			return nil, fmt.Errorf("%w: bybit account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
 }

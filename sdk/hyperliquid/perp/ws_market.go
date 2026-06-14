@@ -60,6 +60,24 @@ func (c *WebsocketClient) SubscribeBbo(coin string, handler func(hyperliquid.WsB
 	})
 }
 
+func (c *WebsocketClient) SubscribeCandle(coin string, interval string, handler func(hyperliquid.WsCandle)) error {
+	sub := map[string]string{
+		"type":     "candle",
+		"coin":     coin,
+		"interval": interval,
+	}
+
+	return c.WebsocketClient.Subscribe("candle", sub, func(msg hyperliquid.WsMessage) {
+		var data hyperliquid.WsCandle
+		if err := json.Unmarshal(msg.Data, &data); err != nil {
+			return
+		}
+		if data.S == coin && data.I == interval {
+			handler(data)
+		}
+	})
+}
+
 // Unsubscribe methods
 
 func (c *WebsocketClient) UnsubscribeL2Book(coin string) error {
@@ -84,4 +102,13 @@ func (c *WebsocketClient) UnsubscribeBbo(coin string) error {
 		"coin": coin,
 	}
 	return c.WebsocketClient.Unsubscribe("bbo", sub)
+}
+
+func (c *WebsocketClient) UnsubscribeCandle(coin string, interval string) error {
+	sub := map[string]string{
+		"type":     "candle",
+		"coin":     coin,
+		"interval": interval,
+	}
+	return c.WebsocketClient.Unsubscribe("candle", sub)
 }

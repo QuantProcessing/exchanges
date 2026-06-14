@@ -3,34 +3,20 @@ package standx
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("STANDX", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		FetchOpenOrders:     true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("STANDX", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			PrivateKey:    opts["private_key"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-		}
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{PrivateKey: cfg["private_key"], AccountID: model.AccountID(cfg["account_id"])}
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "perp", "futures":
+			return NewPerpAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("standx: unsupported market type %q (perp only)", mt)
+			return nil, fmt.Errorf("%w: standx account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
 }

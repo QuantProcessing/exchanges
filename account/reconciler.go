@@ -2,235 +2,256 @@ package account
 
 import (
 	"fmt"
-	"sync"
 
+	"github.com/QuantProcessing/exchanges/cache"
 	"github.com/QuantProcessing/exchanges/model"
+	"github.com/shopspring/decimal"
 )
 
 type Reconciler struct {
-	cache           *Cache
-	orderSM         OrderStateMachine
-	mu              sync.RWMutex
-	flowsByOrderID  map[model.OrderID]*OrderTracker
-	flowsByClientID map[model.ClientOrderID]*OrderTracker
-	positions       map[positionKey]model.PositionStatusReport
+	cache *cache.Cache
 }
 
-type positionKey struct {
-	accountID    model.AccountID
-	instrumentID model.InstrumentID
-	positionID   model.PositionID
-	side         model.PositionSide
+func NewReconciler(c *cache.Cache) *Reconciler {
+	if c == nil {
+		c = cache.New()
+	}
+	return &Reconciler{cache: c}
 }
 
-func NewReconciler(cache *Cache) *Reconciler {
-	if cache == nil {
-		cache = NewCache()
-	}
-	return &Reconciler{
-		cache:           cache,
-		flowsByOrderID:  make(map[model.OrderID]*OrderTracker),
-		flowsByClientID: make(map[model.ClientOrderID]*OrderTracker),
-		positions:       make(map[positionKey]model.PositionStatusReport),
-	}
-}
-
-func (r *Reconciler) ApplyEvent(ev model.ExecutionEvent) error {
-	if ev.AccountState != nil {
-		if err := r.ApplyAccountState(*ev.AccountState); err != nil {
-			return err
-		}
-	}
-	if ev.Order != nil {
-		if err := r.ApplyOrderStatusReport(*ev.Order); err != nil {
-			return err
-		}
-	}
-	if ev.OrderEvent != nil {
-		if err := r.ApplyOrderEvent(*ev.OrderEvent); err != nil {
-			return err
-		}
-	}
-	if ev.Fill != nil {
-		if err := r.ApplyFillReport(*ev.Fill); err != nil {
-			return err
-		}
-	}
-	if ev.Position != nil {
-		if err := r.ApplyPositionStatusReport(*ev.Position); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *Reconciler) ApplyAccountState(state model.AccountState) error {
-	if err := r.cache.ApplyAccountState(state); err != nil {
+func (r *Reconciler) Apply(event model.ExecutionEvent) error {
+	if err := event.Validate(); err != nil {
 		return err
 	}
-	for _, pos := range state.Positions {
-		if err := r.ApplyPositionStatusReport(pos); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *Reconciler) ApplyOrderStatusReport(report model.OrderStatusReport) error {
-	if report.AccountID == "" {
-		return fmt.Errorf("%w: missing order account id", model.ErrInvalidAccountState)
-	}
-	if err := report.InstrumentID.Validate(); err != nil {
-		return err
-	}
-	if err := r.cache.PutOrderStatus(report); err != nil {
-		return err
-	}
-	flow := r.flowForOrderLocked(report.OrderID, report.ClientID)
-	flow.publishOrder(report)
-	return nil
-}
-
-func (r *Reconciler) ApplyOrderEvent(event model.OrderEvent) error {
-	flow := r.flowForOrderLocked(event.OrderID, event.ClientID)
-	current, ok := flow.Latest()
-	var currentPtr *model.OrderStatusReport
-	if ok {
-		currentPtr = &current
-	}
-	next, changed, err := r.orderSM.ApplyEvent(currentPtr, event)
-	if err != nil {
-		return err
-	}
-	if !changed {
+	if event.Account != nil {
+		r.cache.PutAccount(*event.Account)
 		return nil
 	}
-	if err := r.cache.PutOrderStatus(next); err != nil {
-		return err
+	if event.Order != nil {
+		return r.applyOrder(*event.Order)
 	}
-	flow.publishOrder(next)
-	flow.publishEvent(event)
+	if event.Fill != nil {
+		return r.applyFill(*event.Fill)
+	}
+	if event.Position != nil {
+		return r.cache.PutPosition(*event.Position)
+	}
+	if event.PositionLifecycle != nil {
+		return nil
+	}
 	return nil
 }
 
-func (r *Reconciler) ApplyFillReport(report model.FillReport) error {
-	if report.AccountID == "" {
-		return fmt.Errorf("%w: missing fill account id", model.ErrInvalidAccountState)
+func (r *Reconciler) applyOrder(report model.OrderStatusReport) error {
+	if existing, ok := r.cache.Order(report.AccountID, report.OrderID); ok {
+		nextStatus, ok := nextStatus(existing.Status, report.Status)
+		if !ok {
+			return fmt.Errorf("%w: invalid order transition %s -> %s", model.ErrInvalidOrder, existing.Status, report.Status)
+		}
+		report.Status = nextStatus
+		if report.FilledQuantity.LessThan(existing.FilledQuantity) {
+			return fmt.Errorf("%w: filled quantity moved backwards", model.ErrInvalidOrder)
+		}
 	}
-	if err := report.InstrumentID.Validate(); err != nil {
+	if err := r.cache.PutOrder(report); err != nil {
 		return err
 	}
-	if report.TradeID != "" {
-		if err := r.cache.PutFill(report); err != nil {
+	if report.FilledQuantity.IsZero() {
+		return r.replayFills(report.AccountID, report.OrderID)
+	}
+	return nil
+}
+
+func (r *Reconciler) ReconcileMissingOpenOrders(accountID model.AccountID, instrumentID model.InstrumentID, reports []model.OrderStatusReport, missingStatus model.OrderStatus) ([]model.OrderStatusReport, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("%w: account id is required", model.ErrInvalidOrder)
+	}
+	if err := instrumentID.Validate(); err != nil {
+		return nil, err
+	}
+	if !missingStatus.IsTerminal() {
+		return nil, fmt.Errorf("%w: missing order status must be terminal", model.ErrInvalidOrder)
+	}
+	observed := newOrderSnapshotIndex(reports, accountID, instrumentID)
+	generated := make([]model.OrderStatusReport, 0)
+	for _, order := range r.cache.OpenOrders(accountID) {
+		if order.InstrumentID != instrumentID || observed.contains(order) {
+			continue
+		}
+		order.Status = missingStatus
+		if err := r.applyOrder(order); err != nil {
+			return generated, err
+		}
+		generated = append(generated, order)
+	}
+	return generated, nil
+}
+
+func (r *Reconciler) MissingPositionReports(accountID model.AccountID, instrumentID model.InstrumentID, reports []model.PositionStatusReport) ([]model.PositionStatusReport, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("%w: account id is required", model.ErrInvalidOrder)
+	}
+	if err := instrumentID.Validate(); err != nil {
+		return nil, err
+	}
+	observed := newPositionSnapshotIndex(reports, accountID, instrumentID)
+	generated := make([]model.PositionStatusReport, 0)
+	for _, position := range r.cache.PositionsForInstrument(instrumentID) {
+		if position.AccountID != accountID || observed.contains(position) || position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
+			continue
+		}
+		position.Side = model.PositionSideFlat
+		position.Quantity = decimal.Zero
+		generated = append(generated, position)
+	}
+	return generated, nil
+}
+
+func (r *Reconciler) applyFill(fill model.FillReport) error {
+	stored, err := r.cache.PutFill(fill)
+	if err != nil || !stored {
+		return err
+	}
+	order, ok := r.cache.Order(fill.AccountID, fill.OrderID)
+	if !ok {
+		return nil
+	}
+	order = applyFillToOrder(order, fill)
+	return r.cache.PutOrder(order)
+}
+
+func (r *Reconciler) replayFills(accountID model.AccountID, orderID model.OrderID) error {
+	fills := r.cache.FillsForOrder(accountID, orderID)
+	for _, fill := range fills {
+		order, ok := r.cache.Order(accountID, orderID)
+		if !ok {
+			return nil
+		}
+		order = applyFillToOrder(order, fill)
+		if err := r.cache.PutOrder(order); err != nil {
 			return err
 		}
 	}
-	flow := r.flowForOrderLocked(report.OrderID, report.ClientID)
-	flow.publishFill(report)
 	return nil
 }
 
-func (r *Reconciler) ApplyPositionStatusReport(report model.PositionStatusReport) error {
-	if report.AccountID == "" {
-		return fmt.Errorf("%w: missing position account id", model.ErrInvalidAccountState)
+func applyFillToOrder(order model.OrderStatusReport, fill model.FillReport) model.OrderStatusReport {
+	previousFilled := order.FilledQuantity
+	nextFilled := previousFilled.Add(fill.Quantity)
+	if order.Quantity.IsPositive() && nextFilled.GreaterThan(order.Quantity) {
+		nextFilled = order.Quantity
 	}
-	if err := report.InstrumentID.Validate(); err != nil {
-		return err
+	order.FilledQuantity = nextFilled
+	order.AveragePrice = averageFillPrice(order.AveragePrice, previousFilled, fill.Price, fill.Quantity)
+	if order.Quantity.IsPositive() {
+		order.LeavesQuantity = order.Quantity.Sub(nextFilled)
+		if order.LeavesQuantity.IsNegative() {
+			order.LeavesQuantity = decimal.Zero
+		}
+		if nextFilled.GreaterThanOrEqual(order.Quantity) {
+			order.Status = model.OrderStatusFilled
+			order.LeavesQuantity = decimal.Zero
+		} else if nextFilled.IsPositive() {
+			order.Status = model.OrderStatusPartiallyFilled
+		}
+	} else if nextFilled.IsPositive() {
+		order.Status = model.OrderStatusPartiallyFilled
 	}
-	if err := r.cache.PutPosition(report); err != nil {
-		return err
+	if fill.Timestamp.After(order.LastUpdatedTime) {
+		order.LastUpdatedTime = fill.Timestamp
 	}
-	key := positionKey{
-		accountID:    report.AccountID,
-		instrumentID: report.InstrumentID,
-		positionID:   report.PositionID,
-		side:         report.Side,
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.positions[key] = report
-	return nil
+	return order
 }
 
-func (r *Reconciler) EnsureFlowForClientID(clientID model.ClientOrderID) *OrderTracker {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if flow, ok := r.flowsByClientID[clientID]; ok {
-		return flow
+func averageFillPrice(previousAvg decimal.Decimal, previousQty decimal.Decimal, fillPrice decimal.Decimal, fillQty decimal.Decimal) decimal.Decimal {
+	nextQty := previousQty.Add(fillQty)
+	if nextQty.IsZero() {
+		return decimal.Zero
 	}
-	flow := newOrderTracker(nil)
-	if clientID != "" {
-		r.flowsByClientID[clientID] = flow
+	if previousAvg.IsZero() || previousQty.IsZero() {
+		return fillPrice
 	}
-	return flow
+	previousNotional := previousAvg.Mul(previousQty)
+	fillNotional := fillPrice.Mul(fillQty)
+	return previousNotional.Add(fillNotional).Div(nextQty)
 }
 
-func (r *Reconciler) FlowByOrderID(orderID model.OrderID) (*OrderTracker, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	flow, ok := r.flowsByOrderID[orderID]
-	return flow, ok
+type orderSnapshotIndex struct {
+	orderIDs       map[model.OrderID]struct{}
+	clientOrderIDs map[model.ClientOrderID]struct{}
+	venueOrderIDs  map[model.VenueOrderID]struct{}
 }
 
-func (r *Reconciler) FlowByClientID(clientID model.ClientOrderID) (*OrderTracker, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	flow, ok := r.flowsByClientID[clientID]
-	return flow, ok
-}
-
-func (r *Reconciler) PositionsSnapshot() []model.PositionStatusReport {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]model.PositionStatusReport, 0, len(r.positions))
-	for _, pos := range r.positions {
-		out = append(out, pos)
+func newOrderSnapshotIndex(reports []model.OrderStatusReport, accountID model.AccountID, instrumentID model.InstrumentID) orderSnapshotIndex {
+	idx := orderSnapshotIndex{
+		orderIDs:       make(map[model.OrderID]struct{}),
+		clientOrderIDs: make(map[model.ClientOrderID]struct{}),
+		venueOrderIDs:  make(map[model.VenueOrderID]struct{}),
 	}
-	return out
-}
-
-func (r *Reconciler) Close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	seen := make(map[*OrderTracker]struct{}, len(r.flowsByOrderID)+len(r.flowsByClientID))
-	for _, flow := range r.flowsByOrderID {
-		seen[flow] = struct{}{}
-	}
-	for _, flow := range r.flowsByClientID {
-		seen[flow] = struct{}{}
-	}
-	for flow := range seen {
-		flow.Close()
-	}
-}
-
-func (r *Reconciler) flowForOrderLocked(orderID model.OrderID, clientID model.ClientOrderID) *OrderTracker {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if orderID != "" {
-		if flow, ok := r.flowsByOrderID[orderID]; ok {
-			if clientID != "" {
-				r.flowsByClientID[clientID] = flow
-			}
-			return flow
+	for _, report := range reports {
+		if report.AccountID != accountID || report.InstrumentID != instrumentID {
+			continue
+		}
+		if report.OrderID != "" {
+			idx.orderIDs[report.OrderID] = struct{}{}
+		}
+		if report.ClientOrderID != "" {
+			idx.clientOrderIDs[report.ClientOrderID] = struct{}{}
+		}
+		if report.VenueOrderID != "" {
+			idx.venueOrderIDs[report.VenueOrderID] = struct{}{}
 		}
 	}
-	if clientID != "" {
-		if flow, ok := r.flowsByClientID[clientID]; ok {
-			if orderID != "" {
-				r.flowsByOrderID[orderID] = flow
-			}
-			return flow
+	return idx
+}
+
+func (i orderSnapshotIndex) contains(order model.OrderStatusReport) bool {
+	if order.OrderID != "" {
+		if _, ok := i.orderIDs[order.OrderID]; ok {
+			return true
 		}
 	}
+	if order.ClientOrderID != "" {
+		if _, ok := i.clientOrderIDs[order.ClientOrderID]; ok {
+			return true
+		}
+	}
+	if order.VenueOrderID != "" {
+		if _, ok := i.venueOrderIDs[order.VenueOrderID]; ok {
+			return true
+		}
+	}
+	return false
+}
 
-	flow := newOrderTracker(nil)
-	if orderID != "" {
-		r.flowsByOrderID[orderID] = flow
+type positionSnapshotIndex struct {
+	positionIDs map[model.PositionID]struct{}
+	hasPosition bool
+}
+
+func newPositionSnapshotIndex(reports []model.PositionStatusReport, accountID model.AccountID, instrumentID model.InstrumentID) positionSnapshotIndex {
+	idx := positionSnapshotIndex{positionIDs: make(map[model.PositionID]struct{})}
+	for _, report := range reports {
+		if report.AccountID != accountID || report.InstrumentID != instrumentID {
+			continue
+		}
+		idx.hasPosition = true
+		if report.PositionID != "" {
+			idx.positionIDs[report.PositionID] = struct{}{}
+		}
 	}
-	if clientID != "" {
-		r.flowsByClientID[clientID] = flow
+	return idx
+}
+
+func (i positionSnapshotIndex) contains(position model.PositionStatusReport) bool {
+	if position.PositionID != "" {
+		if _, ok := i.positionIDs[position.PositionID]; ok {
+			return true
+		}
 	}
-	return flow
+	return i.hasPosition
+}
+
+func nextStatus(from model.OrderStatus, to model.OrderStatus) (model.OrderStatus, bool) {
+	return NextOrderStatus(from, to)
 }

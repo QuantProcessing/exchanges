@@ -50,3 +50,25 @@ func TestWSClient_SubscribeOrderBook(t *testing.T) {
 		t.Fatalf("expected order book subscription to be registered")
 	}
 }
+
+func TestWSClient_SubscribeTrades(t *testing.T) {
+	client := newLivePublicOKXWSClient(t)
+
+	if err := client.SubscribeTrades(okxSpotInstID, func(*PublicTrade) {}); err != nil {
+		t.Fatalf("SubscribeTrades: %v", err)
+	}
+	if client.Subs[WsSubscribeArgs{Channel: "trades", InstId: okxSpotInstID}] == nil {
+		t.Fatalf("expected trades subscription to be registered")
+	}
+}
+
+func TestWSClient_SubscribeCandles(t *testing.T) {
+	client := newLivePublicOKXWSClient(t)
+
+	if err := client.SubscribeCandles(okxSpotInstID, "candle1m", func(Candle) {}); err != nil {
+		t.Fatalf("SubscribeCandles: %v", err)
+	}
+	if client.Subs[WsSubscribeArgs{Channel: "candle1m", InstId: okxSpotInstID}] == nil {
+		t.Fatalf("expected candles subscription to be registered")
+	}
+}

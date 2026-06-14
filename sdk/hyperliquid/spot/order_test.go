@@ -9,6 +9,17 @@ import (
 	hyperliquid "github.com/QuantProcessing/exchanges/sdk/hyperliquid"
 )
 
+func TestClient_UserOpenOrders(t *testing.T) {
+	account := os.Getenv("HYPERLIQUID_ACCOUNT_ADDR")
+	orders, err := newLivePrivateClient(t).UserOpenOrders(context.Background(), account)
+	if err != nil {
+		t.Fatalf("UserOpenOrders: %v", err)
+	}
+	if orders == nil {
+		t.Fatal("expected orders slice")
+	}
+}
+
 func TestClient_PlaceOrder(t *testing.T) {
 	client := requireHyperliquidLiveWrite(t, "HYPERLIQUID_SPOT_TEST_ASSET_ID", "HYPERLIQUID_TEST_ORDER_PRICE", "HYPERLIQUID_TEST_ORDER_SIZE")
 	assetID := hyperliquidSpotAssetID(t)

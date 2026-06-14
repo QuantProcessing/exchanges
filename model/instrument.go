@@ -2,44 +2,24 @@ package model
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/shopspring/decimal"
 )
 
-type Metadata map[string]string
-
 type InstrumentType string
 
 const (
-	InstrumentTypeCurrencyPair InstrumentType = "currency_pair"
-	InstrumentTypeCryptoPerp   InstrumentType = "crypto_perp"
-	InstrumentTypeCryptoFuture InstrumentType = "crypto_future"
-	InstrumentTypeCryptoOption InstrumentType = "crypto_option"
-	InstrumentTypeOptionSpread InstrumentType = "option_spread"
-	InstrumentTypeBinaryOption InstrumentType = "binary_option"
-	InstrumentTypeSynthetic    InstrumentType = "synthetic"
+	InstrumentTypeSpot   InstrumentType = "spot"
+	InstrumentTypePerp   InstrumentType = "perp"
+	InstrumentTypeFuture InstrumentType = "future"
+	InstrumentTypeOption InstrumentType = "option"
 )
 
-type OptionKind string
+type InstrumentStatus string
 
 const (
-	OptionKindCall OptionKind = "CALL"
-	OptionKindPut  OptionKind = "PUT"
-)
-
-type ExerciseStyle string
-
-const (
-	ExerciseStyleEuropean ExerciseStyle = "european"
-	ExerciseStyleAmerican ExerciseStyle = "american"
-)
-
-type SettlementStyle string
-
-const (
-	SettlementStyleCash     SettlementStyle = "cash"
-	SettlementStylePhysical SettlementStyle = "physical"
+	InstrumentStatusTrading InstrumentStatus = "trading"
+	InstrumentStatusHalted  InstrumentStatus = "halted"
 )
 
 type Instrument struct {
@@ -49,103 +29,63 @@ type Instrument struct {
 	Base        Currency
 	Quote       Currency
 	Settle      Currency
-	PriceStep   decimal.Decimal
-	SizeStep    decimal.Decimal
-	PricePrec   int32
-	SizePrec    int32
-	Multiplier  decimal.Decimal
-	MinQty      decimal.Decimal
-	MaxQty      decimal.Decimal
-	MinNotional Money
-	MaxNotional Money
+	PriceTick   decimal.Decimal
+	SizeTick    decimal.Decimal
 	MakerFee    decimal.Decimal
 	TakerFee    decimal.Decimal
 	MarginInit  decimal.Decimal
 	MarginMaint decimal.Decimal
-	Option      *OptionSpec
-	Spread      *SpreadSpec
-	Metadata    Metadata
-	EventTime   time.Time
-	InitTime    time.Time
-}
-
-type OptionSpec struct {
-	Underlying InstrumentID
-	Strike     decimal.Decimal
-	Kind       OptionKind
-	Expiration time.Time
-	Exercise   ExerciseStyle
-	Settlement SettlementStyle
-	IsInverse  bool
-	IsQuanto   bool
-}
-
-type OptionSeriesID struct {
-	Venue      Venue
-	Underlying InstrumentID
-	Expiration time.Time
-	Settle     Currency
-}
-
-type SpreadLeg struct {
-	InstrumentID InstrumentID
-	Ratio        decimal.Decimal
-}
-
-type SpreadSpec struct {
-	Legs []SpreadLeg
+	Status      InstrumentStatus
 }
 
 func (i Instrument) Validate() error {
 	if err := i.ID.Validate(); err != nil {
 		return err
 	}
-	if i.Type == "" {
-		return fmt.Errorf("%w: missing type", ErrInvalidInstrument)
+	if i.RawSymbol == "" || i.Type == "" || i.Base == "" || i.Quote == "" {
+		return fmt.Errorf("%w: missing identity fields", ErrInvalidInstrument)
 	}
-	if i.PriceStep.LessThanOrEqual(decimal.Zero) {
-		return fmt.Errorf("%w: invalid price step", ErrInvalidInstrument)
+	if i.Type != InstrumentTypeSpot && i.Settle == "" {
+		return fmt.Errorf("%w: missing settle currency", ErrInvalidInstrument)
 	}
-	if i.SizeStep.LessThanOrEqual(decimal.Zero) {
-		return fmt.Errorf("%w: invalid size step", ErrInvalidInstrument)
+	if !i.PriceTick.IsPositive() || !i.SizeTick.IsPositive() {
+		return fmt.Errorf("%w: non-positive increments", ErrInvalidInstrument)
 	}
-	if i.Type == InstrumentTypeCryptoOption && i.Option == nil {
-		return fmt.Errorf("%w: crypto option requires option spec", ErrInvalidInstrument)
+	if i.MakerFee.IsNegative() || i.TakerFee.IsNegative() {
+		return fmt.Errorf("%w: negative fee rate", ErrInvalidInstrument)
 	}
-	if i.Option != nil {
-		if err := i.Option.Validate(); err != nil {
-			return err
-		}
+	if i.MarginInit.IsNegative() || i.MarginMaint.IsNegative() {
+		return fmt.Errorf("%w: negative margin rate", ErrInvalidInstrument)
 	}
-	return nil
-}
-
-func (o OptionSpec) Validate() error {
-	if err := o.Underlying.Validate(); err != nil {
-		return err
-	}
-	if o.Strike.LessThanOrEqual(decimal.Zero) {
-		return fmt.Errorf("%w: invalid option strike", ErrInvalidInstrument)
-	}
-	if o.Kind != OptionKindCall && o.Kind != OptionKindPut {
-		return fmt.Errorf("%w: invalid option kind", ErrInvalidInstrument)
-	}
-	if o.Expiration.IsZero() {
-		return fmt.Errorf("%w: missing option expiration", ErrInvalidInstrument)
+	if i.Status == "" {
+		return fmt.Errorf("%w: missing status", ErrInvalidInstrument)
 	}
 	return nil
 }
 
-func (i Instrument) MakePrice(v decimal.Decimal) (decimal.Decimal, error) {
-	if i.PriceStep.LessThanOrEqual(decimal.Zero) || !v.Mod(i.PriceStep).IsZero() {
-		return decimal.Zero, fmt.Errorf("%w: invalid price step", ErrInvalidInstrument)
+func (i Instrument) ValidatePrice(price decimal.Decimal) error {
+	if !price.IsPositive() {
+		return fmt.Errorf("%w: non-positive price", ErrInvalidOrder)
 	}
-	return v, nil
+	if !isMultipleOf(price, i.PriceTick) {
+		return fmt.Errorf("%w: price does not match tick size", ErrInvalidOrder)
+	}
+	return nil
 }
 
-func (i Instrument) MakeQty(v decimal.Decimal) (decimal.Decimal, error) {
-	if i.SizeStep.LessThanOrEqual(decimal.Zero) || !v.Mod(i.SizeStep).IsZero() {
-		return decimal.Zero, fmt.Errorf("%w: invalid size step", ErrInvalidInstrument)
+func (i Instrument) ValidateSize(size decimal.Decimal) error {
+	if !size.IsPositive() {
+		return fmt.Errorf("%w: non-positive size", ErrInvalidOrder)
 	}
-	return v, nil
+	if !isMultipleOf(size, i.SizeTick) {
+		return fmt.Errorf("%w: size does not match lot size", ErrInvalidOrder)
+	}
+	return nil
+}
+
+func isMultipleOf(value decimal.Decimal, increment decimal.Decimal) bool {
+	if !increment.IsPositive() {
+		return false
+	}
+	return value.Mod(increment).IsZero()
 }

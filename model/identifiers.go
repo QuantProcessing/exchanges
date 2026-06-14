@@ -3,40 +3,32 @@ package model
 import (
 	"fmt"
 	"strings"
-	"sync/atomic"
-	"time"
 )
 
 type Venue string
-
-const (
-	VenueBinance Venue = "BINANCE"
-	VenueOKX     Venue = "OKX"
-	VenueBybit   Venue = "BYBIT"
-)
-
+type Currency string
 type AccountID string
 type ClientOrderID string
+type OrderListID string
 type OrderID string
-type PositionID string
+type VenueOrderID string
 type TradeID string
-
-var clientOrderIDCounter atomic.Uint64
+type PositionID string
 
 type InstrumentID struct {
 	Symbol string
 	Venue  Venue
 }
 
-func ParseInstrumentID(s string) (InstrumentID, error) {
-	s = strings.TrimSpace(s)
-	parts := strings.Split(s, ".")
-	if len(parts) != 2 {
-		return InstrumentID{}, fmt.Errorf("%w: %q", ErrInvalidInstrumentID, s)
+func ParseInstrumentID(raw string) (InstrumentID, error) {
+	raw = strings.TrimSpace(raw)
+	symbol, venue, ok := strings.Cut(raw, ".")
+	if !ok {
+		return InstrumentID{}, fmt.Errorf("%w: %q", ErrInvalidInstrumentID, raw)
 	}
 	id := InstrumentID{
-		Symbol: strings.ToUpper(strings.TrimSpace(parts[0])),
-		Venue:  Venue(strings.ToUpper(strings.TrimSpace(parts[1]))),
+		Symbol: strings.ToUpper(strings.TrimSpace(symbol)),
+		Venue:  Venue(strings.ToUpper(strings.TrimSpace(venue))),
 	}
 	if err := id.Validate(); err != nil {
 		return InstrumentID{}, err
@@ -44,8 +36,8 @@ func ParseInstrumentID(s string) (InstrumentID, error) {
 	return id, nil
 }
 
-func MustInstrumentID(s string) InstrumentID {
-	id, err := ParseInstrumentID(s)
+func MustInstrumentID(raw string) InstrumentID {
+	id, err := ParseInstrumentID(raw)
 	if err != nil {
 		panic(err)
 	}
@@ -64,12 +56,7 @@ func (id InstrumentID) Validate() error {
 		return fmt.Errorf("%w: %q", ErrInvalidInstrumentID, id.String())
 	}
 	if strings.Contains(id.Symbol, ".") {
-		return fmt.Errorf("%w: symbol contains venue separator: %q", ErrInvalidInstrumentID, id.String())
+		return fmt.Errorf("%w: %q", ErrInvalidInstrumentID, id.String())
 	}
 	return nil
-}
-
-func NewClientOrderID() ClientOrderID {
-	n := clientOrderIDCounter.Add(1)
-	return ClientOrderID(fmt.Sprintf("cli_%x_%x", time.Now().UnixNano(), n))
 }

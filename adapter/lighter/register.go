@@ -3,53 +3,20 @@ package lighter
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("LIGHTER", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		FetchOpenOrders:     true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.RegisterCapabilities("LIGHTER", exchanges.MarketTypeSpot, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		FetchOpenOrders:     true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("LIGHTER", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			PrivateKey:    opts["private_key"],
-			AccountIndex:  opts["account_index"],
-			KeyIndex:      opts["key_index"],
-			RoToken:       opts["ro_token"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-		}
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
-		case exchanges.MarketTypeSpot:
-			return NewSpotAdapter(ctx, o)
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{PrivateKey: cfg["private_key"], AccountIndex: accountIndexFromConfig(cfg["account_index"]), KeyIndex: keyIndexFromConfig(cfg["key_index"]), AccountID: model.AccountID(cfg["account_id"])}
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "perp", "futures":
+			return NewPerpAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("lighter: unsupported market type %q", mt)
+			return nil, fmt.Errorf("%w: lighter account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
 }

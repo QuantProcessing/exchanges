@@ -3,37 +3,34 @@ package grvt
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("GRVT", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		WatchKlines:         true,
-		FetchOpenOrders:     true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("GRVT", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			APIKey:        opts["api_key"],
-			SubAccountID:  opts["sub_account_id"],
-			PrivateKey:    opts["private_key"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{
+			APIKey:       cfg["api_key"],
+			SubAccountID: firstConfig(cfg, "subaccount_id", "sub_account_id"),
+			PrivateKey:   cfg["private_key"],
+			AccountID:    model.AccountID(cfg["account_id"]),
 		}
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "perp", "futures":
+			return NewPerpAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("grvt: unsupported market type %q (perp only)", mt)
+			return nil, fmt.Errorf("%w: grvt account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
+}
+
+func firstConfig(cfg map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if cfg[key] != "" {
+			return cfg[key]
+		}
+	}
+	return ""
 }

@@ -65,6 +65,8 @@ type OrderUpdate struct {
 // Use OrderBook struct from types.go
 
 type Fill struct {
+	Digest    string `json:"digest,omitempty"`
+	OrderID   string `json:"order_id,omitempty"`
 	TradeId   string `json:"trade_id"`
 	ProductId int64  `json:"product_id"`
 	Price     string `json:"price"`

@@ -11,17 +11,7 @@ import (
 
 var ErrUnknownVenue = errors.New("unknown venue")
 
-type Constructor func(ctx context.Context, cfg map[string]string) (Adapter, error)
-
-var defaultRegistry = NewRegistry()
-
-func Register(v model.Venue, ctor Constructor) {
-	defaultRegistry.Register(v, ctor)
-}
-
-func Open(ctx context.Context, v model.Venue, cfg map[string]string) (Adapter, error) {
-	return defaultRegistry.Open(ctx, v, cfg)
-}
+type Constructor func(context.Context, map[string]string) (Adapter, error)
 
 type Registry struct {
 	mu    sync.RWMutex
@@ -32,18 +22,28 @@ func NewRegistry() *Registry {
 	return &Registry{ctors: make(map[model.Venue]Constructor)}
 }
 
-func (r *Registry) Register(v model.Venue, ctor Constructor) {
+func (r *Registry) Register(venue model.Venue, ctor Constructor) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.ctors[v] = ctor
+	r.ctors[venue] = ctor
 }
 
-func (r *Registry) Open(ctx context.Context, v model.Venue, cfg map[string]string) (Adapter, error) {
+func (r *Registry) Open(ctx context.Context, venue model.Venue, cfg map[string]string) (Adapter, error) {
 	r.mu.RLock()
-	ctor := r.ctors[v]
+	ctor := r.ctors[venue]
 	r.mu.RUnlock()
 	if ctor == nil {
-		return nil, fmt.Errorf("%w: %s", ErrUnknownVenue, v)
+		return nil, fmt.Errorf("%w: %s", ErrUnknownVenue, venue)
 	}
 	return ctor(ctx, cfg)
+}
+
+var defaultRegistry = NewRegistry()
+
+func Register(v model.Venue, ctor Constructor) {
+	defaultRegistry.Register(v, ctor)
+}
+
+func Open(ctx context.Context, v model.Venue, cfg map[string]string) (Adapter, error) {
+	return defaultRegistry.Open(ctx, v, cfg)
 }

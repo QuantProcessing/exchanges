@@ -1,29 +1,36 @@
 package exchanges
 
-import "github.com/QuantProcessing/exchanges/internal/errs"
-
-// ============================================================================
-// Sentinel Errors — structured error handling for trading operations
-// ============================================================================
-
-var (
-	ErrInsufficientBalance = errs.ErrInsufficientBalance
-	ErrRateLimited         = errs.ErrRateLimited
-	ErrInvalidPrecision    = errs.ErrInvalidPrecision
-	ErrOrderNotFound       = errs.ErrOrderNotFound
-	ErrSymbolNotFound      = errs.ErrSymbolNotFound
-	ErrMinNotional         = errs.ErrMinNotional
-	ErrMinQuantity         = errs.ErrMinQuantity
-	ErrAuthFailed          = errs.ErrAuthFailed
-	ErrNetworkTimeout      = errs.ErrNetworkTimeout
-	ErrNotSupported        = errs.ErrNotSupported
+import (
+	"errors"
+	"fmt"
 )
 
-// ExchangeError wraps an exchange-specific error with a sentinel cause.
-// Use errors.Is(err, adapter.ErrInsufficientBalance) for structured handling.
-type ExchangeError = errs.ExchangeError
+var ErrRateLimited = errors.New("rate limited")
 
-// NewExchangeError creates a new ExchangeError.
-func NewExchangeError(exchange, code, message string, sentinel error) *ExchangeError {
-	return errs.NewExchangeError(exchange, code, message, sentinel)
+type ExchangeError struct {
+	Exchange string
+	Code     string
+	Message  string
+	Err      error
+}
+
+func NewExchangeError(exchange, code, message string, err error) *ExchangeError {
+	return &ExchangeError{Exchange: exchange, Code: code, Message: message, Err: err}
+}
+
+func (e *ExchangeError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Code == "" {
+		return fmt.Sprintf("%s: %s", e.Exchange, e.Message)
+	}
+	return fmt.Sprintf("%s %s: %s", e.Exchange, e.Code, e.Message)
+}
+
+func (e *ExchangeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }

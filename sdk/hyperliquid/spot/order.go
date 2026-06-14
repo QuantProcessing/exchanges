@@ -8,6 +8,22 @@ import (
 	hyperliquid "github.com/QuantProcessing/exchanges/sdk/hyperliquid"
 )
 
+func (c *Client) UserOpenOrders(ctx context.Context, user string) ([]Order, error) {
+	req := map[string]string{
+		"type": "openOrders",
+		"user": user,
+	}
+	data, err := c.Post(ctx, "/info", req)
+	if err != nil {
+		return nil, err
+	}
+	var res []Order
+	if err := json.Unmarshal(data, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func (c *Client) placeOrder(ctx context.Context, req PlaceOrderRequest) ([]byte, error) {
 	if c.PrivateKey == nil {
 		return nil, hyperliquid.ErrCredentialsRequired

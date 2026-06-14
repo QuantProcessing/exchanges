@@ -3,46 +3,22 @@ package aster
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("ASTER", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		WatchKlines:         true,
-		FetchOpenOrders:     true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.RegisterCapabilities("ASTER", exchanges.MarketTypeSpot, exchanges.Capabilities{
-		PlaceOrder:          true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchTicker:         true,
-		FetchOpenOrders:     true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("ASTER", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			APIKey:        opts["api_key"],
-			SecretKey:     opts["secret_key"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-		}
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
-		case exchanges.MarketTypeSpot:
-			return NewSpotAdapter(ctx, o)
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{APIKey: cfg["api_key"], SecretKey: cfg["secret_key"], AccountID: model.AccountID(cfg["account_id"])}
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "spot":
+			return NewSpotAdapter(ctx, opts)
+		case "perp", "futures":
+			return NewPerpAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("aster: unsupported market type %q", mt)
+			return nil, fmt.Errorf("%w: aster account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
 }

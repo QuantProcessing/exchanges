@@ -50,6 +50,11 @@ func TestWebsocketClient_SubscribeBbo(t *testing.T) {
 	requireDisconnectedWSError(t, err)
 }
 
+func TestWebsocketClient_SubscribeCandle(t *testing.T) {
+	err := newDisconnectedWSClient().SubscribeCandle("BTC", "1m", func(hyperliquid.WsCandle) {})
+	requireDisconnectedWSError(t, err)
+}
+
 func TestWebsocketClient_UnsubscribeL2Book(t *testing.T) {
 	err := newDisconnectedWSClient().UnsubscribeL2Book("BTC")
 	requireDisconnectedWSError(t, err)
@@ -62,6 +67,11 @@ func TestWebsocketClient_UnsubscribeTrades(t *testing.T) {
 
 func TestWebsocketClient_UnsubscribeBbo(t *testing.T) {
 	err := newDisconnectedWSClient().UnsubscribeBbo("BTC")
+	requireDisconnectedWSError(t, err)
+}
+
+func TestWebsocketClient_UnsubscribeCandle(t *testing.T) {
+	err := newDisconnectedWSClient().UnsubscribeCandle("BTC", "1m")
 	requireDisconnectedWSError(t, err)
 }
 

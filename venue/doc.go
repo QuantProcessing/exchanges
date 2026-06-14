@@ -1,2 +1,2 @@
-// Package venue defines adapter contracts implemented by concrete exchange adapters.
+// Package venue defines platform-facing ports implemented by exchange adapters.
 package venue

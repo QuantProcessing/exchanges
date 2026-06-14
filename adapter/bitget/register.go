@@ -3,51 +3,22 @@ package bitget
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("BITGET", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		FetchOpenOrders:     true,
-		FetchOrderHistory:   true,
-		ModifyOrder:         true,
-		TradingAccountReady: true,
-	})
-	exchanges.RegisterCapabilities("BITGET", exchanges.MarketTypeSpot, exchanges.Capabilities{
-		PlaceOrder:          true,
-		PlaceOrderWS:        true,
-		CancelOrderWS:       true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		FetchOpenOrders:     true,
-		FetchOrderHistory:   true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("BITGET", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			APIKey:        opts["api_key"],
-			SecretKey:     opts["secret_key"],
-			Passphrase:    opts["passphrase"],
-			AccountMode:   AccountMode(opts["account_mode"]),
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
-		}
-
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
-		case exchanges.MarketTypeSpot:
-			return NewSpotAdapter(ctx, o)
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{APIKey: cfg["api_key"], SecretKey: cfg["secret_key"], Passphrase: cfg["passphrase"], AccountID: model.AccountID(cfg["account_id"])}
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "spot":
+			return NewSpotAdapter(ctx, opts)
+		case "perp", "futures", "usdt-futures":
+			return NewPerpAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("bitget: unsupported market type %q", mt)
+			return nil, fmt.Errorf("%w: bitget account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
 }

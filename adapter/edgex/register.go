@@ -3,34 +3,33 @@ package edgex
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	exchanges "github.com/QuantProcessing/exchanges"
+	"github.com/QuantProcessing/exchanges/model"
+	"github.com/QuantProcessing/exchanges/venue"
 )
 
 func init() {
-	exchanges.RegisterCapabilities("EDGEX", exchanges.MarketTypePerp, exchanges.Capabilities{
-		PlaceOrder:          true,
-		WatchOrderBook:      true,
-		WatchOrders:         true,
-		WatchFills:          true,
-		WatchPositions:      true,
-		WatchTicker:         true,
-		WatchTrades:         true,
-		WatchKlines:         true,
-		FetchOpenOrders:     true,
-		TradingAccountReady: true,
-	})
-	exchanges.Register("EDGEX", func(ctx context.Context, mt exchanges.MarketType, opts map[string]string) (exchanges.Exchange, error) {
-		o := Options{
-			PrivateKey:    opts["private_key"],
-			AccountID:     opts["account_id"],
-			QuoteCurrency: exchanges.QuoteCurrency(opts["quote_currency"]),
+	venue.Register(Venue, func(ctx context.Context, cfg map[string]string) (venue.Adapter, error) {
+		opts := Options{
+			StarkPrivateKey:   firstConfig(cfg, "stark_private_key", "private_key"),
+			ExchangeAccountID: firstConfig(cfg, "exchange_account_id", "edgex_account_id"),
+			AccountID:         model.AccountID(cfg["account_id"]),
 		}
-		switch mt {
-		case exchanges.MarketTypePerp:
-			return NewAdapter(ctx, o)
+		switch strings.ToLower(strings.TrimSpace(cfg["account_type"])) {
+		case "", "perp", "futures":
+			return NewPerpAdapter(ctx, opts)
 		default:
-			return nil, fmt.Errorf("edgex: unsupported market type %q (perp only)", mt)
+			return nil, fmt.Errorf("%w: edgex account_type %q", model.ErrNotSupported, cfg["account_type"])
 		}
 	})
+}
+
+func firstConfig(cfg map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if cfg[key] != "" {
+			return cfg[key]
+		}
+	}
+	return ""
 }
