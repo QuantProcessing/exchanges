@@ -17,9 +17,11 @@ import (
 func TestPerpClientsPassVenueContractSuite(t *testing.T) {
 	sdk := &fakeSDK{}
 	provider := newPerpProvider(sdk)
+	data := newDataClient("backpack-perp-data", provider, sdk)
+	data.ws = &fakeWS{}
 	testsuite.RunVenueContractSuite(t, testsuite.VenueContractConfig{
 		Provider:     provider,
-		Data:         newDataClient("backpack-perp-data", provider, sdk),
+		Data:         data,
 		Execution:    newExecutionClient("perp-acct", provider, sdk),
 		InstrumentID: model.MustInstrumentID("BTC-USDC-PERP.BACKPACK"),
 		Capabilities: (&Adapter{}).Capabilities(),

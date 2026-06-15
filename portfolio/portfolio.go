@@ -1,6 +1,7 @@
 package portfolio
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/QuantProcessing/exchanges/cache"
@@ -9,12 +10,35 @@ import (
 )
 
 type Portfolio struct {
-	mu           sync.RWMutex
-	cache        *cache.Cache
-	marks        map[model.AccountID]map[model.InstrumentID]decimal.Decimal
-	realized     map[model.AccountID]map[model.InstrumentID]decimal.Decimal
-	commissions  map[model.AccountID]map[model.Currency]decimal.Decimal
-	appliedFills map[model.AccountID]map[model.OrderID]map[model.TradeID]struct{}
+	mu              sync.RWMutex
+	cache           *cache.Cache
+	marks           map[model.AccountID]map[model.InstrumentID]decimal.Decimal
+	realized        map[model.AccountID]map[model.InstrumentID]decimal.Decimal
+	commissions     map[model.AccountID]map[model.Currency]decimal.Decimal
+	conversions     map[model.Currency]map[model.Currency]decimal.Decimal
+	unrealizedCache map[model.AccountID]map[model.InstrumentID]decimal.Decimal
+	appliedFills    map[model.AccountID]map[model.OrderID]map[model.TradeID]struct{}
+	analyzer        Analyzer
+}
+
+type Analyzer interface {
+	RecordTrade(TradeRecord)
+}
+
+type AnalyzerFunc func(TradeRecord)
+
+func (f AnalyzerFunc) RecordTrade(record TradeRecord) {
+	f(record)
+}
+
+type TradeRecord struct {
+	AccountID          model.AccountID
+	InstrumentID       model.InstrumentID
+	PositionID         model.PositionID
+	Currency           model.Currency
+	RealizedPnL        decimal.Decimal
+	AccountCurrency    model.Currency
+	AccountCurrencyPnL decimal.Decimal
 }
 
 func New(c *cache.Cache) *Portfolio {
@@ -22,19 +46,95 @@ func New(c *cache.Cache) *Portfolio {
 		c = cache.New()
 	}
 	return &Portfolio{
-		cache:        c,
-		marks:        make(map[model.AccountID]map[model.InstrumentID]decimal.Decimal),
-		realized:     make(map[model.AccountID]map[model.InstrumentID]decimal.Decimal),
-		commissions:  make(map[model.AccountID]map[model.Currency]decimal.Decimal),
-		appliedFills: make(map[model.AccountID]map[model.OrderID]map[model.TradeID]struct{}),
+		cache:           c,
+		marks:           make(map[model.AccountID]map[model.InstrumentID]decimal.Decimal),
+		realized:        make(map[model.AccountID]map[model.InstrumentID]decimal.Decimal),
+		commissions:     make(map[model.AccountID]map[model.Currency]decimal.Decimal),
+		conversions:     make(map[model.Currency]map[model.Currency]decimal.Decimal),
+		unrealizedCache: make(map[model.AccountID]map[model.InstrumentID]decimal.Decimal),
+		appliedFills:    make(map[model.AccountID]map[model.OrderID]map[model.TradeID]struct{}),
 	}
+}
+
+func (p *Portfolio) SetAnalyzer(analyzer Analyzer) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.analyzer = analyzer
 }
 
 func (p *Portfolio) UpdateAccount(account model.AccountSnapshot) error {
 	if err := account.Validate(); err != nil {
 		return err
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.cache.PutAccount(account)
+	p.invalidateAccountPnLLocked(account.AccountID)
+	return nil
+}
+
+func (p *Portfolio) HandleExecutionEvent(event model.ExecutionEvent) error {
+	if err := event.Validate(); err != nil {
+		return err
+	}
+	switch {
+	case event.Account != nil:
+		return p.UpdateAccount(*event.Account)
+	case event.Order != nil:
+		return p.putOrder(*event.Order)
+	case event.Lifecycle != nil:
+		return p.handleOrderLifecycleEvent(*event.Lifecycle)
+	case event.Fill != nil:
+		return p.ApplyFill(*event.Fill)
+	case event.Position != nil:
+		return p.putPosition(*event.Position)
+	case event.PositionLifecycle != nil:
+		return p.handlePositionLifecycleEvent(*event.PositionLifecycle)
+	default:
+		return model.ErrInvalidExecutionEvent
+	}
+}
+
+func (p *Portfolio) handleOrderLifecycleEvent(event model.OrderLifecycleEvent) error {
+	if event.Report != nil {
+		return p.putOrder(*event.Report)
+	}
+	if event.OrderID == "" {
+		return nil
+	}
+	report := model.OrderStatusReport{
+		Metadata:      event.Metadata,
+		AccountID:     event.AccountID,
+		InstrumentID:  event.InstrumentID,
+		OrderID:       event.OrderID,
+		ClientOrderID: event.ClientOrderID,
+		VenueOrderID:  event.VenueOrderID,
+		Status:        event.Status,
+	}
+	return p.putOrder(report)
+}
+
+func (p *Portfolio) handlePositionLifecycleEvent(event model.PositionLifecycleEvent) error {
+	if event.Report != nil {
+		return p.putPosition(*event.Report)
+	}
+	position := model.PositionStatusReport{
+		AccountID:    event.AccountID,
+		InstrumentID: event.InstrumentID,
+		PositionID:   event.PositionID,
+		Side:         event.Side,
+		Quantity:     event.Quantity,
+	}
+	return p.putPosition(position)
+}
+
+func (p *Portfolio) putOrder(order model.OrderStatusReport) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.cache.PutOrder(order); err != nil {
+		return err
+	}
+	p.invalidatePnLLocked(order.AccountID, order.InstrumentID)
 	return nil
 }
 
@@ -76,10 +176,14 @@ func (p *Portfolio) applyFillAccounting(fill model.FillReport, previous *model.P
 	}
 	p.markAppliedFill(fill)
 	p.applyCommission(fill)
-	p.applyRealizedPnLFromPosition(fill, previous)
+	realizedDelta := p.applyRealizedPnLFromPosition(fill, previous)
 	if err := p.cache.PutPosition(position); err != nil {
 		return err
 	}
+	if err := p.applyFillBalanceDeltas(fill, realizedDelta); err != nil {
+		return err
+	}
+	p.recordClosedTradeLocked(fill, previous, position, realizedDelta)
 	p.setMarkLocked(fill.AccountID, fill.InstrumentID, fill.Price)
 	return nil
 }
@@ -102,6 +206,19 @@ func (p *Portfolio) ApplyMarketEvent(event model.MarketEvent) error {
 		if mark.IsPositive() {
 			p.setMarkLocked(position.AccountID, instrumentID, mark)
 		}
+	}
+	return nil
+}
+
+func (p *Portfolio) putPosition(position model.PositionStatusReport) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.cache.PutPosition(position); err != nil {
+		return err
+	}
+	p.invalidatePnLLocked(position.AccountID, position.InstrumentID)
+	if position.EntryPrice.IsPositive() && !p.marks[position.AccountID][position.InstrumentID].IsPositive() {
+		p.setMarkLocked(position.AccountID, position.InstrumentID, position.EntryPrice)
 	}
 	return nil
 }
@@ -130,11 +247,39 @@ func (p *Portfolio) SetMark(accountID model.AccountID, instrumentID model.Instru
 	p.setMarkLocked(accountID, instrumentID, price)
 }
 
+func (p *Portfolio) SetConversionRate(from model.Currency, to model.Currency, rate decimal.Decimal) error {
+	if from == "" || to == "" || !rate.IsPositive() {
+		return fmt.Errorf("%w: invalid conversion rate", model.ErrInvalidAccount)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conversions[from] == nil {
+		p.conversions[from] = make(map[model.Currency]decimal.Decimal)
+	}
+	p.conversions[from][to] = rate
+	return nil
+}
+
 func (p *Portfolio) setMarkLocked(accountID model.AccountID, instrumentID model.InstrumentID, price decimal.Decimal) {
 	if p.marks[accountID] == nil {
 		p.marks[accountID] = make(map[model.InstrumentID]decimal.Decimal)
 	}
 	p.marks[accountID][instrumentID] = price
+	p.invalidatePnLLocked(accountID, instrumentID)
+}
+
+func (p *Portfolio) invalidatePnLLocked(accountID model.AccountID, instrumentID model.InstrumentID) {
+	if p.unrealizedCache[accountID] == nil {
+		return
+	}
+	delete(p.unrealizedCache[accountID], instrumentID)
+	if len(p.unrealizedCache[accountID]) == 0 {
+		delete(p.unrealizedCache, accountID)
+	}
+}
+
+func (p *Portfolio) invalidateAccountPnLLocked(accountID model.AccountID) {
+	delete(p.unrealizedCache, accountID)
 }
 
 func (p *Portfolio) RealizedPnL(accountID model.AccountID, instrumentID model.InstrumentID) decimal.Decimal {
@@ -153,6 +298,20 @@ func (p *Portfolio) UnrealizedPnL(accountID model.AccountID, instrumentID model.
 }
 
 func (p *Portfolio) unrealizedPnLLocked(accountID model.AccountID, instrumentID model.InstrumentID) decimal.Decimal {
+	if p.unrealizedCache[accountID] != nil {
+		if value, ok := p.unrealizedCache[accountID][instrumentID]; ok {
+			return value
+		}
+	}
+	value := p.computeUnrealizedPnLLocked(accountID, instrumentID)
+	if p.unrealizedCache[accountID] == nil {
+		p.unrealizedCache[accountID] = make(map[model.InstrumentID]decimal.Decimal)
+	}
+	p.unrealizedCache[accountID][instrumentID] = value
+	return value
+}
+
+func (p *Portfolio) computeUnrealizedPnLLocked(accountID model.AccountID, instrumentID model.InstrumentID) decimal.Decimal {
 	position, ok := p.cache.PositionByInstrument(accountID, instrumentID)
 	if !ok || position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
 		return decimal.Zero
@@ -317,6 +476,138 @@ func (p *Portfolio) Exposure(accountID model.AccountID, quote model.Currency) de
 	return total
 }
 
+func (p *Portfolio) NetPosition(accountID model.AccountID, instrumentID model.InstrumentID) decimal.Decimal {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if accountID != "" {
+		position, ok := p.cache.PositionByInstrument(accountID, instrumentID)
+		if !ok || position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
+			return decimal.Zero
+		}
+		return signedPosition(position)
+	}
+	total := decimal.Zero
+	for _, position := range p.cache.PositionsForInstrument(instrumentID) {
+		if position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
+			continue
+		}
+		total = total.Add(signedPosition(position))
+	}
+	return total
+}
+
+func (p *Portfolio) NetPositionsByInstrument(accountID model.AccountID) map[model.InstrumentID]decimal.Decimal {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	values := make(map[model.InstrumentID]decimal.Decimal)
+	for _, inst := range p.cache.Instruments() {
+		total := decimal.Zero
+		if accountID != "" {
+			position, ok := p.cache.PositionByInstrument(accountID, inst.ID)
+			if ok && position.Side != model.PositionSideFlat && !position.Quantity.IsZero() {
+				total = signedPosition(position)
+			}
+		} else {
+			for _, position := range p.cache.PositionsForInstrument(inst.ID) {
+				if position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
+					continue
+				}
+				total = total.Add(signedPosition(position))
+			}
+		}
+		if !total.IsZero() {
+			values[inst.ID] = total
+		}
+	}
+	return values
+}
+
+func (p *Portfolio) NetExposuresByInstrument(accountID model.AccountID, target model.Currency) map[model.InstrumentID]decimal.Decimal {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	values := make(map[model.InstrumentID]decimal.Decimal)
+	for _, inst := range p.cache.Instruments() {
+		total := decimal.Zero
+		for _, position := range p.positionsForInstrumentLocked(accountID, inst.ID) {
+			value, ok := p.signedExposureLocked(position, inst, target)
+			if !ok {
+				continue
+			}
+			total = total.Add(value)
+		}
+		if !total.IsZero() {
+			values[inst.ID] = total
+		}
+	}
+	return values
+}
+
+func (p *Portfolio) NetExposuresByAccount(target model.Currency) map[model.AccountID]decimal.Decimal {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	values := make(map[model.AccountID]decimal.Decimal)
+	for _, inst := range p.cache.Instruments() {
+		for _, position := range p.positionsForInstrumentLocked("", inst.ID) {
+			value, ok := p.signedExposureLocked(position, inst, target)
+			if !ok {
+				continue
+			}
+			values[position.AccountID] = values[position.AccountID].Add(value)
+		}
+	}
+	return values
+}
+
+func (p *Portfolio) NetExposuresByVenue(target model.Currency) map[model.Venue]decimal.Decimal {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	values := make(map[model.Venue]decimal.Decimal)
+	for _, inst := range p.cache.Instruments() {
+		for _, position := range p.positionsForInstrumentLocked("", inst.ID) {
+			value, ok := p.signedExposureLocked(position, inst, target)
+			if !ok {
+				continue
+			}
+			values[inst.ID.Venue] = values[inst.ID.Venue].Add(value)
+		}
+	}
+	return values
+}
+
+func (p *Portfolio) positionsForInstrumentLocked(accountID model.AccountID, instrumentID model.InstrumentID) []model.PositionStatusReport {
+	if accountID != "" {
+		position, ok := p.cache.PositionByInstrument(accountID, instrumentID)
+		if !ok {
+			return nil
+		}
+		return []model.PositionStatusReport{position}
+	}
+	return p.cache.PositionsForInstrument(instrumentID)
+}
+
+func (p *Portfolio) signedExposureLocked(position model.PositionStatusReport, inst model.Instrument, target model.Currency) (decimal.Decimal, bool) {
+	if position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
+		return decimal.Zero, false
+	}
+	price := position.EntryPrice
+	if mark := p.marks[position.AccountID][position.InstrumentID]; mark.IsPositive() {
+		price = mark
+	}
+	if !price.IsPositive() {
+		return decimal.Zero, false
+	}
+	value := signedPosition(position).Mul(price)
+	currency := settlementCurrency(inst)
+	if target == "" || currency == target {
+		return value, true
+	}
+	converted, ok := p.convertAmountLocked(value, currency, target)
+	if !ok {
+		return decimal.Zero, false
+	}
+	return converted, true
+}
+
 func (p *Portfolio) MarkValue(accountID model.AccountID, instrumentID model.InstrumentID) decimal.Decimal {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -466,6 +757,12 @@ func (p *Portfolio) convertAmountLocked(amount decimal.Decimal, from model.Curre
 }
 
 func (p *Portfolio) exchangeRateLocked(from model.Currency, to model.Currency) (decimal.Decimal, bool) {
+	if rate, ok := p.conversions[from][to]; ok && rate.IsPositive() {
+		return rate, true
+	}
+	if rate, ok := p.conversions[to][from]; ok && rate.IsPositive() {
+		return decimal.NewFromInt(1).Div(rate), true
+	}
 	for _, inst := range p.cache.Instruments() {
 		price, ok := p.xratePriceLocked(inst.ID)
 		if !ok || !price.IsPositive() {
@@ -526,6 +823,9 @@ func settlementCurrency(inst model.Instrument) model.Currency {
 
 func (p *Portfolio) nextPosition(fill model.FillReport) model.PositionStatusReport {
 	positionID := model.PositionID(fill.InstrumentID.String())
+	if fill.PositionID != "" {
+		positionID = fill.PositionID
+	}
 	existing, ok := p.cache.Position(fill.AccountID, positionID)
 	if !ok {
 		return model.PositionStatusReport{
@@ -582,16 +882,16 @@ func (p *Portfolio) applyRealizedPnL(fill model.FillReport) {
 	p.applyRealizedPnLFromPosition(fill, &position)
 }
 
-func (p *Portfolio) applyRealizedPnLFromPosition(fill model.FillReport, position *model.PositionStatusReport) {
+func (p *Portfolio) applyRealizedPnLFromPosition(fill model.FillReport, position *model.PositionStatusReport) decimal.Decimal {
 	if position == nil || position.Side == model.PositionSideFlat || position.Quantity.IsZero() {
-		return
+		return decimal.Zero
 	}
 	if sameDirection(*position, fill) {
-		return
+		return decimal.Zero
 	}
 	closeQty := decimal.Min(position.Quantity, fill.Quantity)
 	if !closeQty.IsPositive() {
-		return
+		return decimal.Zero
 	}
 	pnl := fill.Price.Sub(position.EntryPrice).Mul(closeQty)
 	if position.Side == model.PositionSideShort {
@@ -601,6 +901,113 @@ func (p *Portfolio) applyRealizedPnLFromPosition(fill model.FillReport, position
 		p.realized[fill.AccountID] = make(map[model.InstrumentID]decimal.Decimal)
 	}
 	p.realized[fill.AccountID][fill.InstrumentID] = p.realized[fill.AccountID][fill.InstrumentID].Add(pnl)
+	return pnl
+}
+
+func (p *Portfolio) applyFillBalanceDeltas(fill model.FillReport, realizedDelta decimal.Decimal) error {
+	deltas := make(map[model.Currency]decimal.Decimal)
+	if !realizedDelta.IsZero() {
+		if currency := p.pnlCurrency(fill.InstrumentID); currency != "" {
+			deltas[currency] = deltas[currency].Add(realizedDelta)
+		}
+	}
+	if fill.Fee.IsPositive() && fill.FeeCurrency != "" {
+		deltas[fill.FeeCurrency] = deltas[fill.FeeCurrency].Sub(fill.Fee)
+	}
+	if len(deltas) == 0 {
+		return nil
+	}
+	account, ok := p.cache.Account(fill.AccountID)
+	if !ok {
+		return nil
+	}
+	updated, err := accountWithBalanceDeltas(account, deltas)
+	if err != nil {
+		return err
+	}
+	p.cache.PutAccount(updated)
+	return nil
+}
+
+func (p *Portfolio) recordClosedTradeLocked(fill model.FillReport, previous *model.PositionStatusReport, position model.PositionStatusReport, realizedDelta decimal.Decimal) {
+	if p.analyzer == nil || previous == nil || realizedDelta.IsZero() {
+		return
+	}
+	if previous.Side == model.PositionSideFlat || previous.Quantity.IsZero() {
+		return
+	}
+	closed := position.Side == model.PositionSideFlat || position.Side != previous.Side
+	if !closed {
+		return
+	}
+	currency := p.pnlCurrency(fill.InstrumentID)
+	if currency == "" {
+		return
+	}
+	accountCurrency := currency
+	accountCurrencyPnL := realizedDelta
+	if account, ok := p.cache.Account(fill.AccountID); ok && account.BaseCurrency != "" {
+		if converted, ok := p.convertAmountLocked(realizedDelta, currency, account.BaseCurrency); ok {
+			accountCurrency = account.BaseCurrency
+			accountCurrencyPnL = converted
+		}
+	}
+	p.analyzer.RecordTrade(TradeRecord{
+		AccountID:          fill.AccountID,
+		InstrumentID:       fill.InstrumentID,
+		PositionID:         previous.PositionID,
+		Currency:           currency,
+		RealizedPnL:        realizedDelta,
+		AccountCurrency:    accountCurrency,
+		AccountCurrencyPnL: accountCurrencyPnL,
+	})
+}
+
+func accountWithBalanceDeltas(account model.AccountSnapshot, deltas map[model.Currency]decimal.Decimal) (model.AccountSnapshot, error) {
+	updated := account
+	updated.Balances = append([]model.Balance(nil), account.Balances...)
+	for currency, delta := range deltas {
+		if delta.IsZero() {
+			continue
+		}
+		idx := -1
+		for i, balance := range updated.Balances {
+			if balance.Currency == currency {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			if delta.IsNegative() {
+				return model.AccountSnapshot{}, fmt.Errorf("%w: missing balance for %s", model.ErrInvalidAccount, currency)
+			}
+			updated.Balances = append(updated.Balances, model.Balance{
+				Currency: currency,
+				Free:     delta.String(),
+				Total:    delta.String(),
+			})
+			continue
+		}
+		total, locked, free, err := updated.Balances[idx].Amounts()
+		if err != nil {
+			return model.AccountSnapshot{}, err
+		}
+		total = total.Add(delta)
+		free = free.Add(delta)
+		if total.IsNegative() || free.IsNegative() {
+			return model.AccountSnapshot{}, fmt.Errorf("%w: balance delta makes %s negative", model.ErrInvalidAccount, currency)
+		}
+		updated.Balances[idx] = model.Balance{
+			Currency: currency,
+			Free:     free.String(),
+			Locked:   locked.String(),
+			Total:    total.String(),
+		}
+	}
+	if err := updated.Validate(); err != nil {
+		return model.AccountSnapshot{}, err
+	}
+	return updated, nil
 }
 
 func sameDirection(position model.PositionStatusReport, fill model.FillReport) bool {

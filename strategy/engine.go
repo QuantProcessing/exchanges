@@ -3,6 +3,8 @@ package strategy
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -21,12 +23,14 @@ const (
 	TopicExecution  = "execution"
 	TopicMarketData = "market.data"
 	TopicTimer      = "timer"
+	TopicError      = "error"
 )
 
 type Runtime interface {
 	Cache() *cache.Cache
 	Portfolio() *portfolio.Portfolio
 	Clock() Clock
+	Logger() *slog.Logger
 	SetTimer(context.Context, string, time.Duration) error
 	CancelTimer(context.Context, string) error
 	OrderFactory(model.AccountID) *model.OrderFactory
@@ -42,6 +46,7 @@ type Runtime interface {
 	UnsubscribeBars(context.Context, model.BarType) error
 	SubscribeOrderBookDepth(context.Context, model.InstrumentID, int) error
 	UnsubscribeOrderBookDepth(context.Context, model.InstrumentID, int) error
+	RequestData(context.Context, model.DataRequest) (model.DataResponse, error)
 	SubmitOrder(context.Context, model.SubmitOrder) (model.OrderStatusReport, error)
 	SubmitOrderList(context.Context, model.OrderList) ([]model.OrderStatusReport, error)
 	ModifyOrder(context.Context, model.ModifyOrder) (model.OrderStatusReport, error)
@@ -63,8 +68,13 @@ type Engine struct {
 	bus           *bus.Bus
 	runtime       Runtime
 	strategies    []Strategy
+	actors        []*strategyActor
+	identity      map[Strategy]model.StrategyID
+	ids           map[model.StrategyID]struct{}
+	traderID      model.TraderID
 	subs          []bus.Subscription
 	events        chan bus.Envelope
+	errs          chan error
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	asyncDispatch bool
@@ -72,9 +82,21 @@ type Engine struct {
 
 type Option func(*Engine)
 
+type strategyActor struct {
+	strategy Strategy
+	id       model.StrategyID
+	events   chan bus.Envelope
+}
+
 func WithRuntime(runtime Runtime) Option {
 	return func(e *Engine) {
 		e.runtime = runtime
+	}
+}
+
+func WithTraderID(traderID model.TraderID) Option {
+	return func(e *Engine) {
+		e.traderID = traderID
 	}
 }
 
@@ -88,7 +110,12 @@ func NewEngine(b *bus.Bus, opts ...Option) *Engine {
 	if b == nil {
 		b = bus.New()
 	}
-	e := &Engine{bus: b, asyncDispatch: true}
+	e := &Engine{
+		bus:           b,
+		identity:      make(map[Strategy]model.StrategyID),
+		ids:           make(map[model.StrategyID]struct{}),
+		asyncDispatch: true,
+	}
 	for _, opt := range opts {
 		opt(e)
 	}
@@ -96,6 +123,24 @@ func NewEngine(b *bus.Bus, opts ...Option) *Engine {
 }
 
 func (e *Engine) Add(s Strategy) error {
+	if s == nil {
+		return fmt.Errorf("%w: strategy is required", ErrInvalidStrategyConfig)
+	}
+	id := model.StrategyID(s.ID())
+	if id == "" {
+		return fmt.Errorf("%w: strategy id is required", ErrInvalidStrategyConfig)
+	}
+	if _, exists := e.ids[id]; exists {
+		return fmt.Errorf("%w: duplicate strategy id %s", ErrInvalidStrategyConfig, id)
+	}
+	if e.identity == nil {
+		e.identity = make(map[Strategy]model.StrategyID)
+	}
+	if e.ids == nil {
+		e.ids = make(map[model.StrategyID]struct{})
+	}
+	e.identity[s] = id
+	e.ids[id] = struct{}{}
 	e.strategies = append(e.strategies, s)
 	return nil
 }
@@ -103,6 +148,7 @@ func (e *Engine) Add(s Strategy) error {
 func (e *Engine) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
+	e.errs = make(chan error, 1)
 	for _, s := range e.strategies {
 		if err := s.OnStart(ctx, e.runtimeForStrategy(s)); err != nil {
 			return err
@@ -111,10 +157,22 @@ func (e *Engine) Start(ctx context.Context) error {
 	if !e.asyncDispatch {
 		return nil
 	}
+	e.actors = make([]*strategyActor, 0, len(e.strategies))
+	for _, s := range e.strategies {
+		actor := &strategyActor{
+			strategy: s,
+			id:       e.strategyID(s),
+			events:   make(chan bus.Envelope, 128),
+		}
+		e.actors = append(e.actors, actor)
+		e.wg.Add(1)
+		go e.runActor(runCtx, actor)
+	}
 	e.subs = []bus.Subscription{
 		e.bus.Subscribe(TopicExecution, 64),
 		e.bus.Subscribe(TopicMarketData, 64),
 		e.bus.Subscribe(TopicTimer, 64),
+		e.bus.Subscribe(TopicError, 64),
 	}
 	e.events = make(chan bus.Envelope, 128)
 	e.wg.Add(1)
@@ -132,21 +190,44 @@ func (e *Engine) runtimeForStrategy(s Strategy) Runtime {
 	}
 	return commandMetadataRuntime{
 		Runtime:    e.runtime,
-		strategyID: model.StrategyID(s.ID()),
+		traderID:   e.traderID,
+		strategyID: e.strategyID(s),
 	}
 }
 
 type commandMetadataRuntime struct {
 	Runtime
+	traderID   model.TraderID
 	strategyID model.StrategyID
 }
 
 func (r commandMetadataRuntime) commandMetadata(metadata model.CommandMetadata) model.CommandMetadata {
 	defaults := model.CommandMetadata{
+		TraderID:   r.traderID,
 		StrategyID: r.strategyID,
 		TsInit:     r.Clock().Now(),
 	}
 	return metadata.WithDefaults(defaults)
+}
+
+func (r commandMetadataRuntime) Logger() *slog.Logger {
+	base := loggerOrDiscard(nil)
+	if r.Runtime != nil {
+		base = loggerOrDiscard(r.Runtime.Logger())
+	}
+	attrs := make([]any, 0, 4)
+	if r.traderID != "" {
+		attrs = append(attrs, "trader_id", string(r.traderID))
+	}
+	if r.strategyID != "" {
+		attrs = append(attrs, "strategy_id", string(r.strategyID))
+	}
+	return base.With(attrs...)
+}
+
+func (r commandMetadataRuntime) RequestData(ctx context.Context, request model.DataRequest) (model.DataResponse, error) {
+	request.Metadata = r.commandMetadata(request.Metadata)
+	return r.Runtime.RequestData(ctx, request)
 }
 
 func (r commandMetadataRuntime) SubmitOrder(ctx context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {
@@ -218,11 +299,62 @@ func (e *Engine) dispatch(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case env := <-e.events:
-			for _, s := range e.strategies {
-				_ = s.OnEvent(ctx, env)
+		case env, ok := <-e.events:
+			if !ok {
+				return
+			}
+			for _, actor := range e.actors {
+				select {
+				case <-ctx.Done():
+					return
+				case actor.events <- env:
+				}
 			}
 		}
+	}
+}
+
+func (e *Engine) runActor(ctx context.Context, actor *strategyActor) {
+	defer e.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case env, ok := <-actor.events:
+			if !ok {
+				return
+			}
+			if err := actor.strategy.OnEvent(ctx, env); err != nil {
+				e.reportError(fmt.Errorf("strategy %s event handler failed: %w", actor.id, err))
+			}
+		}
+	}
+}
+
+func (e *Engine) strategyID(s Strategy) model.StrategyID {
+	if e == nil || s == nil {
+		return ""
+	}
+	if id, ok := e.identity[s]; ok {
+		return id
+	}
+	return model.StrategyID(s.ID())
+}
+
+func (e *Engine) Errors() <-chan error {
+	if e == nil {
+		return nil
+	}
+	return e.errs
+}
+
+func (e *Engine) reportError(err error) {
+	if err == nil || e.errs == nil {
+		return
+	}
+	select {
+	case e.errs <- err:
+	default:
 	}
 }
 

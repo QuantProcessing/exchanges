@@ -110,7 +110,7 @@ func requiredExecutionCaseIDs(caps venue.DeclaredCapabilities, requirePrivateStr
 	if caps.Execution.PositionReports {
 		ids = append(ids, "TC-E82")
 	}
-	if caps.Execution.PrivateStream && requirePrivateStream {
+	if caps.Execution.Resubscribe && requirePrivateStream {
 		ids = append(ids, "TC-E84")
 	}
 	return ids
@@ -239,9 +239,6 @@ func AdapterCapabilityReport(t *testing.T, adapter venue.Adapter) ContractReport
 			if exec.Events() == nil {
 				return fmt.Errorf("private-stream capability requires execution events")
 			}
-			if _, ok := exec.(venue.ExecutionResubscriber); !ok {
-				return fmt.Errorf("private-stream capability requires explicit resubscribe support")
-			}
 			return nil
 		}},
 		{id: "TC-A07", name: "Granular execution capability interfaces", run: func() error {
@@ -276,13 +273,28 @@ func AdapterCapabilityReport(t *testing.T, adapter venue.Adapter) ContractReport
 					return fmt.Errorf("position-report capability requires venue.PositionStatusReportGenerator")
 				}
 			}
+			if caps.Execution.Resubscribe {
+				if _, ok := exec.(venue.ExecutionResubscriber); !ok {
+					return fmt.Errorf("resubscribe capability requires venue.ExecutionResubscriber")
+				}
+			}
+			if caps.Execution.MassStatus {
+				if _, ok := exec.(venue.ExecutionMassStatusGenerator); !ok {
+					return fmt.Errorf("mass-status capability requires venue.ExecutionMassStatusGenerator")
+				}
+			}
+			if caps.Execution.OrderLists {
+				if _, ok := exec.(venue.OrderListSubmitter); !ok {
+					return fmt.Errorf("order-list capability requires venue.OrderListSubmitter")
+				}
+			}
 			return nil
 		}},
 	})
 }
 
 func declaresMarketData(caps venue.MarketDataCapabilities) bool {
-	return caps.Ticker || caps.OrderBook || caps.TickerStream || caps.OrderBookStream ||
+	return caps.Snapshots || caps.Ticker || caps.OrderBook || caps.TickerStream || caps.OrderBookStream ||
 		caps.TradeTicks || caps.QuoteTicks || caps.Bars || caps.Streams
 }
 
@@ -293,9 +305,11 @@ func declaresStreamingMarketData(caps venue.MarketDataCapabilities) bool {
 
 func declaresExecution(caps venue.ExecutionCapabilities, account venue.AccountCapabilities) bool {
 	return caps.Submit || caps.Cancel || caps.Modify || caps.Query || caps.OrderReports ||
-		caps.FillReports || caps.PositionReports || caps.PrivateStream || account.Snapshot
+		caps.FillReports || caps.PositionReports || caps.PrivateStream || caps.Resubscribe ||
+		caps.MassStatus || caps.OrderLists || account.Snapshot
 }
 
 func declaresGranularExecution(caps venue.ExecutionCapabilities) bool {
-	return caps.Modify || caps.Query || caps.FillReports || caps.PositionReports
+	return caps.Modify || caps.Query || caps.FillReports || caps.PositionReports ||
+		caps.Resubscribe || caps.MassStatus || caps.OrderLists
 }

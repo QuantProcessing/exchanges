@@ -2,36 +2,108 @@ package live
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/QuantProcessing/exchanges/bus"
 	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/kernel"
 	"github.com/QuantProcessing/exchanges/model"
 	"github.com/QuantProcessing/exchanges/platform"
+	"github.com/QuantProcessing/exchanges/risk"
 	"github.com/QuantProcessing/exchanges/strategy"
 	"github.com/QuantProcessing/exchanges/venue"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunnerStartsStrategiesBeforePlatformStartupEvents(t *testing.T) {
-	b := bus.New()
-	node := platform.NewNode(platform.Config{Bus: b, Cache: cache.New()})
-	data := newLiveDataClient()
-	exec := newLiveExecutionClient()
-	require.NoError(t, node.AddDataClient(data))
-	require.NoError(t, node.AddExecutionClient(exec))
-	rec := &recordingStrategy{id: "live"}
-	runner := NewRunner(Config{Node: node, Bus: b, Strategies: []strategy.Strategy{rec}})
+func TestRunnerHealthTracksKernelLifecycleState(t *testing.T) {
+	node := platform.NewNode(platform.Config{Bus: bus.New(), Cache: cache.New()})
+	runner := NewRunner(Config{Node: node})
+	require.Equal(t, kernel.ComponentStateInitialized, runner.Health().State)
+	require.Equal(t, kernel.ComponentStateInitialized, runner.Health().Platform.State)
 
 	require.NoError(t, runner.Start(context.Background()))
-	require.Eventually(t, func() bool {
-		return rec.hasTopic(strategy.TopicExecution)
-	}, time.Second, 10*time.Millisecond)
+	health := runner.Health()
+	require.Equal(t, kernel.ComponentStateRunning, health.State)
+	require.Equal(t, kernel.ComponentStateRunning, health.Platform.State)
+
 	require.NoError(t, runner.Stop(context.Background()))
-	require.True(t, rec.isStopped())
+	health = runner.Health()
+	require.Equal(t, kernel.ComponentStateStopped, health.State)
+	require.Equal(t, kernel.ComponentStateStopped, health.Platform.State)
+}
+
+func TestTradingNodeHealthIncludesPlatformRiskLifecycle(t *testing.T) {
+	engine := risk.NewEngine(cache.New(), risk.Config{})
+	node, err := NewTradingNode(NodeConfig{Risk: engine})
+	require.NoError(t, err)
+	require.Equal(t, kernel.ComponentStateInitialized, node.Health().State)
+	require.Equal(t, kernel.ComponentStateInitialized, node.Health().Platform.Risk.State)
+
+	require.NoError(t, node.Start(context.Background()))
+	health := node.Health()
+	require.Equal(t, kernel.ComponentStateRunning, health.State)
+	require.Equal(t, kernel.ComponentStateRunning, health.Platform.State)
+	require.Equal(t, kernel.ComponentStateRunning, health.Platform.Risk.State)
+
+	require.NoError(t, node.Stop(context.Background()))
+	health = node.Health()
+	require.Equal(t, kernel.ComponentStateStopped, health.State)
+	require.Equal(t, kernel.ComponentStateStopped, health.Platform.Risk.State)
+}
+
+func TestLiveHealthIncludesClientAndStrategySnapshots(t *testing.T) {
+	data := newLiveDataClient()
+	exec := newLiveExecutionClient()
+	rec := &recordingStrategy{id: "health-strategy"}
+	node, err := NewTradingNode(NodeConfig{
+		DataClients:      []venue.DataClient{data},
+		ExecutionClients: []venue.ExecutionClient{exec},
+		Strategies:       []strategy.Strategy{rec},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, node.Start(context.Background()))
+	health := node.Health()
+	require.Len(t, health.Platform.Data, 1)
+	require.Equal(t, model.Venue("BINANCE"), health.Platform.Data[0].Venue)
+	require.Equal(t, "live-data", health.Platform.Data[0].ClientID)
+	require.True(t, health.Platform.Data[0].Health.Connected)
+	require.Len(t, health.Platform.Execution, 1)
+	require.Equal(t, model.Venue("BINANCE"), health.Platform.Execution[0].Venue)
+	require.Equal(t, model.AccountID("acct"), health.Platform.Execution[0].AccountID)
+	require.True(t, health.Platform.Execution[0].Health.Connected)
+	require.Len(t, health.Strategies, 1)
+	require.Equal(t, "health-strategy", health.Strategies[0].ID)
+	require.Equal(t, kernel.ComponentStateRunning, health.Strategies[0].State)
+
+	require.NoError(t, node.Stop(context.Background()))
+	health = node.Health()
+	require.Equal(t, kernel.ComponentStateStopped, health.Strategies[0].State)
+}
+
+func TestRunnerStartsPlatformBeforeStrategies(t *testing.T) {
+	rec := &shutdownRecorder{}
+	b := bus.New()
+	node := platform.NewNode(platform.Config{Bus: b, Cache: cache.New()})
+	data := &startupDataClient{liveDataClient: newLiveDataClient(), rec: rec}
+	exec := &startupExecutionClient{liveExecutionClient: newLiveExecutionClient(), rec: rec}
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	strat := &startupPhaseStrategy{id: "live", node: node, rec: rec}
+	runner := NewRunner(Config{Node: node, Bus: b, Strategies: []strategy.Strategy{strat}})
+
+	require.NoError(t, runner.Start(context.Background()))
+	events := rec.Events()
+	require.Less(t, indexOfEvent(events, "data-load"), indexOfEvent(events, "data-connect"), events)
+	require.Less(t, indexOfEvent(events, "data-connect"), indexOfEvent(events, "exec-connect"), events)
+	require.Less(t, indexOfEvent(events, "exec-connect"), indexOfEvent(events, "exec-query-account"), events)
+	require.Less(t, indexOfEvent(events, "exec-query-account"), indexOfEvent(events, "strategy-start"), events)
+	require.NoError(t, runner.Stop(context.Background()))
+	require.True(t, strat.isStopped())
 }
 
 func TestRunnerPassesPlatformNodeRuntimeToStrategies(t *testing.T) {
@@ -102,15 +174,102 @@ func TestTradingNodeAppliesStrategyOnStartSubscriptions(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestRunnerStopsStrategiesBeforePlatformShutdown(t *testing.T) {
+	rec := &shutdownRecorder{}
+	b := bus.New()
+	node := platform.NewNode(platform.Config{Bus: b, Cache: cache.New()})
+	data := &shutdownDataClient{liveDataClient: newLiveDataClient(), rec: rec}
+	exec := &shutdownExecutionClient{liveExecutionClient: newLiveExecutionClient(), rec: rec}
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	runner := NewRunner(Config{
+		Node:       node,
+		Bus:        b,
+		Strategies: []strategy.Strategy{&shutdownStrategy{id: "shutdown", rec: rec}},
+	})
+
+	require.NoError(t, runner.Start(context.Background()))
+	require.NoError(t, runner.Stop(context.Background()))
+
+	events := rec.Events()
+	require.Less(t, indexOfEvent(events, "strategy-stop"), indexOfEvent(events, "data-disconnect"), events)
+	require.Less(t, indexOfEvent(events, "strategy-stop"), indexOfEvent(events, "exec-disconnect"), events)
+}
+
+func TestRunnerGracefullyStopsOnFatalPlatformStreamException(t *testing.T) {
+	rec := &shutdownRecorder{}
+	b := bus.New()
+	data := &fatalShutdownDataClient{
+		shutdownDataClient: &shutdownDataClient{liveDataClient: newLiveDataClient(), rec: rec},
+	}
+	exec := &shutdownExecutionClient{liveExecutionClient: newLiveExecutionClient(), rec: rec}
+	node := platform.NewNode(platform.Config{
+		Bus:             b,
+		Cache:           cache.New(),
+		ReconnectPolicy: platform.RetryPolicy{MaxAttempts: 1},
+	})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	strat := &shutdownStrategy{id: "fatal-shutdown", rec: rec}
+	runner := NewRunner(Config{Node: node, Bus: b, Strategies: []strategy.Strategy{strat}})
+
+	require.NoError(t, runner.Start(context.Background()))
+	data.BreakStream()
+
+	require.Eventually(t, func() bool {
+		health := runner.Health()
+		return health.State == kernel.ComponentStateStopped &&
+			health.Platform.State == kernel.ComponentStateStopped &&
+			health.Platform.LastError != nil &&
+			strat.isStopped()
+	}, time.Second, 10*time.Millisecond)
+	health := runner.Health()
+	require.ErrorContains(t, health.Platform.LastError, "data client reused closed event channel")
+	require.Contains(t, health.LastError, "data client reused closed event channel")
+	events := rec.Events()
+	require.Less(t, indexOfEvent(events, "strategy-stop"), indexOfEvent(events, "data-disconnect"), events)
+	require.Less(t, indexOfEvent(events, "strategy-stop"), indexOfEvent(events, "exec-disconnect"), events)
+}
+
+func TestRunnerGracefullyStopsOnStrategyEngineException(t *testing.T) {
+	rec := &shutdownRecorder{}
+	b := bus.New()
+	node := platform.NewNode(platform.Config{Bus: b, Cache: cache.New()})
+	strat := &fatalEventStrategy{
+		shutdownStrategy: shutdownStrategy{id: "fatal-event", rec: rec},
+		err:              fmt.Errorf("strategy event handler failed"),
+	}
+	runner := NewRunner(Config{Node: node, Bus: b, Strategies: []strategy.Strategy{strat}})
+
+	require.NoError(t, runner.Start(context.Background()))
+	require.NoError(t, b.Publish(context.Background(), strategy.TopicTimer, strategy.TimerEvent{
+		Name:      "fatal",
+		Timestamp: time.Unix(1, 0),
+	}))
+
+	require.Eventually(t, func() bool {
+		health := runner.Health()
+		return health.State == kernel.ComponentStateStopped &&
+			strat.isStopped() &&
+			health.LastError == "strategy fatal-event event handler failed: strategy event handler failed"
+	}, time.Second, 10*time.Millisecond)
+}
+
 type recordingStrategy struct {
 	mu      sync.Mutex
 	id      string
 	events  []bus.Envelope
+	started bool
 	stopped bool
 }
 
-func (s *recordingStrategy) ID() string                                      { return s.id }
-func (s *recordingStrategy) OnStart(context.Context, strategy.Runtime) error { return nil }
+func (s *recordingStrategy) ID() string { return s.id }
+func (s *recordingStrategy) OnStart(context.Context, strategy.Runtime) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.started = true
+	return nil
+}
 func (s *recordingStrategy) OnEvent(_ context.Context, env bus.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -133,6 +292,12 @@ func (s *recordingStrategy) hasTopic(topic string) bool {
 		}
 	}
 	return false
+}
+
+func (s *recordingStrategy) isStarted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started
 }
 
 func (s *recordingStrategy) isStopped() bool {
@@ -229,6 +394,176 @@ func (s *liveTypedSubscriptionStrategy) bookCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.books
+}
+
+type startupPhaseStrategy struct {
+	mu      sync.Mutex
+	id      string
+	node    *platform.Node
+	rec     *shutdownRecorder
+	stopped bool
+}
+
+func (s *startupPhaseStrategy) ID() string { return s.id }
+
+func (s *startupPhaseStrategy) OnStart(context.Context, strategy.Runtime) error {
+	s.rec.Add("strategy-start")
+	health := s.node.Health()
+	if !health.Ready || health.State != kernel.ComponentStateRunning {
+		return fmt.Errorf("platform not ready before strategy start: ready=%v state=%s", health.Ready, health.State)
+	}
+	return nil
+}
+
+func (s *startupPhaseStrategy) OnEvent(context.Context, bus.Envelope) error { return nil }
+
+func (s *startupPhaseStrategy) OnStop(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopped = true
+	return nil
+}
+
+func (s *startupPhaseStrategy) isStopped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopped
+}
+
+type startupDataClient struct {
+	*liveDataClient
+	rec *shutdownRecorder
+}
+
+func (c *startupDataClient) Instruments() venue.InstrumentProvider {
+	return startupInstrumentProvider{InstrumentProvider: c.liveDataClient.Instruments(), rec: c.rec}
+}
+
+func (c *startupDataClient) Connect(ctx context.Context) error {
+	c.rec.Add("data-connect")
+	return c.liveDataClient.Connect(ctx)
+}
+
+type startupInstrumentProvider struct {
+	venue.InstrumentProvider
+	rec *shutdownRecorder
+}
+
+func (p startupInstrumentProvider) LoadAll(ctx context.Context) error {
+	p.rec.Add("data-load")
+	return p.InstrumentProvider.LoadAll(ctx)
+}
+
+type startupExecutionClient struct {
+	*liveExecutionClient
+	rec *shutdownRecorder
+}
+
+func (c *startupExecutionClient) Connect(ctx context.Context) error {
+	c.rec.Add("exec-connect")
+	return c.liveExecutionClient.Connect(ctx)
+}
+
+func (c *startupExecutionClient) QueryAccount(ctx context.Context) (model.AccountSnapshot, error) {
+	c.rec.Add("exec-query-account")
+	return c.liveExecutionClient.QueryAccount(ctx)
+}
+
+type shutdownRecorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *shutdownRecorder) Add(event string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *shutdownRecorder) Events() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+type shutdownStrategy struct {
+	mu      sync.Mutex
+	id      string
+	rec     *shutdownRecorder
+	stopped bool
+}
+
+func (s *shutdownStrategy) ID() string                                      { return s.id }
+func (s *shutdownStrategy) OnStart(context.Context, strategy.Runtime) error { return nil }
+func (s *shutdownStrategy) OnEvent(context.Context, bus.Envelope) error     { return nil }
+func (s *shutdownStrategy) OnStop(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopped = true
+	s.rec.Add("strategy-stop")
+	return nil
+}
+
+func (s *shutdownStrategy) isStopped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopped
+}
+
+type fatalEventStrategy struct {
+	shutdownStrategy
+	err error
+}
+
+func (s *fatalEventStrategy) OnEvent(context.Context, bus.Envelope) error {
+	return s.err
+}
+
+type shutdownDataClient struct {
+	*liveDataClient
+	rec *shutdownRecorder
+}
+
+func (c *shutdownDataClient) Connect(context.Context) error {
+	c.rec.Add("data-connect")
+	return nil
+}
+
+func (c *shutdownDataClient) Disconnect(context.Context) error {
+	c.rec.Add("data-disconnect")
+	return nil
+}
+
+type fatalShutdownDataClient struct {
+	*shutdownDataClient
+}
+
+func (c *fatalShutdownDataClient) BreakStream() {
+	close(c.liveDataClient.events)
+}
+
+type shutdownExecutionClient struct {
+	*liveExecutionClient
+	rec *shutdownRecorder
+}
+
+func (c *shutdownExecutionClient) Connect(context.Context) error {
+	c.rec.Add("exec-connect")
+	return nil
+}
+
+func (c *shutdownExecutionClient) Disconnect(context.Context) error {
+	c.rec.Add("exec-disconnect")
+	return nil
+}
+
+func indexOfEvent(events []string, want string) int {
+	for i, event := range events {
+		if event == want {
+			return i
+		}
+	}
+	return len(events)
 }
 
 type liveProvider struct {

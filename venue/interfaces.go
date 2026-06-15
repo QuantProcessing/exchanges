@@ -71,12 +71,20 @@ type ExecutionResubscriber interface {
 	ResubscribeExecution(context.Context) error
 }
 
+type OrderListSubmitter interface {
+	SubmitOrderList(context.Context, model.SubmitOrderList) ([]model.OrderStatusReport, error)
+}
+
 type FillReportGenerator interface {
 	GenerateFillReports(context.Context, model.InstrumentID) ([]model.FillReport, error)
 }
 
 type PositionStatusReportGenerator interface {
 	GeneratePositionStatusReports(context.Context, model.InstrumentID) ([]model.PositionStatusReport, error)
+}
+
+type ExecutionMassStatusGenerator interface {
+	GenerateExecutionMassStatus(context.Context, model.GenerateExecutionMassStatus) (model.ExecutionMassStatus, error)
 }
 
 type ExecutionHealth struct {

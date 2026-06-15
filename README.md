@@ -105,6 +105,20 @@ markets when the venue supports them:
 - **Adapter Layer**: Stable cross-exchange convenience over market data, orders, account snapshots, and optional capability families.
 - **TradingAccount Layer**: Lifecycle runtime for snapshots, private streams, normalized order/fill tracking, and stream health.
 
+### NautilusTrader Parity Workflows
+
+The repository now tracks a measurable Go NautilusTrader replica target through
+contract tests, scorecards, runnable examples, and release gates:
+
+| Workflow | Guide | Runnable Evidence |
+|----------|-------|-------------------|
+| Master parity scorecard | [Master Parity Scorecard](./docs/superpowers/guides/master-parity-scorecard.md) | `bash scripts/verify_nautilus_parity.sh` |
+| Strategy authoring and brackets | [Strategy Authoring With Brackets](./docs/superpowers/guides/strategy-authoring-bracket.md) | `go test ./examples/nautilus_style` |
+| Live node assembly | [Live Node Configuration](./docs/superpowers/guides/live-node-configuration.md) | `go test ./live ./platform ./testsuite -run 'Live|Node|Runner'` |
+| Reconciliation states | [Reconciliation States](./docs/superpowers/guides/reconciliation-states.md) | `go test ./execution ./account ./testsuite -run 'Reconciliation|Audit'` |
+| Adapter capability claims | [Adapter Capability Policy](./docs/superpowers/guides/adapter-capability-policy.md) | `go test ./venue ./testsuite ./adapter/... -run 'Adapter|Capability|Contract'` |
+| Nautilus vs Go examples | [Side-By-Side Nautilus And Go Examples](./docs/superpowers/guides/side-by-side-nautilus-go-examples.md) | `go test ./examples/...` |
+
 ---
 
 ## Quick Start

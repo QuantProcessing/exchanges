@@ -96,6 +96,20 @@ Adapter 支持 quote-aware 的市场标识。`"BTC"` 这类基础符号仍会使
 - **适配器层**：提供稳定的跨交易所便利能力，包括行情、订单、账户快照和可选 capability。
 - **TradingAccount 层**：基于 instrument-aware execution client 管理交易生命周期，包括账户快照、私有流、OrderTracker、stream health、余额和持仓。
 
+### NautilusTrader 复刻工作流
+
+仓库现在通过契约测试、分数表、可运行示例和发布 gate 来跟踪可量化的
+Go 版 NautilusTrader 目标：
+
+| 工作流 | 指南 | 可运行证据 |
+|--------|------|------------|
+| Master parity scorecard | [Master Parity Scorecard](./docs/superpowers/guides/master-parity-scorecard.md) | `bash scripts/verify_nautilus_parity.sh` |
+| 策略编写与 bracket 订单 | [Strategy Authoring With Brackets](./docs/superpowers/guides/strategy-authoring-bracket.md) | `go test ./examples/nautilus_style` |
+| Live node 组装 | [Live Node Configuration](./docs/superpowers/guides/live-node-configuration.md) | `go test ./live ./platform ./testsuite -run 'Live|Node|Runner'` |
+| Reconciliation 状态 | [Reconciliation States](./docs/superpowers/guides/reconciliation-states.md) | `go test ./execution ./account ./testsuite -run 'Reconciliation|Audit'` |
+| Adapter capability 声明 | [Adapter Capability Policy](./docs/superpowers/guides/adapter-capability-policy.md) | `go test ./venue ./testsuite ./adapter/... -run 'Adapter|Capability|Contract'` |
+| Nautilus 与 Go 对照示例 | [Side-By-Side Nautilus And Go Examples](./docs/superpowers/guides/side-by-side-nautilus-go-examples.md) | `go test ./examples/...` |
+
 ---
 
 ## 快速开始

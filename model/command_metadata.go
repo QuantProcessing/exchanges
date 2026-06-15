@@ -9,13 +9,16 @@ type CorrelationID string
 type ExecutionClientID string
 
 type CommandMetadata struct {
-	TraderID      TraderID
-	StrategyID    StrategyID
-	CommandID     CommandID
-	CorrelationID CorrelationID
-	ClientID      ExecutionClientID
-	TsInit        time.Time
-	Params        map[string]string
+	TraderID        TraderID
+	StrategyID      StrategyID
+	CommandID       CommandID
+	CorrelationID   CorrelationID
+	ClientID        ExecutionClientID
+	ComponentID     ComponentID
+	ExecAlgorithmID ExecAlgorithmID
+	ExecSpawnID     ExecSpawnID
+	TsInit          time.Time
+	Params          map[string]string
 }
 
 func (m CommandMetadata) Clone() CommandMetadata {
@@ -39,6 +42,15 @@ func (m CommandMetadata) WithDefaults(defaults CommandMetadata) CommandMetadata 
 	}
 	if m.ClientID == "" {
 		m.ClientID = defaults.ClientID
+	}
+	if m.ComponentID == "" {
+		m.ComponentID = defaults.ComponentID
+	}
+	if m.ExecAlgorithmID == "" {
+		m.ExecAlgorithmID = defaults.ExecAlgorithmID
+	}
+	if m.ExecSpawnID == "" {
+		m.ExecSpawnID = defaults.ExecSpawnID
 	}
 	if m.TsInit.IsZero() {
 		m.TsInit = defaults.TsInit

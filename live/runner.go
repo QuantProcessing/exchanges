@@ -3,14 +3,13 @@ package live
 import (
 	"context"
 	"errors"
+	"sync"
+	"time"
 
 	"github.com/QuantProcessing/exchanges/bus"
-	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/kernel"
 	"github.com/QuantProcessing/exchanges/platform"
-	"github.com/QuantProcessing/exchanges/portfolio"
-	"github.com/QuantProcessing/exchanges/risk"
 	"github.com/QuantProcessing/exchanges/strategy"
-	"github.com/QuantProcessing/exchanges/venue"
 )
 
 type Config struct {
@@ -19,76 +18,17 @@ type Config struct {
 	Strategies []strategy.Strategy
 }
 
+const fatalMonitorInterval = 10 * time.Millisecond
+
 type Runner struct {
-	node   *platform.Node
-	engine *strategy.Engine
-}
-
-type NodeConfig struct {
-	Bus              *bus.Bus
-	Cache            *cache.Cache
-	Risk             *risk.Engine
-	Portfolio        *portfolio.Portfolio
-	DataClients      []venue.DataClient
-	ExecutionClients []venue.ExecutionClient
-	Strategies       []strategy.Strategy
-}
-
-type TradingNode struct {
-	node      *platform.Node
-	runner    *Runner
-	portfolio *portfolio.Portfolio
-}
-
-func NewTradingNode(cfg NodeConfig) (*TradingNode, error) {
-	b := cfg.Bus
-	if b == nil {
-		b = bus.New()
-	}
-	c := cfg.Cache
-	if c == nil {
-		c = cache.New()
-	}
-	pf := cfg.Portfolio
-	if pf == nil {
-		pf = portfolio.New(c)
-	}
-	node := platform.NewNode(platform.Config{
-		Bus:       b,
-		Cache:     c,
-		Risk:      cfg.Risk,
-		Portfolio: pf,
-	})
-	for _, client := range cfg.DataClients {
-		if err := node.AddDataClient(client); err != nil {
-			return nil, err
-		}
-	}
-	for _, client := range cfg.ExecutionClients {
-		if err := node.AddExecutionClient(client); err != nil {
-			return nil, err
-		}
-	}
-	return &TradingNode{
-		node:      node,
-		runner:    NewRunner(Config{Node: node, Bus: b, Strategies: cfg.Strategies}),
-		portfolio: pf,
-	}, nil
-}
-
-func (n *TradingNode) Start(ctx context.Context) error {
-	return n.runner.Start(ctx)
-}
-
-func (n *TradingNode) Stop(ctx context.Context) error {
-	return n.runner.Stop(ctx)
-}
-
-func (n *TradingNode) Platform() *platform.Node { return n.node }
-func (n *TradingNode) Cache() *cache.Cache      { return n.node.Cache() }
-func (n *TradingNode) Bus() *bus.Bus            { return n.node.Bus() }
-func (n *TradingNode) Portfolio() *portfolio.Portfolio {
-	return n.portfolio
+	mu             sync.RWMutex
+	stopMu         sync.Mutex
+	node           *platform.Node
+	engine         *strategy.Engine
+	component      *kernel.Component
+	strategyIDs    []string
+	strategyStates map[string]kernel.ComponentState
+	runCancel      context.CancelFunc
 }
 
 func NewRunner(cfg Config) *Runner {
@@ -104,23 +44,168 @@ func NewRunner(cfg Config) *Runner {
 		node = platform.NewNode(platform.Config{Bus: b})
 	}
 	engine := strategy.NewEngine(b, strategy.WithRuntime(node))
+	strategyIDs := make([]string, 0, len(cfg.Strategies))
+	strategyStates := make(map[string]kernel.ComponentState, len(cfg.Strategies))
 	for _, s := range cfg.Strategies {
+		if s != nil {
+			id := s.ID()
+			strategyIDs = append(strategyIDs, id)
+			strategyStates[id] = kernel.ComponentStateInitialized
+		}
 		_ = engine.Add(s)
 	}
-	return &Runner{node: node, engine: engine}
+	return &Runner{
+		node:           node,
+		engine:         engine,
+		component:      kernel.NewComponent("live.runner", kernel.ComponentHooks{}),
+		strategyIDs:    strategyIDs,
+		strategyStates: strategyStates,
+	}
 }
 
-func (r *Runner) Start(ctx context.Context) error {
-	if err := r.engine.Start(ctx); err != nil {
-		return err
+func (r *Runner) Start(ctx context.Context) (err error) {
+	r.ensureComponent()
+	if r.component.State() == kernel.ComponentStateFaulted {
+		return kernel.ErrComponentFaulted
 	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	r.stopMu.Lock()
+	r.runCancel = cancel
+	r.stopMu.Unlock()
+	defer func() {
+		if err != nil {
+			cancel()
+			r.stopMu.Lock()
+			r.runCancel = nil
+			r.stopMu.Unlock()
+			r.component.Fault(err)
+		}
+	}()
 	if err := r.node.Start(ctx); err != nil {
-		_ = r.engine.Stop(ctx)
 		return err
 	}
+	r.setAllStrategiesState(kernel.ComponentStateStarting)
+	if err := r.engine.Start(ctx); err != nil {
+		r.setAllStrategiesState(kernel.ComponentStateFaulted)
+		_ = r.node.Stop(ctx)
+		return err
+	}
+	r.setAllStrategiesState(kernel.ComponentStateRunning)
+	if err := r.component.Start(ctx); err != nil {
+		return err
+	}
+	go r.monitorFatal(runCtx)
 	return nil
 }
 
 func (r *Runner) Stop(ctx context.Context) error {
-	return errors.Join(r.node.Stop(ctx), r.engine.Stop(ctx))
+	r.ensureComponent()
+	r.stopMu.Lock()
+	defer r.stopMu.Unlock()
+	if r.component.State() == kernel.ComponentStateStopped {
+		return nil
+	}
+	if r.runCancel != nil {
+		r.runCancel()
+		r.runCancel = nil
+	}
+	r.setAllStrategiesState(kernel.ComponentStateStopping)
+	engineErr := r.engine.Stop(ctx)
+	if engineErr != nil {
+		r.setAllStrategiesState(kernel.ComponentStateFaulted)
+	} else {
+		r.setAllStrategiesState(kernel.ComponentStateStopped)
+	}
+	stopErr := errors.Join(engineErr, r.node.Stop(ctx))
+	if stopErr != nil {
+		r.component.Fault(stopErr)
+		return stopErr
+	}
+	return r.component.Stop(ctx)
+}
+
+func (r *Runner) monitorFatal(ctx context.Context) {
+	ticker := time.NewTicker(fatalMonitorInterval)
+	defer ticker.Stop()
+	engineErrs := r.engine.Errors()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-engineErrs:
+			if err != nil {
+				r.requestGracefulShutdown(err)
+				return
+			}
+		case <-ticker.C:
+			health := r.node.Health()
+			if health.LastError != nil && health.State != kernel.ComponentStateStopped {
+				r.requestGracefulShutdown(health.LastError)
+				return
+			}
+		}
+	}
+}
+
+func (r *Runner) requestGracefulShutdown(err error) {
+	if err == nil {
+		return
+	}
+	r.ensureComponent()
+	r.component.Degrade(err)
+	_ = r.Stop(context.Background())
+}
+
+func (r *Runner) Health() Health {
+	if r == nil {
+		return Health{State: kernel.ComponentStateInitialized}
+	}
+	r.ensureComponent()
+	componentHealth := r.component.Health()
+	health := Health{
+		State:     componentHealth.State,
+		LastError: componentHealth.LastError,
+	}
+	health.Strategies = r.strategyHealth()
+	if r.node != nil {
+		health.Platform = r.node.Health()
+	}
+	return health
+}
+
+func (r *Runner) ensureComponent() {
+	if r.component == nil {
+		r.component = kernel.NewComponent("live.runner", kernel.ComponentHooks{})
+	}
+}
+
+func (r *Runner) setAllStrategiesState(state kernel.ComponentState) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.strategyStates == nil {
+		r.strategyStates = make(map[string]kernel.ComponentState)
+	}
+	for _, id := range r.strategyIDs {
+		r.strategyStates[id] = state
+	}
+}
+
+func (r *Runner) strategyHealth() []StrategyHealth {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	snapshots := make([]StrategyHealth, 0, len(r.strategyIDs))
+	for _, id := range r.strategyIDs {
+		state := r.strategyStates[id]
+		if state == "" {
+			state = kernel.ComponentStateInitialized
+		}
+		snapshots = append(snapshots, StrategyHealth{
+			ID:    id,
+			State: state,
+		})
+	}
+	return snapshots
 }

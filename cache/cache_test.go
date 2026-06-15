@@ -43,6 +43,28 @@ func TestCacheStoresInstrumentAccountAndOrders(t *testing.T) {
 	require.Equal(t, order, gotOrder)
 }
 
+func TestCacheStoresSyntheticInstrument(t *testing.T) {
+	c := New()
+	synth := model.SyntheticInstrument{
+		ID:             model.MustInstrumentID("BTC-ETH-SPREAD.SYNTH"),
+		PricePrecision: 2,
+		PriceTick:      decimal.RequireFromString("0.25"),
+		Components: []model.InstrumentID{
+			model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+			model.MustInstrumentID("ETH-USDT-SPOT.BINANCE"),
+		},
+		Formula:   "BTC-USDT-SPOT.BINANCE - ETH-USDT-SPOT.BINANCE",
+		Timestamp: testTime,
+		InitTime:  testTime,
+	}
+
+	require.NoError(t, c.PutSyntheticInstrument(synth))
+	got, ok := c.SyntheticInstrument(synth.ID)
+	require.True(t, ok)
+	require.Equal(t, synth, got)
+	require.Equal(t, []model.SyntheticInstrument{synth}, c.SyntheticInstruments())
+}
+
 func TestCacheIndexesOrdersByVenueAndClientID(t *testing.T) {
 	c := New()
 	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")

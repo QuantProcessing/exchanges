@@ -22,6 +22,17 @@ func TestBacktestTesterReportsParityCaseResults(t *testing.T) {
 	requireCasePassed(t, report, "TC-B03", "Market fills update portfolio")
 	requireCasePassed(t, report, "TC-B04", "Order book liquidity consumption")
 	requireCasePassed(t, report, "TC-B05", "Strategy command metadata propagation")
+	requireCasePassed(t, report, "TC-B06", "Reusable matching core")
+	requireCasePassed(t, report, "TC-B07", "Post-only limit rests before filling")
+	requireCasePassed(t, report, "TC-B08", "Reduce-only cannot open a position")
+	requireCasePassed(t, report, "TC-B09", "Market-if-touched triggers on favorable touch")
+	requireCasePassed(t, report, "TC-B10", "Limit-if-touched triggers then rests as limit")
+	requireCasePassed(t, report, "TC-B11", "OUO partial fill reduces linked sibling quantity")
+	requireCasePassed(t, report, "TC-B12", "OTO child releases and resizes on partial parent fills")
+	requireCasePassed(t, report, "TC-B13", "Deterministic result summary JSON")
+	requireCasePassed(t, report, "TC-B14", "Multi-account result summary defaults")
+	requireCasePassed(t, report, "TC-B15", "Catalog-backed engine run")
+	requireCasePassed(t, report, "TC-B16", "Multi-strategy run preserves strategy metadata")
 }
 
 func TestParityScoreboardAggregatesBacktestGate(t *testing.T) {
@@ -30,10 +41,10 @@ func TestParityScoreboardAggregatesBacktestGate(t *testing.T) {
 
 	require.True(t, board.Passed(RequiredCases{
 		Suite: "backtest",
-		IDs:   []string{"TC-B01", "TC-B02", "TC-B03", "TC-B04", "TC-B05"},
+		IDs:   []string{"TC-B01", "TC-B02", "TC-B03", "TC-B04", "TC-B05", "TC-B06", "TC-B07", "TC-B08", "TC-B09", "TC-B10", "TC-B11", "TC-B12", "TC-B13", "TC-B14", "TC-B15", "TC-B16"},
 	}))
-	require.Equal(t, 5, board.Summary(RequiredCases{
+	require.Equal(t, 16, board.Summary(RequiredCases{
 		Suite: "backtest",
-		IDs:   []string{"TC-B01", "TC-B02", "TC-B03", "TC-B04", "TC-B05"},
+		IDs:   []string{"TC-B01", "TC-B02", "TC-B03", "TC-B04", "TC-B05", "TC-B06", "TC-B07", "TC-B08", "TC-B09", "TC-B10", "TC-B11", "TC-B12", "TC-B13", "TC-B14", "TC-B15", "TC-B16"},
 	}).RequiredPassed)
 }

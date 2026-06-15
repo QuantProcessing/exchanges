@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -148,6 +150,28 @@ func TestTypedStrategyDispatchesBarCallbacks(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestTypedStrategyDispatchesCustomDataCallbacks(t *testing.T) {
+	b := bus.New()
+	impl := &customDataCallbackStrategy{}
+	engine := NewEngine(b, WithRuntime(newTypedRuntime()))
+	require.NoError(t, engine.Add(NewTyped("custom-data", impl)))
+	require.NoError(t, engine.Start(context.Background()))
+	defer engine.Stop(context.Background())
+
+	custom := model.CustomData{
+		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+		Type:         "funding_rate",
+		Fields:       map[string]string{"rate": "0.0001"},
+		Timestamp:    time.Unix(5, 0),
+	}
+	require.NoError(t, b.Publish(context.Background(), TopicMarketData, model.MarketEvent{Custom: &custom}))
+
+	require.Eventually(t, func() bool {
+		got, ok := impl.last()
+		return ok && got.InstrumentID == custom.InstrumentID && got.Type == custom.Type && got.Fields["rate"] == "0.0001"
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestTypedStrategyDispatchesTimerCallbacks(t *testing.T) {
 	b := bus.New()
 	impl := &timerCallbackStrategy{}
@@ -165,6 +189,34 @@ func TestTypedStrategyDispatchesTimerCallbacks(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestTypedStrategyDispatchesErrorCallbacks(t *testing.T) {
+	b := bus.New()
+	impl := &errorCallbackStrategy{}
+	engine := NewEngine(b, WithRuntime(newTypedRuntime()))
+	require.NoError(t, engine.Add(NewTyped("errors", impl)))
+	require.NoError(t, engine.Start(context.Background()))
+	defer engine.Stop(context.Background())
+
+	cause := errors.New("risk denied order")
+	event := ErrorEvent{Source: "risk", Err: cause}
+	require.NoError(t, b.Publish(context.Background(), TopicError, event))
+
+	require.Eventually(t, func() bool {
+		got, ok := impl.last()
+		return ok && got.Source == "risk" && errors.Is(got.Err, cause)
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTypedStrategyConfigValidatesIdentity(t *testing.T) {
+	impl := &timerCallbackStrategy{}
+	wrapped, err := NewTypedWithConfig(StrategyConfig{ID: "configured-strategy"}, impl)
+	require.NoError(t, err)
+	require.Equal(t, "configured-strategy", wrapped.ID())
+
+	_, err = NewTypedWithConfig(StrategyConfig{}, impl)
+	require.ErrorContains(t, err, "strategy id is required")
+}
+
 func TestTypedStrategyDispatchesNautilusLifecycleEvents(t *testing.T) {
 	b := bus.New()
 	impl := &lifecycleCallbackStrategy{}
@@ -175,16 +227,23 @@ func TestTypedStrategyDispatchesNautilusLifecycleEvents(t *testing.T) {
 
 	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
 	events := []model.OrderLifecycleEvent{
+		lifecycleEvent(instID, model.OrderEventInitialized, model.OrderStatusInitialized),
 		lifecycleEvent(instID, model.OrderEventDenied, model.OrderStatusDenied),
 		lifecycleEvent(instID, model.OrderEventEmulated, model.OrderStatusEmulated),
 		lifecycleEvent(instID, model.OrderEventReleased, model.OrderStatusReleased),
+		lifecycleEvent(instID, model.OrderEventSubmitted, model.OrderStatusSubmitted),
+		lifecycleEvent(instID, model.OrderEventAccepted, model.OrderStatusAccepted),
+		lifecycleEvent(instID, model.OrderEventRejected, model.OrderStatusRejected),
 		lifecycleEvent(instID, model.OrderEventTriggered, model.OrderStatusTriggered),
 		lifecycleEvent(instID, model.OrderEventPendingUpdate, model.OrderStatusPendingUpdate),
 		lifecycleEvent(instID, model.OrderEventUpdated, model.OrderStatusAccepted),
 		lifecycleEvent(instID, model.OrderEventPendingCancel, model.OrderStatusPendingCancel),
 		lifecycleEvent(instID, model.OrderEventCancelRejected, model.OrderStatusAccepted),
 		lifecycleEvent(instID, model.OrderEventModifyRejected, model.OrderStatusAccepted),
+		lifecycleEvent(instID, model.OrderEventCanceled, model.OrderStatusCanceled),
 		lifecycleEvent(instID, model.OrderEventExpired, model.OrderStatusExpired),
+		lifecycleEvent(instID, model.OrderEventPartiallyFilled, model.OrderStatusPartiallyFilled),
+		lifecycleEvent(instID, model.OrderEventFilled, model.OrderStatusFilled),
 	}
 	for i := range events {
 		require.NoError(t, b.Publish(context.Background(), TopicExecution, model.ExecutionEvent{Lifecycle: &events[i]}))
@@ -483,6 +542,26 @@ func (s *barCallbackStrategy) last() (model.Bar, bool) {
 	return s.bar, s.seen
 }
 
+type customDataCallbackStrategy struct {
+	mu     sync.Mutex
+	custom model.CustomData
+	seen   bool
+}
+
+func (s *customDataCallbackStrategy) OnCustomData(_ context.Context, custom model.CustomData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.custom = custom
+	s.seen = true
+	return nil
+}
+
+func (s *customDataCallbackStrategy) last() (model.CustomData, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.custom, s.seen
+}
+
 type timerCallbackStrategy struct {
 	mu    sync.Mutex
 	event TimerEvent
@@ -503,12 +582,34 @@ func (s *timerCallbackStrategy) last() (TimerEvent, bool) {
 	return s.event, s.seen
 }
 
+type errorCallbackStrategy struct {
+	mu    sync.Mutex
+	event ErrorEvent
+	seen  bool
+}
+
+func (s *errorCallbackStrategy) OnError(_ context.Context, event ErrorEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.event = event
+	s.seen = true
+	return nil
+}
+
+func (s *errorCallbackStrategy) last() (ErrorEvent, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.event, s.seen
+}
+
 type typedRuntime struct {
 	mu          sync.Mutex
 	cache       *cache.Cache
 	subs        []model.SubscribeMarketData
 	submissions []model.SubmitOrder
+	requests    []model.DataRequest
 	factories   map[model.AccountID]*model.OrderFactory
+	logger      *slog.Logger
 }
 
 func newTypedRuntime() *typedRuntime {
@@ -520,6 +621,10 @@ func (r *typedRuntime) Cache() *cache.Cache { return r.cache }
 func (r *typedRuntime) Portfolio() *portfolio.Portfolio { return nil }
 
 func (r *typedRuntime) Clock() Clock { return WallClock{} }
+
+func (r *typedRuntime) Logger() *slog.Logger {
+	return r.logger
+}
 
 func (r *typedRuntime) SetTimer(context.Context, string, time.Duration) error {
 	return nil
@@ -569,6 +674,20 @@ func (r *typedRuntime) SubscribeOrderBookDepth(ctx context.Context, instrumentID
 }
 func (r *typedRuntime) UnsubscribeOrderBookDepth(context.Context, model.InstrumentID, int) error {
 	return nil
+}
+
+func (r *typedRuntime) RequestData(_ context.Context, request model.DataRequest) (model.DataResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requests = append(r.requests, request)
+	return model.DataResponse{
+		Metadata:     request.Metadata,
+		RequestID:    request.RequestID,
+		InstrumentID: request.InstrumentID,
+		Type:         request.Type,
+		BarType:      request.BarType,
+		IsFinal:      true,
+	}, nil
 }
 
 func (r *typedRuntime) SubmitOrder(_ context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {

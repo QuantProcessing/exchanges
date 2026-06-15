@@ -11,6 +11,7 @@ type DeclaredCapabilities struct {
 }
 
 type MarketDataCapabilities struct {
+	Snapshots       bool
 	Ticker          bool
 	OrderBook       bool
 	TickerStream    bool
@@ -30,6 +31,9 @@ type ExecutionCapabilities struct {
 	FillReports     bool
 	PositionReports bool
 	PrivateStream   bool
+	Resubscribe     bool
+	MassStatus      bool
+	OrderLists      bool
 }
 
 type AccountCapabilities struct {

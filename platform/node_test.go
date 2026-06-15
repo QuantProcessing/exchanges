@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/QuantProcessing/exchanges/bus"
 	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/execution"
+	"github.com/QuantProcessing/exchanges/kernel"
 	"github.com/QuantProcessing/exchanges/model"
 	"github.com/QuantProcessing/exchanges/portfolio"
 	"github.com/QuantProcessing/exchanges/risk"
@@ -51,6 +54,48 @@ func TestNodeStartLoadsInstrumentsConnectsClientsAndPublishesStartupReports(t *t
 	require.True(t, sawAccount)
 	require.True(t, sawOrder)
 	require.NoError(t, node.Stop(context.Background()))
+}
+
+func TestNodeHealthTracksKernelLifecycleState(t *testing.T) {
+	data := newFakeDataClient()
+	exec := newFakeExecutionClient()
+	node := NewNode(Config{})
+	require.Equal(t, kernel.ComponentStateInitialized, node.Health().State)
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+
+	require.NoError(t, node.Start(context.Background()))
+	require.True(t, node.Health().Ready)
+	require.Equal(t, kernel.ComponentStateRunning, node.Health().State)
+
+	require.NoError(t, node.Stop(context.Background()))
+	require.False(t, node.Health().Ready)
+	require.Equal(t, kernel.ComponentStateStopped, node.Health().State)
+}
+
+func TestNodeDrivesConfiguredRiskEngineLifecycle(t *testing.T) {
+	engine := risk.NewEngine(cache.New(), risk.Config{})
+	node := NewNode(Config{Risk: engine})
+	require.Equal(t, kernel.ComponentStateInitialized, node.Health().Risk.State)
+
+	require.NoError(t, node.Start(context.Background()))
+	require.Equal(t, kernel.ComponentStateRunning, node.Health().Risk.State)
+
+	require.NoError(t, node.Stop(context.Background()))
+	require.Equal(t, kernel.ComponentStateStopped, node.Health().Risk.State)
+}
+
+func TestNodeHealthFaultsWhenStartupFails(t *testing.T) {
+	exec := newFakeExecutionClient()
+	exec.connectErr = fmt.Errorf("connect failed")
+	node := NewNode(Config{})
+	require.NoError(t, node.AddExecutionClient(exec))
+
+	require.ErrorContains(t, node.Start(context.Background()), "connect failed")
+	health := node.Health()
+	require.False(t, health.Ready)
+	require.Equal(t, kernel.ComponentStateFaulted, health.State)
+	require.EqualError(t, health.LastError, "connect failed")
 }
 
 func TestNodeSetTimerPublishesTimerEventsAndCanCancel(t *testing.T) {
@@ -126,6 +171,37 @@ func TestNodeSubmitOrderAppliesPublishesAndTracksReport(t *testing.T) {
 	require.Equal(t, model.OrderID("submitted-1"), orderEvent.OrderID)
 	require.Equal(t, submit.Metadata.CorrelationID, orderEvent.Metadata.CorrelationID)
 	require.NoError(t, node.Stop(context.Background()))
+}
+
+func TestNodeSubmitOrderDelegatesThroughExecutionEngine(t *testing.T) {
+	data := newFakeDataClient()
+	exec := newFakeExecutionClient()
+	node := NewNode(Config{})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	require.NoError(t, node.Start(context.Background()))
+	defer node.Stop(context.Background())
+
+	submit := model.SubmitOrder{
+		AccountID:     "acct",
+		InstrumentID:  model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+		ClientOrderID: "client-engine-1",
+		Side:          model.OrderSideBuy,
+		Type:          model.OrderTypeLimit,
+		TimeInForce:   model.TimeInForceGTC,
+		Quantity:      decimal.RequireFromString("0.5"),
+		Price:         decimal.RequireFromString("100"),
+	}
+
+	report, err := node.SubmitOrder(context.Background(), submit)
+	require.NoError(t, err)
+	require.Equal(t, model.OrderStatusAccepted, report.Status)
+	require.NotNil(t, node.ExecutionEngine())
+	cachedCommand, ok := node.ExecutionEngine().Manager().SubmitCommand("client-engine-1")
+	require.True(t, ok, "platform submit must pass through execution.Engine manager")
+	require.Equal(t, submit.ClientOrderID, cachedCommand.ClientOrderID)
+	require.Equal(t, int64(1), node.ExecutionEngine().Health().Submits)
+	require.Contains(t, exec.Calls(), "submit:client-engine-1")
 }
 
 func TestNodeSubmitOrderPublishesSubmittedAndAcceptedLifecycle(t *testing.T) {
@@ -371,6 +447,60 @@ func TestNodeModifyOrderPublishesPendingUpdateAndUpdated(t *testing.T) {
 	require.Equal(t, model.OrderStatusAccepted, got.Status)
 	require.Equal(t, "101", got.Price.String())
 	require.NoError(t, node.Stop(context.Background()))
+}
+
+func TestNodeCancelModifyQueryDelegateThroughExecutionEngine(t *testing.T) {
+	data := newFakeDataClient()
+	exec := newFakeExecutionClient()
+	node := NewNode(Config{})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	require.NoError(t, node.Start(context.Background()))
+	defer node.Stop(context.Background())
+
+	submit := model.SubmitOrder{
+		AccountID:     "acct",
+		InstrumentID:  model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+		ClientOrderID: "client-engine-cmq",
+		Side:          model.OrderSideBuy,
+		Type:          model.OrderTypeLimit,
+		TimeInForce:   model.TimeInForceGTC,
+		Quantity:      decimal.RequireFromString("0.5"),
+		Price:         decimal.RequireFromString("100"),
+	}
+	report, err := node.SubmitOrder(context.Background(), submit)
+	require.NoError(t, err)
+
+	_, err = node.ModifyOrder(context.Background(), model.ModifyOrder{
+		AccountID:     "acct",
+		InstrumentID:  submit.InstrumentID,
+		ClientOrderID: submit.ClientOrderID,
+		OrderID:       report.OrderID,
+		Quantity:      decimal.RequireFromString("0.4"),
+		Price:         decimal.RequireFromString("99"),
+	})
+	require.NoError(t, err)
+	_, err = node.QueryOrder(context.Background(), model.QueryOrder{
+		AccountID:     "acct",
+		InstrumentID:  submit.InstrumentID,
+		ClientOrderID: "client-engine-query",
+	})
+	require.NoError(t, err)
+	_, err = node.CancelOrder(context.Background(), model.CancelOrder{
+		AccountID:     "acct",
+		InstrumentID:  submit.InstrumentID,
+		ClientOrderID: submit.ClientOrderID,
+		OrderID:       report.OrderID,
+	})
+	require.NoError(t, err)
+
+	health := node.ExecutionEngine().Health()
+	require.Equal(t, int64(1), health.Submits)
+	require.Equal(t, int64(1), health.Modifies)
+	require.Equal(t, int64(1), health.Queries)
+	require.Equal(t, int64(1), health.Cancels)
+	require.Contains(t, exec.Calls(), "modify:client-engine-cmq")
+	require.Contains(t, exec.Calls(), "cancel:client-engine-cmq")
 }
 
 func TestNodeModifyOrderPublishesRejectedWhenVenueRejects(t *testing.T) {
@@ -695,10 +825,18 @@ func TestNodePublishesOrderDeniedWhenRiskRejectsSubmit(t *testing.T) {
 		Cache: c,
 		Risk:  risk.NewEngine(c, risk.Config{MaxOrderNotional: decimal.RequireFromString("100")}),
 	})
+	exec := newFakeExecutionClient()
+	require.NoError(t, node.AddExecutionClient(exec))
 	events := node.Bus().Subscribe(TopicExecution, 4)
 	defer events.Close()
 
 	_, err := node.SubmitOrder(context.Background(), model.SubmitOrder{
+		Metadata: model.CommandMetadata{
+			TraderID:      "trader-denied",
+			StrategyID:    "strategy-denied",
+			CommandID:     "command-denied",
+			CorrelationID: "correlation-denied",
+		},
 		AccountID:     "acct",
 		InstrumentID:  inst.ID,
 		ClientOrderID: "client-denied-risk",
@@ -709,11 +847,15 @@ func TestNodePublishesOrderDeniedWhenRiskRejectsSubmit(t *testing.T) {
 		Price:         decimal.RequireFromString("100"),
 	})
 	require.ErrorIs(t, err, risk.ErrRiskRejected)
+	require.NotContains(t, exec.Calls(), "submit:client-denied-risk")
 
 	lifecycle := readOrderLifecycle(t, events)
 	require.Equal(t, model.OrderEventDenied, lifecycle.Kind)
 	require.Equal(t, model.OrderStatusDenied, lifecycle.Status)
 	require.Equal(t, model.ClientOrderID("client-denied-risk"), lifecycle.ClientOrderID)
+	require.Equal(t, model.CommandID("command-denied"), lifecycle.Metadata.CommandID)
+	require.Equal(t, model.CorrelationID("correlation-denied"), lifecycle.Metadata.CorrelationID)
+	require.Equal(t, model.StrategyID("strategy-denied"), lifecycle.Metadata.StrategyID)
 	require.Contains(t, lifecycle.Reason, "max order notional")
 }
 
@@ -739,6 +881,7 @@ func TestNodeForwardsPrivateFillAndPositionEvents(t *testing.T) {
 		AccountID:    "acct",
 		InstrumentID: instID,
 		PositionID:   "BTC-USDT-SPOT.BINANCE",
+		Side:         model.PositionSideLong,
 		Quantity:     decimal.RequireFromString("0.1"),
 		EntryPrice:   decimal.RequireFromString("100"),
 		Timestamp:    time.Unix(100, 0),
@@ -1006,6 +1149,74 @@ func TestNodeSubscribesMarketDataForwardsEventsAndCachesLatest(t *testing.T) {
 	require.NoError(t, node.Stop(context.Background()))
 }
 
+func TestNodeRequestDataFetchesTickerAndCachesLatest(t *testing.T) {
+	data := newFakeDataClient()
+	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	data.ticker = model.Ticker{
+		InstrumentID: instID,
+		Bid:          decimal.RequireFromString("100"),
+		Ask:          decimal.RequireFromString("101"),
+		Last:         decimal.RequireFromString("100.5"),
+		Timestamp:    time.Unix(200, 0),
+	}
+	node := NewNode(Config{})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.Start(context.Background()))
+	defer node.Stop(context.Background())
+
+	response, err := node.RequestData(context.Background(), model.DataRequest{
+		RequestID:    "platform-request-1",
+		InstrumentID: instID,
+		Type:         model.MarketDataTypeTicker,
+	})
+	require.NoError(t, err)
+	require.True(t, response.IsFinal)
+	require.Len(t, response.Events, 1)
+	require.Equal(t, data.ticker, *response.Events[0].Ticker)
+	require.Contains(t, data.Calls(), "fetch_ticker:BTC-USDT-SPOT.BINANCE")
+	cached, ok := node.Cache().Ticker(instID)
+	require.True(t, ok)
+	require.Equal(t, data.ticker, cached)
+}
+
+func TestNodeDelegatesMarketDataLifecycleToSharedDataEngine(t *testing.T) {
+	data := newFakeDataClient()
+	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	data.ticker = model.Ticker{
+		InstrumentID: instID,
+		Bid:          decimal.RequireFromString("100"),
+		Ask:          decimal.RequireFromString("101"),
+		Last:         decimal.RequireFromString("100.5"),
+		Timestamp:    time.Unix(200, 0),
+	}
+	node := NewNode(Config{})
+	require.NoError(t, node.AddDataClient(data))
+	sub := model.SubscribeMarketData{InstrumentID: instID, Type: model.MarketDataTypeTicker}
+	require.NoError(t, node.SubscribeMarketData(context.Background(), sub))
+	require.Equal(t, 1, node.DataEngine().Health().Subscriptions)
+
+	require.NoError(t, node.Start(context.Background()))
+	defer node.Stop(context.Background())
+	require.True(t, node.DataEngine().Health().Running)
+	require.Contains(t, data.Calls(), "subscribe:ticker:BTC-USDT-SPOT.BINANCE")
+
+	response, err := node.RequestData(context.Background(), model.DataRequest{
+		Metadata:     model.CommandMetadata{CommandID: "platform-data-engine-request"},
+		RequestID:    "platform-data-engine-1",
+		InstrumentID: instID,
+		Type:         model.MarketDataTypeTicker,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.CorrelationID("platform-data-engine-1"), response.Metadata.CorrelationID)
+	require.Equal(t, model.CommandID("platform-data-engine-request"), response.Metadata.CommandID)
+	require.Equal(t, int64(1), node.DataEngine().Health().Requests)
+
+	health := node.Health()
+	require.True(t, health.DataEngine.Running)
+	require.Equal(t, 1, health.DataEngine.Clients)
+	require.Equal(t, 1, health.DataEngine.Subscriptions)
+}
+
 func TestNodeRecoversMarketDataStreamAndResubscribesActiveSubscriptions(t *testing.T) {
 	data := newFakeDataClient()
 	node := NewNode(Config{})
@@ -1104,6 +1315,116 @@ func TestNodeSubscribesQuoteTicksForwardsEventsAndCachesLatest(t *testing.T) {
 	require.NoError(t, node.UnsubscribeQuoteTicks(context.Background(), instID))
 	require.Contains(t, data.calls, "unsubscribe:quote_tick:BTC-USDT-SPOT.BINANCE")
 	require.NoError(t, node.Stop(context.Background()))
+}
+
+func TestNodeFeedsDataEngineMarketEventsIntoExecutionEmulator(t *testing.T) {
+	data := newFakeDataClient()
+	exec := newFakeExecutionClient()
+	exec.recoveryOrders = []model.OrderStatusReport{}
+	c := cache.New()
+	node := NewNode(Config{
+		Cache:           c,
+		ExecutionEngine: execution.NewEngine(execution.EngineConfig{Cache: c, Emulator: execution.NewEmulator(execution.EmulatorConfig{})}),
+	})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	require.NoError(t, node.Start(context.Background()))
+	defer node.Stop(context.Background())
+	events := node.Bus().Subscribe(TopicExecution, 16)
+	defer events.Close()
+
+	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	report, err := node.SubmitOrder(context.Background(), model.SubmitOrder{
+		AccountID:        "acct",
+		InstrumentID:     instID,
+		ClientOrderID:    "client-node-emulated-stop",
+		Side:             model.OrderSideBuy,
+		Type:             model.OrderTypeStopMarket,
+		TimeInForce:      model.TimeInForceGTC,
+		Quantity:         decimal.RequireFromString("1"),
+		TriggerPrice:     decimal.RequireFromString("101"),
+		EmulationTrigger: model.TriggerTypeBidAsk,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.OrderStatusEmulated, report.Status)
+	require.NotContains(t, exec.Calls(), "submit:client-node-emulated-stop")
+	require.Eventually(t, func() bool {
+		return containsCall(data.Calls(), "subscribe:quote_tick:BTC-USDT-SPOT.BINANCE")
+	}, time.Second, 10*time.Millisecond)
+
+	submitted := readOrderLifecycleKind(t, events, model.OrderEventSubmitted)
+	require.Equal(t, model.OrderStatusSubmitted, submitted.Status)
+	emulated := readOrderLifecycleKind(t, events, model.OrderEventEmulated)
+	require.Equal(t, model.OrderStatusEmulated, emulated.Status)
+	require.Equal(t, model.OrderStatusInitialized, emulated.PreviousStatus)
+
+	data.marketEvents <- model.MarketEvent{Quote: &model.QuoteTick{
+		InstrumentID: instID,
+		BidPrice:     decimal.RequireFromString("100"),
+		AskPrice:     decimal.RequireFromString("100.5"),
+		BidSize:      decimal.RequireFromString("1"),
+		AskSize:      decimal.RequireFromString("1"),
+		Timestamp:    time.Unix(104, 0),
+	}}
+	require.Never(t, func() bool {
+		return containsCall(exec.Calls(), "submit:client-node-emulated-stop")
+	}, 50*time.Millisecond, 10*time.Millisecond)
+
+	data.marketEvents <- model.MarketEvent{Quote: &model.QuoteTick{
+		InstrumentID: instID,
+		BidPrice:     decimal.RequireFromString("100.9"),
+		AskPrice:     decimal.RequireFromString("101"),
+		BidSize:      decimal.RequireFromString("1"),
+		AskSize:      decimal.RequireFromString("1"),
+		Timestamp:    time.Unix(105, 0),
+	}}
+
+	triggered := readOrderLifecycleKind(t, events, model.OrderEventTriggered)
+	require.Equal(t, model.OrderStatusTriggered, triggered.Status)
+	require.Equal(t, model.OrderStatusEmulated, triggered.PreviousStatus)
+	released := readOrderLifecycleKind(t, events, model.OrderEventReleased)
+	require.Equal(t, model.OrderStatusReleased, released.Status)
+	require.Equal(t, model.OrderStatusTriggered, released.PreviousStatus)
+	accepted := readOrderLifecycleKind(t, events, model.OrderEventAccepted)
+	require.Equal(t, model.OrderStatusAccepted, accepted.Status)
+	require.Equal(t, model.OrderStatusReleased, accepted.PreviousStatus)
+	require.Eventually(t, func() bool {
+		return containsCall(exec.Calls(), "submit:client-node-emulated-stop")
+	}, time.Second, 10*time.Millisecond)
+	cached, ok := node.Cache().OrderByClientID("acct", "client-node-emulated-stop")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusAccepted, cached.Status)
+}
+
+func TestNodeEmulationSubscriptionsUseTriggerInstrument(t *testing.T) {
+	orderInstrument := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	triggerInstrument := model.MustInstrumentID("ETH-USDT-SPOT.BINANCE")
+
+	subs := emulationTriggerSubscriptions(model.SubmitOrder{
+		InstrumentID:        orderInstrument,
+		TriggerInstrumentID: triggerInstrument,
+		EmulationTrigger:    model.TriggerTypeBidAsk,
+	})
+
+	require.Equal(t, []model.SubscribeMarketData{
+		{InstrumentID: triggerInstrument, Type: model.MarketDataTypeOrderBook, Depth: 1},
+		{InstrumentID: triggerInstrument, Type: model.MarketDataTypeQuoteTick},
+	}, subs)
+}
+
+func TestNodeEmulationSubscriptionsSkipOrderBookForSyntheticTrigger(t *testing.T) {
+	orderInstrument := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	triggerInstrument := model.MustInstrumentID("BTC-ETH-SPREAD.SYNTH")
+
+	subs := emulationTriggerSubscriptions(model.SubmitOrder{
+		InstrumentID:        orderInstrument,
+		TriggerInstrumentID: triggerInstrument,
+		EmulationTrigger:    model.TriggerTypeBidAsk,
+	})
+
+	require.Equal(t, []model.SubscribeMarketData{
+		{InstrumentID: triggerInstrument, Type: model.MarketDataTypeQuoteTick},
+	}, subs)
 }
 
 func TestNodeSubscribesBarsForwardsEventsAndCachesLatest(t *testing.T) {
@@ -1211,6 +1532,47 @@ func TestNodeRecoversPrivateStreamResubscribesAndReconcilesReports(t *testing.T)
 	require.NoError(t, node.Stop(context.Background()))
 }
 
+func TestNodeRetriesMarketDataStreamRecoveryUntilPolicySucceeds(t *testing.T) {
+	data := newFakeDataClient()
+	node := NewNode(Config{ReconnectPolicy: RetryPolicy{MaxAttempts: 3}})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.Start(context.Background()))
+	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	require.NoError(t, node.SubscribeTicker(context.Background(), instID))
+
+	data.connectErrs = []error{errors.New("temporary data connect 1"), errors.New("temporary data connect 2")}
+	data.breakStream()
+
+	require.Eventually(t, func() bool {
+		calls := data.Calls()
+		return countCalls(calls, "data_connect") >= 4 &&
+			countCalls(calls, "subscribe:ticker:BTC-USDT-SPOT.BINANCE") >= 2 &&
+			node.Health().LastError == nil
+	}, time.Second, 10*time.Millisecond)
+	require.NoError(t, node.Stop(context.Background()))
+}
+
+func TestNodeRetriesExecutionStreamRecoveryUntilPolicySucceeds(t *testing.T) {
+	data := newFakeDataClient()
+	exec := newFakeExecutionClient()
+	node := NewNode(Config{ReconnectPolicy: RetryPolicy{MaxAttempts: 3}})
+	require.NoError(t, node.AddDataClient(data))
+	require.NoError(t, node.AddExecutionClient(exec))
+	require.NoError(t, node.Start(context.Background()))
+
+	exec.connectErrs = []error{errors.New("temporary exec connect 1"), errors.New("temporary exec connect 2")}
+	exec.breakStream()
+
+	require.Eventually(t, func() bool {
+		calls := exec.Calls()
+		return countCalls(calls, "exec_connect") >= 4 &&
+			containsCall(calls, "resubscribe_execution") &&
+			containsCall(calls, "query_account") &&
+			node.Health().LastError == nil
+	}, time.Second, 10*time.Millisecond)
+	require.NoError(t, node.Stop(context.Background()))
+}
+
 func TestNodeRecoveryCancelsLocalOpenOrdersMissingFromVenueSnapshot(t *testing.T) {
 	data := newFakeDataClient()
 	exec := newFakeExecutionClient()
@@ -1263,10 +1625,14 @@ func TestNodeRecoveryFlattensLocalPositionsMissingFromVenueSnapshot(t *testing.T
 }
 
 type fakeDataClient struct {
-	mu           sync.Mutex
-	provider     *fakeProvider
-	marketEvents chan model.MarketEvent
-	calls        []string
+	mu                sync.Mutex
+	provider          *fakeProvider
+	marketEvents      chan model.MarketEvent
+	replacementEvents chan model.MarketEvent
+	connectErrs       []error
+	ticker            model.Ticker
+	book              model.OrderBook
+	calls             []string
 }
 
 func newFakeDataClient() *fakeDataClient {
@@ -1278,15 +1644,28 @@ func (f *fakeDataClient) ClientID() string                      { return "data" 
 func (f *fakeDataClient) Instruments() venue.InstrumentProvider { return f.provider }
 func (f *fakeDataClient) Connect(context.Context) error {
 	f.recordCall("data_connect")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.connectErrs) > 0 {
+		err := f.connectErrs[0]
+		f.connectErrs = f.connectErrs[1:]
+		return err
+	}
+	if f.replacementEvents != nil {
+		f.marketEvents = f.replacementEvents
+		f.replacementEvents = nil
+	}
 	return nil
 }
 func (f *fakeDataClient) Disconnect(context.Context) error { return nil }
 func (f *fakeDataClient) Health() venue.DataHealth         { return venue.DataHealth{Connected: true} }
-func (f *fakeDataClient) FetchTicker(context.Context, model.InstrumentID) (model.Ticker, error) {
-	return model.Ticker{}, nil
+func (f *fakeDataClient) FetchTicker(_ context.Context, instrumentID model.InstrumentID) (model.Ticker, error) {
+	f.recordCall("fetch_ticker:" + instrumentID.String())
+	return f.ticker, nil
 }
-func (f *fakeDataClient) FetchOrderBook(context.Context, model.InstrumentID, int) (model.OrderBook, error) {
-	return model.OrderBook{}, nil
+func (f *fakeDataClient) FetchOrderBook(_ context.Context, instrumentID model.InstrumentID, depth int) (model.OrderBook, error) {
+	f.recordCall(fmt.Sprintf("fetch_book:%s:%d", instrumentID, depth))
+	return f.book, nil
 }
 func (f *fakeDataClient) SubscribeMarketData(_ context.Context, sub model.SubscribeMarketData) error {
 	call := "subscribe:" + string(sub.Type) + ":" + sub.InstrumentID.String()
@@ -1322,7 +1701,7 @@ func (f *fakeDataClient) Calls() []string {
 func (f *fakeDataClient) breakStream() {
 	f.mu.Lock()
 	old := f.marketEvents
-	f.marketEvents = make(chan model.MarketEvent, 8)
+	f.replacementEvents = make(chan model.MarketEvent, 8)
 	f.mu.Unlock()
 	close(old)
 }
@@ -1366,6 +1745,8 @@ type fakeExecutionClient struct {
 	recoveryOrders    []model.OrderStatusReport
 	recoveryFills     []model.FillReport
 	recoveryPositions []model.PositionStatusReport
+	connectErrs       []error
+	connectErr        error
 	submitErr         error
 	modifyErr         error
 	cancelErr         error
@@ -1400,6 +1781,17 @@ func (f *fakeExecutionClient) Venue() model.Venue         { return "BINANCE" }
 func (f *fakeExecutionClient) AccountID() model.AccountID { return "acct" }
 func (f *fakeExecutionClient) Connect(context.Context) error {
 	f.recordCall("exec_connect")
+	f.mu.Lock()
+	if len(f.connectErrs) > 0 {
+		err := f.connectErrs[0]
+		f.connectErrs = f.connectErrs[1:]
+		f.mu.Unlock()
+		return err
+	}
+	f.mu.Unlock()
+	if f.connectErr != nil {
+		return f.connectErr
+	}
 	if f.replacementEvents != nil {
 		f.events = f.replacementEvents
 		f.replacementEvents = nil
@@ -1462,6 +1854,26 @@ func (f *fakeExecutionClient) ModifyOrder(_ context.Context, modify model.Modify
 		Quantity:      modify.Quantity,
 		Price:         modify.Price,
 		TriggerPrice:  modify.TriggerPrice,
+	}, nil
+}
+func (f *fakeExecutionClient) QueryOrder(_ context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
+	f.recordCall("query:" + string(query.ClientOrderID))
+	orderID := query.OrderID
+	if orderID == "" {
+		orderID = model.OrderID("query-" + string(query.ClientOrderID))
+	}
+	return model.OrderStatusReport{
+		AccountID:      query.AccountID,
+		InstrumentID:   query.InstrumentID,
+		OrderID:        orderID,
+		ClientOrderID:  query.ClientOrderID,
+		Status:         model.OrderStatusAccepted,
+		Side:           model.OrderSideBuy,
+		Type:           model.OrderTypeLimit,
+		Quantity:       decimal.RequireFromString("1"),
+		FilledQuantity: decimal.Zero,
+		LeavesQuantity: decimal.RequireFromString("1"),
+		Price:          decimal.RequireFromString("100"),
 	}, nil
 }
 func (f *fakeExecutionClient) GenerateOrderStatusReports(_ context.Context, id model.InstrumentID) ([]model.OrderStatusReport, error) {

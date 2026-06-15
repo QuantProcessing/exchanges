@@ -176,6 +176,12 @@ func WithOrderListID(id OrderListID) SubmitOrderOption {
 	}
 }
 
+func WithTriggerInstrumentID(id InstrumentID) SubmitOrderOption {
+	return func(order *SubmitOrder) {
+		order.TriggerInstrumentID = id
+	}
+}
+
 func WithParentClientOrderID(id ClientOrderID) SubmitOrderOption {
 	return func(order *SubmitOrder) {
 		order.ParentClientOrderID = id
@@ -227,5 +233,11 @@ func WithActivationPrice(price decimal.Decimal) SubmitOrderOption {
 func WithTrailingOffset(offset decimal.Decimal) SubmitOrderOption {
 	return func(order *SubmitOrder) {
 		order.TrailingOffset = offset
+	}
+}
+
+func WithTrailingOffsetType(offsetType TrailingOffsetType) SubmitOrderOption {
+	return func(order *SubmitOrder) {
+		order.TrailingOffsetType = offsetType
 	}
 }

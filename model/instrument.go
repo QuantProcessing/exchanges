@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -9,11 +10,51 @@ import (
 type InstrumentType string
 
 const (
-	InstrumentTypeSpot   InstrumentType = "spot"
-	InstrumentTypePerp   InstrumentType = "perp"
-	InstrumentTypeFuture InstrumentType = "future"
-	InstrumentTypeOption InstrumentType = "option"
+	InstrumentTypeSpot      InstrumentType = "spot"
+	InstrumentTypePerp      InstrumentType = "perp"
+	InstrumentTypeFuture    InstrumentType = "future"
+	InstrumentTypeOption    InstrumentType = "option"
+	InstrumentTypeSpread    InstrumentType = "spread"
+	InstrumentTypeSynthetic InstrumentType = "synthetic"
+	InstrumentTypeIndex     InstrumentType = "index"
+	InstrumentTypeEquity    InstrumentType = "equity"
+	InstrumentTypeBetting   InstrumentType = "betting"
 )
+
+func (t InstrumentType) Validate() error {
+	switch t {
+	case InstrumentTypeSpot,
+		InstrumentTypePerp,
+		InstrumentTypeFuture,
+		InstrumentTypeOption,
+		InstrumentTypeSpread,
+		InstrumentTypeSynthetic,
+		InstrumentTypeIndex,
+		InstrumentTypeEquity,
+		InstrumentTypeBetting:
+		return nil
+	default:
+		return fmt.Errorf("%w: invalid instrument type %q", ErrInvalidInstrument, t)
+	}
+}
+
+func (t InstrumentType) requiresBaseQuote() bool {
+	switch t {
+	case InstrumentTypeSpot, InstrumentTypePerp, InstrumentTypeFuture, InstrumentTypeOption:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t InstrumentType) requiresSettle() bool {
+	switch t {
+	case InstrumentTypePerp, InstrumentTypeFuture, InstrumentTypeOption:
+		return true
+	default:
+		return false
+	}
+}
 
 type InstrumentStatus string
 
@@ -38,14 +79,57 @@ type Instrument struct {
 	Status      InstrumentStatus
 }
 
+type SyntheticInstrument struct {
+	ID             InstrumentID
+	PricePrecision int
+	PriceTick      decimal.Decimal
+	Components     []InstrumentID
+	Formula        string
+	Timestamp      time.Time
+	InitTime       time.Time
+}
+
+func (s SyntheticInstrument) Validate() error {
+	if err := s.ID.Validate(); err != nil {
+		return err
+	}
+	if !s.ID.IsSynthetic() {
+		return fmt.Errorf("%w: synthetic instrument requires SYNTH venue", ErrInvalidInstrument)
+	}
+	if s.PricePrecision < 0 || s.PricePrecision > 9 {
+		return fmt.Errorf("%w: invalid synthetic price precision", ErrInvalidInstrument)
+	}
+	if !s.PriceTick.IsPositive() {
+		return fmt.Errorf("%w: non-positive synthetic price tick", ErrInvalidInstrument)
+	}
+	if len(s.Components) < 2 {
+		return fmt.Errorf("%w: synthetic instrument requires at least two components", ErrInvalidInstrument)
+	}
+	for _, component := range s.Components {
+		if err := component.Validate(); err != nil {
+			return err
+		}
+	}
+	if s.Formula == "" {
+		return fmt.Errorf("%w: missing synthetic formula", ErrInvalidInstrument)
+	}
+	return nil
+}
+
 func (i Instrument) Validate() error {
 	if err := i.ID.Validate(); err != nil {
 		return err
 	}
-	if i.RawSymbol == "" || i.Type == "" || i.Base == "" || i.Quote == "" {
+	if i.RawSymbol == "" || i.Type == "" {
 		return fmt.Errorf("%w: missing identity fields", ErrInvalidInstrument)
 	}
-	if i.Type != InstrumentTypeSpot && i.Settle == "" {
+	if err := i.Type.Validate(); err != nil {
+		return err
+	}
+	if i.Type.requiresBaseQuote() && (i.Base == "" || i.Quote == "") {
+		return fmt.Errorf("%w: missing currency fields", ErrInvalidInstrument)
+	}
+	if i.Type.requiresSettle() && i.Settle == "" {
 		return fmt.Errorf("%w: missing settle currency", ErrInvalidInstrument)
 	}
 	if !i.PriceTick.IsPositive() || !i.SizeTick.IsPositive() {

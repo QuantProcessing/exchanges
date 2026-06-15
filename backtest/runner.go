@@ -4,15 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
 	"github.com/QuantProcessing/exchanges/account"
 	"github.com/QuantProcessing/exchanges/bus"
 	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/data"
+	"github.com/QuantProcessing/exchanges/execution"
 	"github.com/QuantProcessing/exchanges/model"
 	"github.com/QuantProcessing/exchanges/portfolio"
 	"github.com/QuantProcessing/exchanges/strategy"
+	"github.com/QuantProcessing/exchanges/venue"
 	"github.com/shopspring/decimal"
 )
 
@@ -23,19 +27,24 @@ type Event struct {
 }
 
 type Config struct {
-	Bus          *bus.Bus
-	Cache        *cache.Cache
-	Portfolio    *portfolio.Portfolio
-	FillModel    FillModel
-	OrderLatency time.Duration
-	Events       []Event
-	Strategies   []strategy.Strategy
+	Bus             *bus.Bus
+	Cache           *cache.Cache
+	Portfolio       *portfolio.Portfolio
+	DataCatalog     data.Catalog
+	ExecutionEngine *execution.Engine
+	FillModel       FillModel
+	OrderLatency    time.Duration
+	Events          []Event
+	Strategies      []strategy.Strategy
+	Logger          *slog.Logger
 }
 
 type Result struct {
 	EventsProcessed int
 	Cache           *cache.Cache
 	Portfolio       *portfolio.Portfolio
+	AccountIDs      []model.AccountID
+	Execution       execution.Health
 }
 
 type Runner struct {
@@ -66,7 +75,11 @@ func NewRunner(cfg Config) *Runner {
 	if fillModel == nil {
 		fillModel = DefaultFillModel()
 	}
-	rt := newRuntime(b, c, pf, fillModel, cfg.OrderLatency)
+	execEngine := cfg.ExecutionEngine
+	if execEngine == nil {
+		execEngine = execution.NewEngine(execution.EngineConfig{Cache: c})
+	}
+	rt := newRuntime(b, c, pf, cfg.DataCatalog, execEngine, fillModel, cfg.OrderLatency, cfg.Logger)
 	engine := strategy.NewEngine(b, strategy.WithRuntime(rt), strategy.WithSynchronousDispatch())
 	rt.engine = engine
 	for _, s := range cfg.Strategies {
@@ -118,35 +131,41 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 		result.EventsProcessed++
 	}
 	runErr = errors.Join(runErr, r.engine.Stop(ctx))
+	result.AccountIDs = r.runtime.accountIDs()
+	result.Execution = r.runtime.execEngine.Health()
 	return result, runErr
 }
 
 type runtime struct {
-	bus              *bus.Bus
-	engine           *strategy.Engine
-	cache            *cache.Cache
-	pf               *portfolio.Portfolio
-	reconciler       *account.Reconciler
-	lastTicker       map[model.InstrumentID]model.Ticker
-	lastBooks        map[model.InstrumentID]model.OrderBook
-	lastTrades       map[model.InstrumentID]model.TradeTick
-	lastQuotes       map[model.InstrumentID]model.QuoteTick
-	lastBars         map[model.InstrumentID]model.Bar
-	consumed         map[model.InstrumentID]map[string]decimal.Decimal
-	trailing         map[string]decimal.Decimal
-	trailingTriggers map[string]decimal.Decimal
-	accounts         map[model.AccountID]struct{}
-	subs             map[string]model.SubscribeMarketData
-	factories        map[model.AccountID]*model.OrderFactory
-	heldChildren     map[parentOrderKey][]model.SubmitOrder
-	orderListMembers map[orderListKey][]model.ClientOrderID
-	eligibleAt       map[latencyOrderKey]time.Time
-	fillModel        FillModel
-	orderLatency     time.Duration
-	currentTime      time.Time
-	timers           map[string]timerState
-	nextOrder        int
-	nextTrade        int
+	bus               *bus.Bus
+	engine            *strategy.Engine
+	cache             *cache.Cache
+	pf                *portfolio.Portfolio
+	dataCatalog       data.Catalog
+	execEngine        *execution.Engine
+	reconciler        *account.Reconciler
+	lastTicker        map[model.InstrumentID]model.Ticker
+	lastBooks         map[model.InstrumentID]model.OrderBook
+	lastTrades        map[model.InstrumentID]model.TradeTick
+	lastQuotes        map[model.InstrumentID]model.QuoteTick
+	lastBars          map[model.InstrumentID]model.Bar
+	consumed          map[model.InstrumentID]map[string]decimal.Decimal
+	trailing          map[string]decimal.Decimal
+	trailingTriggers  map[string]decimal.Decimal
+	accounts          map[model.AccountID]struct{}
+	subs              map[string]model.SubscribeMarketData
+	factories         map[model.AccountID]*model.OrderFactory
+	heldChildren      map[parentOrderKey][]model.SubmitOrder
+	orderListMembers  map[orderListKey][]model.ClientOrderID
+	eligibleAt        map[latencyOrderKey]time.Time
+	executionAccounts map[model.AccountID]struct{}
+	fillModel         FillModel
+	orderLatency      time.Duration
+	currentTime       time.Time
+	timers            map[string]timerState
+	logger            *slog.Logger
+	nextOrder         int
+	nextTrade         int
 }
 
 type timerState struct {
@@ -170,35 +189,53 @@ type latencyOrderKey struct {
 	orderID   model.OrderID
 }
 
-func newRuntime(b *bus.Bus, c *cache.Cache, pf *portfolio.Portfolio, fillModel FillModel, orderLatency time.Duration) *runtime {
+func newRuntime(b *bus.Bus, c *cache.Cache, pf *portfolio.Portfolio, dataCatalog data.Catalog, execEngine *execution.Engine, fillModel FillModel, orderLatency time.Duration, logger *slog.Logger) *runtime {
+	if execEngine == nil {
+		execEngine = execution.NewEngine(execution.EngineConfig{Cache: c})
+	}
 	return &runtime{
-		bus:              b,
-		cache:            c,
-		pf:               pf,
-		reconciler:       account.NewReconciler(c),
-		lastTicker:       make(map[model.InstrumentID]model.Ticker),
-		lastBooks:        make(map[model.InstrumentID]model.OrderBook),
-		lastTrades:       make(map[model.InstrumentID]model.TradeTick),
-		lastQuotes:       make(map[model.InstrumentID]model.QuoteTick),
-		lastBars:         make(map[model.InstrumentID]model.Bar),
-		consumed:         make(map[model.InstrumentID]map[string]decimal.Decimal),
-		trailing:         make(map[string]decimal.Decimal),
-		trailingTriggers: make(map[string]decimal.Decimal),
-		accounts:         make(map[model.AccountID]struct{}),
-		subs:             make(map[string]model.SubscribeMarketData),
-		factories:        make(map[model.AccountID]*model.OrderFactory),
-		heldChildren:     make(map[parentOrderKey][]model.SubmitOrder),
-		orderListMembers: make(map[orderListKey][]model.ClientOrderID),
-		eligibleAt:       make(map[latencyOrderKey]time.Time),
-		fillModel:        fillModel,
-		orderLatency:     orderLatency,
-		timers:           make(map[string]timerState),
+		bus:               b,
+		cache:             c,
+		pf:                pf,
+		dataCatalog:       dataCatalog,
+		execEngine:        execEngine,
+		reconciler:        account.NewReconciler(c),
+		lastTicker:        make(map[model.InstrumentID]model.Ticker),
+		lastBooks:         make(map[model.InstrumentID]model.OrderBook),
+		lastTrades:        make(map[model.InstrumentID]model.TradeTick),
+		lastQuotes:        make(map[model.InstrumentID]model.QuoteTick),
+		lastBars:          make(map[model.InstrumentID]model.Bar),
+		consumed:          make(map[model.InstrumentID]map[string]decimal.Decimal),
+		trailing:          make(map[string]decimal.Decimal),
+		trailingTriggers:  make(map[string]decimal.Decimal),
+		accounts:          make(map[model.AccountID]struct{}),
+		subs:              make(map[string]model.SubscribeMarketData),
+		factories:         make(map[model.AccountID]*model.OrderFactory),
+		heldChildren:      make(map[parentOrderKey][]model.SubmitOrder),
+		orderListMembers:  make(map[orderListKey][]model.ClientOrderID),
+		eligibleAt:        make(map[latencyOrderKey]time.Time),
+		executionAccounts: make(map[model.AccountID]struct{}),
+		fillModel:         fillModel,
+		orderLatency:      orderLatency,
+		timers:            make(map[string]timerState),
+		logger:            logger,
 	}
 }
 
 func (r *runtime) Cache() *cache.Cache { return r.cache }
 
 func (r *runtime) Portfolio() *portfolio.Portfolio { return r.pf }
+
+func (r *runtime) Logger() *slog.Logger { return r.logger }
+
+func (r *runtime) accountIDs() []model.AccountID {
+	ids := make([]model.AccountID, 0, len(r.accounts))
+	for accountID := range r.accounts {
+		ids = append(ids, accountID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
 
 func (r *runtime) Clock() strategy.Clock { return runtimeClock{runtime: r} }
 
@@ -372,6 +409,75 @@ func (r *runtime) UnsubscribeOrderBookDepth(ctx context.Context, instrumentID mo
 	})
 }
 
+func (r *runtime) RequestData(ctx context.Context, request model.DataRequest) (model.DataResponse, error) {
+	if err := request.Validate(); err != nil {
+		return model.DataResponse{}, err
+	}
+	if r.dataCatalog != nil {
+		response, err := r.dataCatalog.Query(ctx, request)
+		if err == nil {
+			for _, event := range response.Events {
+				_ = r.cache.PutMarketEvent(event)
+			}
+			return response, nil
+		}
+	}
+	response := model.DataResponse{
+		Metadata:     request.Metadata,
+		RequestID:    request.RequestID,
+		InstrumentID: request.InstrumentID,
+		Type:         request.Type,
+		BarType:      request.BarType.Canonical(),
+		IsFinal:      true,
+	}
+	var event model.MarketEvent
+	switch request.Type {
+	case model.MarketDataTypeTicker:
+		ticker, ok := r.cache.Ticker(request.InstrumentID)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: ticker not found for %s", model.ErrInvalidMarketData, request.InstrumentID)
+		}
+		event.Ticker = &ticker
+	case model.MarketDataTypeOrderBook:
+		book, ok := r.cache.OrderBook(request.InstrumentID)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: order book not found for %s", model.ErrInvalidMarketData, request.InstrumentID)
+		}
+		event.OrderBook = &book
+	case model.MarketDataTypeTradeTick:
+		trade, ok := r.cache.TradeTick(request.InstrumentID)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: trade tick not found for %s", model.ErrInvalidMarketData, request.InstrumentID)
+		}
+		event.Trade = &trade
+	case model.MarketDataTypeQuoteTick:
+		quote, ok := r.cache.QuoteTick(request.InstrumentID)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: quote tick not found for %s", model.ErrInvalidMarketData, request.InstrumentID)
+		}
+		event.Quote = &quote
+	case model.MarketDataTypeBar:
+		bar, ok := r.cache.Bar(request.BarType)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: bar not found for %s", model.ErrInvalidMarketData, request.BarType.Canonical())
+		}
+		event.Bar = &bar
+	case model.MarketDataTypeCustom:
+		custom, ok := r.cache.CustomData(request.InstrumentID, request.CustomType)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: custom data %s not found for %s", model.ErrInvalidMarketData, request.CustomType, request.InstrumentID)
+		}
+		event.Custom = &custom
+	default:
+		return model.DataResponse{}, fmt.Errorf("%w: unsupported data request type %s", model.ErrNotSupported, request.Type)
+	}
+	response.Events = []model.MarketEvent{event}
+	if err := response.Validate(); err != nil {
+		return model.DataResponse{}, err
+	}
+	return response, nil
+}
+
 func (r *runtime) RecordMarket(message any) {
 	event, ok := message.(model.MarketEvent)
 	if !ok {
@@ -463,6 +569,14 @@ func (r *runtime) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (mo
 	if err := r.apply(ctx, model.ExecutionEvent{Lifecycle: ptrOrderLifecycle(backtestOrderLifecycleFromReport(pending, model.OrderEventPendingUpdate, existing.Status, ""))}); err != nil {
 		return model.OrderStatusReport{}, err
 	}
+	if err := r.ensureExecutionClient(modify.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	updated, err = r.execEngine.ModifyOrder(ctx, modify)
+	if err != nil {
+		_ = r.dispatchOrderModifyRejected(ctx, modify, model.OrderStatusPendingUpdate, &pending, err)
+		return model.OrderStatusReport{}, err
+	}
 	if err := r.apply(ctx, model.ExecutionEvent{Order: &updated}); err != nil {
 		return model.OrderStatusReport{}, err
 	}
@@ -486,31 +600,12 @@ func (r *runtime) acceptOrder(ctx context.Context, order model.SubmitOrder) (mod
 	if err := r.apply(ctx, model.ExecutionEvent{Lifecycle: ptrOrderLifecycle(backtestOrderSubmittedLifecycle(order))}); err != nil {
 		return model.OrderStatusReport{}, err
 	}
-	r.nextOrder++
-	report := model.OrderStatusReport{
-		Metadata:            order.Metadata,
-		AccountID:           order.AccountID,
-		InstrumentID:        order.InstrumentID,
-		OrderListID:         order.OrderListID,
-		OrderID:             model.OrderID(fmt.Sprintf("bt-order-%d", r.nextOrder)),
-		ParentClientOrderID: order.ParentClientOrderID,
-		ClientOrderID:       order.ClientOrderID,
-		Status:              model.OrderStatusAccepted,
-		Side:                order.Side,
-		Type:                order.Type,
-		Contingency:         order.Contingency,
-		Quantity:            order.Quantity,
-		FilledQuantity:      decimal.Zero,
-		LeavesQuantity:      order.Quantity,
-		Price:               order.Price,
-		TriggerPrice:        order.TriggerPrice,
-		ActivationPrice:     order.ActivationPrice,
-		TrailingOffset:      order.TrailingOffset,
-		PostOnly:            order.PostOnly,
-		ReduceOnly:          order.ReduceOnly,
-		TimeInForce:         order.TimeInForce,
-		ExpireTime:          order.ExpireTime,
-		LastUpdatedTime:     r.now(),
+	if err := r.ensureExecutionClient(order.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	report, err := r.execEngine.SubmitOrder(ctx, order)
+	if err != nil {
+		return model.OrderStatusReport{}, err
 	}
 	if err := r.apply(ctx, model.ExecutionEvent{Order: &report}); err != nil {
 		return model.OrderStatusReport{}, err
@@ -553,16 +648,21 @@ func (r *runtime) CancelOrder(ctx context.Context, cancel model.CancelOrder) (mo
 	if err := r.apply(ctx, model.ExecutionEvent{Lifecycle: ptrOrderLifecycle(backtestOrderLifecycleFromReport(pending, model.OrderEventPendingCancel, order.Status, ""))}); err != nil {
 		return model.OrderStatusReport{}, err
 	}
-	order.Status = model.OrderStatusCanceled
-	order.Metadata = cancel.Metadata.WithDefaults(order.Metadata)
-	order.LeavesQuantity = decimal.Zero
-	if err := r.apply(ctx, model.ExecutionEvent{Order: &order}); err != nil {
+	if err := r.ensureExecutionClient(cancel.AccountID); err != nil {
 		return model.OrderStatusReport{}, err
 	}
-	if err := r.apply(ctx, model.ExecutionEvent{Lifecycle: ptrOrderLifecycle(backtestOrderLifecycleFromReport(order, model.OrderEventCanceled, model.OrderStatusPendingCancel, ""))}); err != nil {
+	canceled, err := r.execEngine.CancelOrder(ctx, cancel)
+	if err != nil {
+		_ = r.dispatchOrderCancelRejected(ctx, cancel, model.OrderStatusPendingCancel, &pending, err)
 		return model.OrderStatusReport{}, err
 	}
-	return order, nil
+	if err := r.apply(ctx, model.ExecutionEvent{Order: &canceled}); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	if err := r.apply(ctx, model.ExecutionEvent{Lifecycle: ptrOrderLifecycle(backtestOrderLifecycleFromReport(canceled, model.OrderEventCanceled, model.OrderStatusPendingCancel, ""))}); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	return canceled, nil
 }
 
 func (r *runtime) BatchCancelOrders(ctx context.Context, batch model.BatchCancelOrders) ([]model.OrderStatusReport, error) {
@@ -612,15 +712,23 @@ func (r *runtime) CancelAllOrders(ctx context.Context, cancelAll model.CancelAll
 	return r.BatchCancelOrders(ctx, batch)
 }
 
-func (r *runtime) QueryOrder(_ context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
+func (r *runtime) QueryOrder(ctx context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
 	if err := query.Validate(); err != nil {
 		return model.OrderStatusReport{}, err
+	}
+	if err := r.ensureExecutionClient(query.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	report, err := r.execEngine.QueryOrder(ctx, query)
+	if err == nil {
+		report.Metadata = query.Metadata.WithDefaults(report.Metadata)
+		return report, nil
 	}
 	if order, ok := r.findQueriedOrder(query); ok {
 		order.Metadata = query.Metadata.WithDefaults(order.Metadata)
 		return order, nil
 	}
-	return model.OrderStatusReport{}, fmt.Errorf("%w: order not found", model.ErrInvalidOrder)
+	return model.OrderStatusReport{}, err
 }
 
 func (r *runtime) QueryAccount(ctx context.Context, query model.QueryAccount) (model.AccountSnapshot, error) {
@@ -639,6 +747,174 @@ func (r *runtime) QueryAccount(ctx context.Context, query model.QueryAccount) (m
 	}
 	return snapshot, nil
 }
+
+func (r *runtime) ensureExecutionClient(accountID model.AccountID) error {
+	if accountID == "" {
+		return fmt.Errorf("%w: execution account id is required", model.ErrInvalidOrder)
+	}
+	if r.execEngine == nil {
+		r.execEngine = execution.NewEngine(execution.EngineConfig{Cache: r.cache})
+	}
+	if r.executionAccounts == nil {
+		r.executionAccounts = make(map[model.AccountID]struct{})
+	}
+	if _, ok := r.executionAccounts[accountID]; ok {
+		return nil
+	}
+	if err := r.execEngine.AddClient(&backtestExecutionClient{runtime: r, accountID: accountID}); err != nil {
+		return err
+	}
+	r.executionAccounts[accountID] = struct{}{}
+	return nil
+}
+
+type backtestExecutionClient struct {
+	runtime   *runtime
+	accountID model.AccountID
+}
+
+func (c *backtestExecutionClient) Venue() model.Venue { return "BACKTEST" }
+
+func (c *backtestExecutionClient) AccountID() model.AccountID { return c.accountID }
+
+func (c *backtestExecutionClient) Connect(context.Context) error { return nil }
+
+func (c *backtestExecutionClient) Disconnect(context.Context) error { return nil }
+
+func (c *backtestExecutionClient) Health() venue.ExecutionHealth {
+	return venue.ExecutionHealth{Connected: true, AccountReady: true}
+}
+
+func (c *backtestExecutionClient) QueryAccount(context.Context) (model.AccountSnapshot, error) {
+	if snapshot, ok := c.runtime.cache.Account(c.accountID); ok {
+		return snapshot, nil
+	}
+	return model.AccountSnapshot{AccountID: c.accountID, Venue: c.Venue()}, nil
+}
+
+func (c *backtestExecutionClient) SubmitOrder(_ context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {
+	if err := c.validateAccount(order.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	if err := order.Validate(); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	c.runtime.nextOrder++
+	return model.OrderStatusReport{
+		Metadata:            order.Metadata,
+		AccountID:           order.AccountID,
+		InstrumentID:        order.InstrumentID,
+		TriggerInstrumentID: order.TriggerInstrumentID,
+		OrderListID:         order.OrderListID,
+		OrderID:             model.OrderID(fmt.Sprintf("bt-order-%d", c.runtime.nextOrder)),
+		ParentClientOrderID: order.ParentClientOrderID,
+		ClientOrderID:       order.ClientOrderID,
+		Status:              model.OrderStatusAccepted,
+		Side:                order.Side,
+		Type:                order.Type,
+		Contingency:         order.Contingency,
+		Quantity:            order.Quantity,
+		FilledQuantity:      decimal.Zero,
+		LeavesQuantity:      order.Quantity,
+		Price:               order.Price,
+		TriggerPrice:        order.TriggerPrice,
+		ActivationPrice:     order.ActivationPrice,
+		TrailingOffset:      order.TrailingOffset,
+		TrailingOffsetType:  order.TrailingOffsetType,
+		PostOnly:            order.PostOnly,
+		ReduceOnly:          order.ReduceOnly,
+		TimeInForce:         order.TimeInForce,
+		ExpireTime:          order.ExpireTime,
+		LastUpdatedTime:     c.runtime.now(),
+	}, nil
+}
+
+func (c *backtestExecutionClient) CancelOrder(_ context.Context, cancel model.CancelOrder) (model.OrderStatusReport, error) {
+	if err := c.validateAccount(cancel.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	if err := cancel.Validate(); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	order, ok := c.runtime.cache.Order(cancel.AccountID, cancel.OrderID)
+	if !ok && cancel.ClientOrderID != "" {
+		order, ok = c.runtime.cache.OrderByClientID(cancel.AccountID, cancel.ClientOrderID)
+	}
+	if !ok {
+		return model.OrderStatusReport{}, fmt.Errorf("%w: order not found", model.ErrInvalidOrder)
+	}
+	if !order.Status.IsOpen() {
+		return model.OrderStatusReport{}, fmt.Errorf("%w: order is not cancelable", model.ErrInvalidOrder)
+	}
+	cancel = fillBacktestCancelIdentity(cancel, order)
+	order.Status = model.OrderStatusCanceled
+	order.Metadata = cancel.Metadata.WithDefaults(order.Metadata)
+	order.LeavesQuantity = decimal.Zero
+	order.LastUpdatedTime = c.runtime.now()
+	return order, nil
+}
+
+func (c *backtestExecutionClient) GenerateOrderStatusReports(_ context.Context, instrumentID model.InstrumentID) ([]model.OrderStatusReport, error) {
+	if err := instrumentID.Validate(); err != nil {
+		return nil, err
+	}
+	reports := make([]model.OrderStatusReport, 0)
+	for _, order := range c.runtime.cache.Orders(c.accountID) {
+		if order.InstrumentID == instrumentID {
+			reports = append(reports, order)
+		}
+	}
+	return reports, nil
+}
+
+func (c *backtestExecutionClient) Events() <-chan model.ExecutionEvent { return nil }
+
+func (c *backtestExecutionClient) ModifyOrder(_ context.Context, modify model.ModifyOrder) (model.OrderStatusReport, error) {
+	if err := c.validateAccount(modify.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	if err := modify.Validate(); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	existing, ok := c.runtime.findOrder(modify)
+	if !ok {
+		return model.OrderStatusReport{}, fmt.Errorf("%w: order not found", model.ErrInvalidOrder)
+	}
+	modify = fillBacktestModifyIdentity(modify, existing)
+	updated, _, err := model.ApplyOrderModification(existing, modify)
+	if err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	updated.Metadata = modify.Metadata.WithDefaults(updated.Metadata)
+	updated.LastUpdatedTime = c.runtime.now()
+	return updated, nil
+}
+
+func (c *backtestExecutionClient) QueryOrder(_ context.Context, query model.QueryOrder) (model.OrderStatusReport, error) {
+	if err := c.validateAccount(query.AccountID); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	if err := query.Validate(); err != nil {
+		return model.OrderStatusReport{}, err
+	}
+	order, ok := c.runtime.findQueriedOrder(query)
+	if !ok {
+		return model.OrderStatusReport{}, fmt.Errorf("%w: order not found", model.ErrInvalidOrder)
+	}
+	order.Metadata = query.Metadata.WithDefaults(order.Metadata)
+	return order, nil
+}
+
+func (c *backtestExecutionClient) validateAccount(accountID model.AccountID) error {
+	if accountID != c.accountID {
+		return fmt.Errorf("%w: execution client account mismatch", model.ErrInvalidOrder)
+	}
+	return nil
+}
+
+var _ venue.ExecutionClient = (*backtestExecutionClient)(nil)
+var _ venue.OrderModifier = (*backtestExecutionClient)(nil)
+var _ venue.OrderQuerier = (*backtestExecutionClient)(nil)
 
 func (r *runtime) findOrder(modify model.ModifyOrder) (model.OrderStatusReport, bool) {
 	if modify.OrderID != "" {
@@ -773,6 +1049,9 @@ func (r *runtime) matchOrder(ctx context.Context, order model.OrderStatusReport)
 	}
 	if !r.orderEligible(order) {
 		return nil
+	}
+	if order.ReduceOnly && !r.matchQuantity(order).IsPositive() {
+		return r.cancelUnfilledRemainder(ctx, order.AccountID, order.OrderID)
 	}
 	if order.Type == model.OrderTypeLimit && order.TimeInForce == model.TimeInForceFOK && !r.canFullyFillImmediate(order) {
 		return r.cancelUnfilledRemainder(ctx, order.AccountID, order.OrderID)
@@ -1054,20 +1333,29 @@ func (r *runtime) latestTriggerPrices(order model.OrderStatusReport) []decimal.D
 			prices = append(prices, candidate)
 		}
 	}
-	if ticker, ok := r.lastTicker[order.InstrumentID]; ok {
+	triggerInstrumentID := order.TriggerInstrument()
+	if ticker, ok := r.lastTicker[triggerInstrumentID]; ok {
 		consider(ticker.Last, ticker.Timestamp)
 	}
-	if quote, ok := r.lastQuotes[order.InstrumentID]; ok {
+	if quote, ok := r.lastQuotes[triggerInstrumentID]; ok {
 		if order.Side == model.OrderSideBuy {
 			consider(quote.AskPrice, quote.Timestamp)
 		} else {
 			consider(quote.BidPrice, quote.Timestamp)
 		}
 	}
-	if trade, ok := r.lastTrades[order.InstrumentID]; ok {
+	if book, ok := r.lastBooks[triggerInstrumentID]; ok {
+		if order.Side == model.OrderSideBuy && len(book.Asks) > 0 {
+			consider(book.Asks[0].Price, book.Timestamp)
+		}
+		if order.Side == model.OrderSideSell && len(book.Bids) > 0 {
+			consider(book.Bids[0].Price, book.Timestamp)
+		}
+	}
+	if trade, ok := r.lastTrades[triggerInstrumentID]; ok {
 		consider(trade.Price, trade.Timestamp)
 	}
-	if bar, ok := r.lastBars[order.InstrumentID]; ok {
+	if bar, ok := r.lastBars[triggerInstrumentID]; ok {
 		consider(bar.High, bar.Timestamp)
 		consider(bar.Low, bar.Timestamp)
 	}
@@ -1155,7 +1443,11 @@ func (r *runtime) isTrailingTriggered(order model.OrderStatusReport) bool {
 			r.trailing[key] = favorable
 			extreme = favorable
 		}
-		triggerPrice := extreme.Sub(order.TrailingOffset)
+		offset, ok := r.trailingOffsetPrice(order, extreme)
+		if !ok {
+			return false
+		}
+		triggerPrice := extreme.Sub(offset)
 		if adverse.LessThanOrEqual(triggerPrice) {
 			r.trailingTriggers[key] = triggerPrice
 			return true
@@ -1166,12 +1458,36 @@ func (r *runtime) isTrailingTriggered(order model.OrderStatusReport) bool {
 		r.trailing[key] = favorable
 		extreme = favorable
 	}
-	triggerPrice := extreme.Add(order.TrailingOffset)
+	offset, ok := r.trailingOffsetPrice(order, extreme)
+	if !ok {
+		return false
+	}
+	triggerPrice := extreme.Add(offset)
 	if adverse.GreaterThanOrEqual(triggerPrice) {
 		r.trailingTriggers[key] = triggerPrice
 		return true
 	}
 	return false
+}
+
+func (r *runtime) trailingOffsetPrice(order model.OrderStatusReport, reference decimal.Decimal) (decimal.Decimal, bool) {
+	switch order.TrailingOffsetType.Canonical() {
+	case model.TrailingOffsetTypePrice:
+		return order.TrailingOffset, true
+	case model.TrailingOffsetTypeBasisPoints:
+		return reference.Mul(order.TrailingOffset).Div(decimal.NewFromInt(10000)), true
+	case model.TrailingOffsetTypeTicks:
+		if r.cache == nil {
+			return decimal.Zero, false
+		}
+		inst, ok := r.cache.Instrument(order.InstrumentID)
+		if !ok || !inst.PriceTick.IsPositive() {
+			return decimal.Zero, false
+		}
+		return order.TrailingOffset.Mul(inst.PriceTick), true
+	default:
+		return decimal.Zero, false
+	}
 }
 
 func (r *runtime) latestTrailingRange(order model.OrderStatusReport) (decimal.Decimal, decimal.Decimal, bool) {
@@ -1204,20 +1520,29 @@ func (r *runtime) latestTrailingRange(order model.OrderStatusReport) (decimal.De
 	considerSingle := func(candidate decimal.Decimal, candidateTime time.Time) {
 		consider(candidate, candidate, candidateTime)
 	}
-	if ticker, ok := r.lastTicker[order.InstrumentID]; ok {
+	triggerInstrumentID := order.TriggerInstrument()
+	if ticker, ok := r.lastTicker[triggerInstrumentID]; ok {
 		considerSingle(ticker.Last, ticker.Timestamp)
 	}
-	if quote, ok := r.lastQuotes[order.InstrumentID]; ok {
+	if quote, ok := r.lastQuotes[triggerInstrumentID]; ok {
 		if order.Side == model.OrderSideBuy {
 			considerSingle(quote.AskPrice, quote.Timestamp)
 		} else {
 			considerSingle(quote.BidPrice, quote.Timestamp)
 		}
 	}
-	if trade, ok := r.lastTrades[order.InstrumentID]; ok {
+	if book, ok := r.lastBooks[triggerInstrumentID]; ok {
+		if order.Side == model.OrderSideBuy && len(book.Asks) > 0 {
+			considerSingle(book.Asks[0].Price, book.Timestamp)
+		}
+		if order.Side == model.OrderSideSell && len(book.Bids) > 0 {
+			considerSingle(book.Bids[0].Price, book.Timestamp)
+		}
+	}
+	if trade, ok := r.lastTrades[triggerInstrumentID]; ok {
 		considerSingle(trade.Price, trade.Timestamp)
 	}
-	if bar, ok := r.lastBars[order.InstrumentID]; ok {
+	if bar, ok := r.lastBars[triggerInstrumentID]; ok {
 		if order.Side == model.OrderSideSell {
 			consider(bar.High, bar.Low, bar.Timestamp)
 		} else {
@@ -1243,7 +1568,7 @@ func (r *runtime) matchMarketOrderAgainstTicker(ctx context.Context, order model
 	if !ok || !ticker.Last.IsPositive() {
 		return nil
 	}
-	quantity := openQuantity(order)
+	quantity := r.matchQuantity(order)
 	if !quantity.IsPositive() {
 		return nil
 	}
@@ -1265,7 +1590,7 @@ func (r *runtime) matchAgainstQuote(ctx context.Context, order model.OrderStatus
 	if !price.IsPositive() || !available.IsPositive() || !canMatch(order, price) {
 		return false, nil
 	}
-	quantity := openQuantity(order)
+	quantity := r.matchQuantity(order)
 	if !quantity.IsPositive() {
 		return false, nil
 	}
@@ -1290,7 +1615,7 @@ func (r *runtime) matchAgainstTrade(ctx context.Context, order model.OrderStatus
 	if !ok || !trade.Price.IsPositive() || !canMatch(order, trade.Price) {
 		return false, nil
 	}
-	quantity := openQuantity(order)
+	quantity := r.matchQuantity(order)
 	if !quantity.IsPositive() {
 		return false, nil
 	}
@@ -1313,7 +1638,7 @@ func (r *runtime) matchAgainstBar(ctx context.Context, order model.OrderStatusRe
 	if !ok {
 		return false, nil
 	}
-	quantity := openQuantity(order)
+	quantity := r.matchQuantity(order)
 	if !quantity.IsPositive() {
 		return false, nil
 	}
@@ -1361,41 +1686,25 @@ func (r *runtime) matchAgainstBook(ctx context.Context, order model.OrderStatusR
 	if !ok {
 		return false, nil
 	}
-	quantity := openQuantity(order)
+	quantity := r.matchQuantity(order)
 	if !quantity.IsPositive() {
 		return false, nil
 	}
-	var levels []model.OrderBookLevel
-	if order.Side == model.OrderSideBuy {
-		levels = append([]model.OrderBookLevel(nil), book.Asks...)
-	} else {
-		levels = append([]model.OrderBookLevel(nil), book.Bids...)
-	}
-	if len(levels) == 0 {
-		return false, nil
-	}
+	inst, _ := r.cache.Instrument(order.InstrumentID)
+	core := NewMatchingCore(MatchingCoreConfig{Instrument: inst, FillModel: r.fillModel})
+	matches := core.MatchOrderBook(OrderBookMatchRequest{
+		Order:       order,
+		Book:        book,
+		Consumed:    r.consumed[order.InstrumentID],
+		MaxQuantity: quantity,
+	})
 	matched := false
-	for i := range levels {
-		if !quantity.IsPositive() {
-			break
-		}
-		if !canMatch(order, levels[i].Price) {
-			break
-		}
-		available := levels[i].Size.Sub(r.consumedAt(order.InstrumentID, levels[i].Price))
-		fillQty := decimal.Min(quantity, available)
-		if !fillQty.IsPositive() {
-			continue
-		}
-		if !r.shouldFillLimitTouch(order, levels[i].Price, fillQty, book.Timestamp, FillSourceOrderBook) {
-			continue
-		}
-		fill := r.newFillReportWithSource(order, levels[i].Price, fillQty, book.Timestamp, FillSourceOrderBook)
+	for _, match := range matches {
+		fill := r.newFillReportWithSource(order, match.Price, match.Quantity, match.Timestamp, match.Source)
 		if err := r.applyFillAndPosition(ctx, fill); err != nil {
 			return matched, err
 		}
-		r.recordConsumption(order.InstrumentID, levels[i].Price, fillQty)
-		quantity = quantity.Sub(fillQty)
+		r.recordConsumption(order.InstrumentID, match.Price, match.Quantity)
 		matched = true
 	}
 	return matched, nil
@@ -1424,6 +1733,9 @@ func (r *runtime) newFillReportWithSource(order model.OrderStatusReport, price d
 }
 
 func (r *runtime) shouldFillLimitTouch(order model.OrderStatusReport, price decimal.Decimal, quantity decimal.Decimal, ts time.Time, source FillSource) bool {
+	if !backtestPostOnlyCanFill(order, ts) {
+		return false
+	}
 	if r.fillModel == nil {
 		return true
 	}
@@ -1458,7 +1770,7 @@ func (r *runtime) fillPrice(order model.OrderStatusReport, price decimal.Decimal
 }
 
 func (r *runtime) applyFillFee(order model.OrderStatusReport, fill *model.FillReport) {
-	inst, ok := r.cache.Instrument(order.InstrumentID)
+	inst, ok := r.cache.Instrument(order.TriggerInstrument())
 	if !ok {
 		return
 	}
@@ -1478,9 +1790,6 @@ func backtestFillFeeRate(order model.OrderStatusReport, fillTime time.Time, inst
 }
 
 func backtestFillIsMaker(order model.OrderStatusReport, fillTime time.Time) bool {
-	if order.PostOnly {
-		return true
-	}
 	if !backtestOrderTypeCanRest(order.Type) {
 		return false
 	}
@@ -1488,6 +1797,10 @@ func backtestFillIsMaker(order model.OrderStatusReport, fillTime time.Time) bool
 		return false
 	}
 	return fillTime.After(order.LastUpdatedTime)
+}
+
+func backtestPostOnlyCanFill(order model.OrderStatusReport, fillTime time.Time) bool {
+	return !order.PostOnly || backtestFillIsMaker(order, fillTime)
 }
 
 func backtestOrderTypeCanRest(orderType model.OrderType) bool {
@@ -1561,6 +1874,32 @@ func (r *runtime) availableImmediateQuantity(order model.OrderStatusReport, cap 
 	return total
 }
 
+func (r *runtime) matchQuantity(order model.OrderStatusReport) decimal.Decimal {
+	quantity := openQuantity(order)
+	if !quantity.IsPositive() || !order.ReduceOnly {
+		return quantity
+	}
+	reducible := r.reduceOnlyQuantity(order)
+	if !reducible.IsPositive() {
+		return decimal.Zero
+	}
+	return decimal.Min(quantity, reducible)
+}
+
+func (r *runtime) reduceOnlyQuantity(order model.OrderStatusReport) decimal.Decimal {
+	position, ok := r.cache.PositionByInstrument(order.AccountID, order.InstrumentID)
+	if !ok || !position.Quantity.IsPositive() || position.Side == model.PositionSideFlat {
+		return decimal.Zero
+	}
+	if order.Side == model.OrderSideSell && position.Side == model.PositionSideLong {
+		return position.Quantity
+	}
+	if order.Side == model.OrderSideBuy && position.Side == model.PositionSideShort {
+		return position.Quantity
+	}
+	return decimal.Zero
+}
+
 func (r *runtime) consumedAt(instrumentID model.InstrumentID, price decimal.Decimal) decimal.Decimal {
 	if r.consumed[instrumentID] == nil {
 		return decimal.Zero
@@ -1608,10 +1947,12 @@ func (r *runtime) applyFillAndPosition(ctx context.Context, fill model.FillRepor
 		previous = &existing
 	}
 	position := r.nextPosition(fill)
-	if err := r.apply(ctx, model.ExecutionEvent{Fill: &fill}); err != nil {
+	fillEvent := model.ExecutionEvent{Fill: &fill}
+	if err := r.reconciler.Apply(fillEvent); err != nil {
 		return err
 	}
-	if err := r.apply(ctx, model.ExecutionEvent{Position: &position}); err != nil {
+	positionEvent := model.ExecutionEvent{Position: &position}
+	if err := r.reconciler.Apply(positionEvent); err != nil {
 		return err
 	}
 	if r.pf != nil {
@@ -1619,14 +1960,81 @@ func (r *runtime) applyFillAndPosition(ctx context.Context, fill model.FillRepor
 			return err
 		}
 	}
+	if err := r.dispatchExecution(ctx, fillEvent); err != nil {
+		return err
+	}
+	if err := r.dispatchExecution(ctx, positionEvent); err != nil {
+		return err
+	}
+	if lifecycle, ok := model.NewPositionLifecycleEvent(previous, position); ok {
+		lifecycleEvent := model.ExecutionEvent{PositionLifecycle: &lifecycle}
+		if err := r.reconciler.Apply(lifecycleEvent); err != nil {
+			return err
+		}
+		if err := r.dispatchExecution(ctx, lifecycleEvent); err != nil {
+			return err
+		}
+	}
 	order, ok := r.cache.Order(fill.AccountID, fill.OrderID)
+	if ok && order.ReduceOnly && order.Status.IsOpen() && !r.matchQuantity(order).IsPositive() {
+		if err := r.cancelUnfilledRemainder(ctx, order.AccountID, order.OrderID); err != nil {
+			return err
+		}
+		order, ok = r.cache.Order(fill.AccountID, fill.OrderID)
+	}
+	if ok {
+		if err := r.updateOuoSiblings(ctx, order, fill.Quantity); err != nil {
+			return err
+		}
+		order, ok = r.cache.Order(fill.AccountID, fill.OrderID)
+	}
+	if ok {
+		if err := r.updateHeldChildren(ctx, order); err != nil {
+			return err
+		}
+		order, ok = r.cache.Order(fill.AccountID, fill.OrderID)
+	}
 	if !ok || order.Status != model.OrderStatusFilled {
 		return nil
 	}
-	if err := r.releaseHeldChildren(ctx, order); err != nil {
-		return err
-	}
 	return r.cancelOcoSiblings(ctx, order)
+}
+
+func (r *runtime) updateOuoSiblings(ctx context.Context, filled model.OrderStatusReport, fillQuantity decimal.Decimal) error {
+	if filled.OrderListID == "" || filled.Contingency != model.ContingencyTypeOUO || !fillQuantity.IsPositive() {
+		return nil
+	}
+	key := orderListKey{accountID: filled.AccountID, orderListID: filled.OrderListID}
+	for _, clientOrderID := range r.orderListMembers[key] {
+		if clientOrderID == "" || clientOrderID == filled.ClientOrderID {
+			continue
+		}
+		sibling, ok := r.cache.OrderByClientID(filled.AccountID, clientOrderID)
+		if !ok || !sibling.Status.IsOpen() {
+			continue
+		}
+		nextQuantity := sibling.Quantity.Sub(fillQuantity)
+		if !nextQuantity.IsPositive() || nextQuantity.LessThanOrEqual(sibling.FilledQuantity) {
+			if err := r.cancelUnfilledRemainder(ctx, sibling.AccountID, sibling.OrderID); err != nil {
+				return err
+			}
+			continue
+		}
+		if nextQuantity.Equal(sibling.Quantity) {
+			continue
+		}
+		_, err := r.ModifyOrder(ctx, model.ModifyOrder{
+			AccountID:     sibling.AccountID,
+			InstrumentID:  sibling.InstrumentID,
+			OrderID:       sibling.OrderID,
+			ClientOrderID: sibling.ClientOrderID,
+			Quantity:      nextQuantity,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *runtime) indexOrderList(list model.OrderList) {
@@ -1641,17 +2049,41 @@ func (r *runtime) indexOrderList(list model.OrderList) {
 	}
 }
 
-func (r *runtime) releaseHeldChildren(ctx context.Context, parent model.OrderStatusReport) error {
+func (r *runtime) updateHeldChildren(ctx context.Context, parent model.OrderStatusReport) error {
 	key := parentOrderKey{accountID: parent.AccountID, clientOrderID: parent.ClientOrderID}
 	children := append([]model.SubmitOrder(nil), r.heldChildren[key]...)
-	delete(r.heldChildren, key)
+	if len(children) == 0 || !parent.FilledQuantity.IsPositive() {
+		return nil
+	}
 	accepted := make([]model.OrderStatusReport, 0, len(children))
 	for _, child := range children {
+		targetQuantity := decimal.Min(parent.FilledQuantity, child.Quantity)
+		if !targetQuantity.IsPositive() {
+			continue
+		}
+		if existing, ok := r.cache.OrderByClientID(child.AccountID, child.ClientOrderID); ok {
+			if existing.Status.IsOpen() && targetQuantity.GreaterThan(existing.Quantity) {
+				if _, err := r.ModifyOrder(ctx, model.ModifyOrder{
+					AccountID:     existing.AccountID,
+					InstrumentID:  existing.InstrumentID,
+					OrderID:       existing.OrderID,
+					ClientOrderID: existing.ClientOrderID,
+					Quantity:      targetQuantity,
+				}); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		child.Quantity = targetQuantity
 		report, err := r.acceptOrder(ctx, child)
 		if err != nil {
 			return err
 		}
 		accepted = append(accepted, report)
+	}
+	if parent.Status == model.OrderStatusFilled {
+		delete(r.heldChildren, key)
 	}
 	for _, report := range accepted {
 		current, ok := r.cache.Order(report.AccountID, report.OrderID)

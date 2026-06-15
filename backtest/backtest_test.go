@@ -2,11 +2,13 @@ package backtest
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/QuantProcessing/exchanges/bus"
 	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/data"
 	"github.com/QuantProcessing/exchanges/model"
 	"github.com/QuantProcessing/exchanges/portfolio"
 	"github.com/QuantProcessing/exchanges/strategy"
@@ -292,6 +294,77 @@ func TestBacktestResultPortfolioUpdatesFromMarketData(t *testing.T) {
 	require.Equal(t, "120", result.Portfolio.Exposure("backtest", "USDT").String())
 }
 
+func TestBacktestResultSummaryIsDeterministic(t *testing.T) {
+	run := func() Result {
+		t.Helper()
+		runner := NewRunner(Config{
+			Events: []Event{tickerEvent(decimal.RequireFromString("100"))},
+			Strategies: []strategy.Strategy{&submittingStrategy{
+				id: "summary-submitter",
+			}},
+		})
+		result, err := runner.Run(context.Background())
+		require.NoError(t, err)
+		return result
+	}
+
+	first, err := run().DeterministicJSON("backtest")
+	require.NoError(t, err)
+	second, err := run().DeterministicJSON("backtest")
+	require.NoError(t, err)
+	require.Equal(t, first, second)
+
+	summary := run().Summary("backtest")
+	require.Equal(t, 1, summary.EventsProcessed)
+	require.Len(t, summary.Accounts, 1)
+	require.Len(t, summary.Accounts[0].Orders, 1)
+	require.Len(t, summary.Accounts[0].Fills, 1)
+	require.Len(t, summary.Accounts[0].Positions, 1)
+	require.Equal(t, model.OrderStatusFilled, summary.Accounts[0].Orders[0].Status)
+}
+
+func TestBacktestResultSummaryDefaultsToAllTouchedAccounts(t *testing.T) {
+	runner := NewRunner(Config{
+		Events:     []Event{tickerEvent(decimal.RequireFromString("100"))},
+		Strategies: []strategy.Strategy{&multiAccountSubmittingStrategy{}},
+	})
+
+	result, err := runner.Run(context.Background())
+	require.NoError(t, err)
+
+	summary := result.Summary()
+	require.Equal(t, 1, summary.EventsProcessed)
+	require.Len(t, summary.Accounts, 2)
+	require.Equal(t, model.AccountID("acct-a"), summary.Accounts[0].AccountID)
+	require.Equal(t, model.AccountID("acct-b"), summary.Accounts[1].AccountID)
+	for _, account := range summary.Accounts {
+		require.Len(t, account.Orders, 1)
+		require.Len(t, account.Fills, 1)
+		require.Len(t, account.Positions, 1)
+		require.Equal(t, model.OrderStatusFilled, account.Orders[0].Status)
+	}
+}
+
+func TestBacktestRunsMultipleStrategiesAndPreservesStrategyMetadata(t *testing.T) {
+	runner := NewRunner(Config{
+		Events: []Event{tickerEvent(decimal.RequireFromString("100"))},
+		Strategies: []strategy.Strategy{
+			&submittingStrategy{id: "alpha", accountID: "acct-alpha", clientOrderID: "alpha-client"},
+			&submittingStrategy{id: "beta", accountID: "acct-beta", clientOrderID: "beta-client"},
+		},
+	})
+
+	result, err := runner.Run(context.Background())
+	require.NoError(t, err)
+
+	summary := result.Summary()
+	require.Len(t, summary.Accounts, 2)
+	require.Equal(t, model.StrategyID("alpha"), summary.Accounts[0].Orders[0].Metadata.StrategyID)
+	require.Equal(t, model.StrategyID("beta"), summary.Accounts[1].Orders[0].Metadata.StrategyID)
+	require.Equal(t, model.AccountID("acct-alpha"), summary.Accounts[0].AccountID)
+	require.Equal(t, model.AccountID("acct-beta"), summary.Accounts[1].AccountID)
+}
+
 func TestBacktestSharedPortfolioCacheDoesNotDoubleApplyFills(t *testing.T) {
 	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
 	c := cache.New()
@@ -519,6 +592,72 @@ func TestBacktestMatchesMarketOrderAgainstOrderBookLevels(t *testing.T) {
 	require.True(t, decimal.RequireFromString("0.4").Equal(fills[0].Quantity))
 	require.True(t, decimal.RequireFromString("101").Equal(fills[1].Price))
 	require.True(t, decimal.RequireFromString("0.6").Equal(fills[1].Quantity))
+}
+
+func TestBacktestPostOnlyLimitDoesNotTakeLiquidityOnSubmissionEvent(t *testing.T) {
+	start := time.Unix(10, 0).UTC()
+	trader := &bookSubmittingStrategy{
+		id:            "post-only-submitter",
+		clientOrderID: "post-only-client",
+		side:          model.OrderSideBuy,
+		orderTyp:      model.OrderTypeLimit,
+		quantity:      decimal.RequireFromString("1"),
+		price:         decimal.RequireFromString("100"),
+		postOnly:      true,
+	}
+	runner := NewRunner(Config{
+		Events: []Event{
+			bookEventAt(start,
+				nil,
+				[]model.OrderBookLevel{{Price: decimal.RequireFromString("100"), Size: decimal.RequireFromString("1")}},
+			),
+			bookEventAt(start.Add(time.Second),
+				nil,
+				[]model.OrderBookLevel{{Price: decimal.RequireFromString("100"), Size: decimal.RequireFromString("1")}},
+			),
+		},
+		Strategies: []strategy.Strategy{trader},
+	})
+
+	result, err := runner.Run(context.Background())
+	require.NoError(t, err)
+	order, ok := result.Cache.OrderByClientID("backtest", "post-only-client")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusFilled, order.Status)
+
+	fills := result.Cache.FillsForOrder("backtest", order.OrderID)
+	require.Len(t, fills, 1)
+	require.Equal(t, start.Add(time.Second), fills[0].Timestamp)
+	require.True(t, decimal.RequireFromString("100").Equal(fills[0].Price))
+}
+
+func TestBacktestReduceOnlyOrderWithoutPositionDoesNotOpenPosition(t *testing.T) {
+	trader := &bookSubmittingStrategy{
+		id:            "reduce-only-submitter",
+		clientOrderID: "reduce-only-client",
+		side:          model.OrderSideSell,
+		orderTyp:      model.OrderTypeLimit,
+		quantity:      decimal.RequireFromString("1"),
+		price:         decimal.RequireFromString("100"),
+		reduceOnly:    true,
+	}
+	runner := NewRunner(Config{
+		Events: []Event{bookEvent(
+			[]model.OrderBookLevel{{Price: decimal.RequireFromString("100"), Size: decimal.RequireFromString("1")}},
+			nil,
+		)},
+		Strategies: []strategy.Strategy{trader},
+	})
+
+	result, err := runner.Run(context.Background())
+	require.NoError(t, err)
+	order, ok := result.Cache.OrderByClientID("backtest", "reduce-only-client")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusCanceled, order.Status)
+	require.True(t, order.FilledQuantity.IsZero())
+	require.Empty(t, result.Cache.FillsForOrder("backtest", order.OrderID))
+	_, ok = result.Cache.PositionByInstrument("backtest", model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"))
+	require.False(t, ok)
 }
 
 func TestBacktestDoesNotMutateHistoricalOrderBookAfterFills(t *testing.T) {
@@ -765,6 +904,83 @@ func TestBacktestTriggersStopLimitThenMatchesLimitPrice(t *testing.T) {
 	require.Equal(t, "101", order.AveragePrice.String())
 }
 
+func TestBacktestTriggersMarketIfTouchedWhenPriceFallsToTrigger(t *testing.T) {
+	trader := &submittingStrategy{
+		id:        "mit-submitter",
+		orderType: model.OrderTypeMarketIfTouched,
+		trigger:   decimal.RequireFromString("99"),
+	}
+	runner := NewRunner(Config{
+		Events: []Event{
+			tickerEvent(decimal.RequireFromString("101")),
+			{
+				At:    time.Unix(11, 0),
+				Topic: strategy.TopicMarketData,
+				Message: model.MarketEvent{Ticker: &model.Ticker{
+					InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+					Bid:          decimal.RequireFromString("99"),
+					Ask:          decimal.RequireFromString("99"),
+					Last:         decimal.RequireFromString("99"),
+					Timestamp:    time.Unix(11, 0),
+				}},
+			},
+		},
+		Strategies: []strategy.Strategy{trader},
+	})
+
+	result, err := runner.Run(context.Background())
+	require.NoError(t, err)
+	order, ok := result.Cache.OrderByClientID("backtest", "bt-client-1")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusFilled, order.Status)
+	require.Equal(t, "99", order.AveragePrice.String())
+}
+
+func TestBacktestTriggersLimitIfTouchedThenMatchesLimitPrice(t *testing.T) {
+	trader := &submittingStrategy{
+		id:        "lit-submitter",
+		orderType: model.OrderTypeLimitIfTouched,
+		price:     decimal.RequireFromString("99"),
+		trigger:   decimal.RequireFromString("100"),
+	}
+	runner := NewRunner(Config{
+		Events: []Event{
+			tickerEvent(decimal.RequireFromString("105")),
+			{
+				At:    time.Unix(11, 0),
+				Topic: strategy.TopicMarketData,
+				Message: model.MarketEvent{Ticker: &model.Ticker{
+					InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+					Bid:          decimal.RequireFromString("100"),
+					Ask:          decimal.RequireFromString("100"),
+					Last:         decimal.RequireFromString("100"),
+					Timestamp:    time.Unix(11, 0),
+				}},
+			},
+			{
+				At:    time.Unix(12, 0),
+				Topic: strategy.TopicMarketData,
+				Message: model.MarketEvent{OrderBook: &model.OrderBook{
+					InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+					Asks: []model.OrderBookLevel{{
+						Price: decimal.RequireFromString("99"),
+						Size:  decimal.RequireFromString("1"),
+					}},
+					Timestamp: time.Unix(12, 0),
+				}},
+			},
+		},
+		Strategies: []strategy.Strategy{trader},
+	})
+
+	result, err := runner.Run(context.Background())
+	require.NoError(t, err)
+	order, ok := result.Cache.OrderByClientID("backtest", "bt-client-1")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusFilled, order.Status)
+	require.Equal(t, "99", order.AveragePrice.String())
+}
+
 func TestBacktestTriggersTrailingStopMarketFromActivatedHighWatermark(t *testing.T) {
 	trader := &submittingStrategy{
 		id:         "trailing-submitter",
@@ -964,6 +1180,21 @@ func TestEngineRunsTypedStrategyWithNautilusStyleAPI(t *testing.T) {
 	require.Equal(t, "0.01", order.FilledQuantity.String())
 }
 
+func TestEngineLoadsEventsFromCatalog(t *testing.T) {
+	catalog := NewMemoryCatalog()
+	catalog.Add(tickerEvent(decimal.RequireFromString("100")))
+	engine := NewEngine(EngineConfig{Catalog: catalog})
+	engine.AddStrategy(&submittingStrategy{id: "catalog-submitter"})
+
+	result, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, result.EventsProcessed)
+	order, ok := result.Cache.OrderByClientID("backtest", "bt-client-1")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusFilled, order.Status)
+	require.Equal(t, "100", order.AveragePrice.String())
+}
+
 func TestBacktestSettlesCascadingOrdersSubmittedFromFillCallback(t *testing.T) {
 	engine := NewEngine(EngineConfig{})
 	impl := &cascadingFillStrategy{
@@ -1029,6 +1260,92 @@ func TestBacktestBracketReleasesChildrenAndCancelsOcoSibling(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, model.OrderStatusFilled, takeProfit.Status)
 	require.Equal(t, model.CommandID("list-command"), takeProfit.Metadata.CommandID)
+}
+
+func TestBacktestOuoPartialFillReducesSiblingLeavesQuantity(t *testing.T) {
+	engine := NewEngine(EngineConfig{})
+	impl := &ouoBacktestStrategy{
+		accountID:    "backtest",
+		instrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+	}
+	engine.AddStrategy(strategy.NewTyped("ouo", impl))
+	engine.AddData(bookEvent(
+		[]model.OrderBookLevel{{Price: decimal.RequireFromString("100"), Size: decimal.RequireFromString("1")}},
+		[]model.OrderBookLevel{{Price: decimal.RequireFromString("101"), Size: decimal.RequireFromString("1")}},
+	))
+	engine.AddData(Event{
+		At:    time.Unix(11, 0),
+		Topic: strategy.TopicMarketData,
+		Message: model.MarketEvent{OrderBook: &model.OrderBook{
+			InstrumentID: impl.instrumentID,
+			Bids: []model.OrderBookLevel{{
+				Price: decimal.RequireFromString("103"),
+				Size:  decimal.RequireFromString("0.4"),
+			}},
+			Timestamp: time.Unix(11, 0),
+		}},
+	})
+
+	result, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	entry, ok := result.Cache.OrderByClientID("backtest", "ouo-entry")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusFilled, entry.Status)
+	firstExit, ok := result.Cache.OrderByClientID("backtest", "ouo-exit-1")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusPartiallyFilled, firstExit.Status)
+	require.Equal(t, "0.4", firstExit.FilledQuantity.String())
+	require.Equal(t, "0.6", firstExit.LeavesQuantity.String())
+	peerExit, ok := result.Cache.OrderByClientID("backtest", "ouo-exit-2")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusAccepted, peerExit.Status)
+	require.Equal(t, "0.6", peerExit.Quantity.String())
+	require.Equal(t, "0.6", peerExit.LeavesQuantity.String())
+	require.True(t, peerExit.FilledQuantity.IsZero())
+}
+
+func TestBacktestOTOChildrenReleaseAndResizeOnPartialParentFills(t *testing.T) {
+	engine := NewEngine(EngineConfig{})
+	impl := &otoPartialBacktestStrategy{
+		accountID:    "backtest",
+		instrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+	}
+	engine.AddStrategy(strategy.NewTyped("oto-partial", impl))
+	engine.AddData(bookEvent(
+		[]model.OrderBookLevel{{Price: decimal.RequireFromString("100"), Size: decimal.RequireFromString("1")}},
+		[]model.OrderBookLevel{{Price: decimal.RequireFromString("101"), Size: decimal.RequireFromString("0.4")}},
+	))
+	engine.AddData(Event{
+		At:    time.Unix(11, 0),
+		Topic: strategy.TopicMarketData,
+		Message: model.MarketEvent{OrderBook: &model.OrderBook{
+			InstrumentID: impl.instrumentID,
+			Bids: []model.OrderBookLevel{{
+				Price: decimal.RequireFromString("100"),
+				Size:  decimal.RequireFromString("1"),
+			}},
+			Asks: []model.OrderBookLevel{{
+				Price: decimal.RequireFromString("101"),
+				Size:  decimal.RequireFromString("0.6"),
+			}},
+			Timestamp: time.Unix(11, 0),
+		}},
+	})
+
+	result, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "0.4", impl.childQuantityAfterFirstFill.String())
+	require.Equal(t, "1", impl.childQuantityAfterSecondFill.String())
+
+	parent, ok := result.Cache.OrderByClientID("backtest", "oto-parent")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusFilled, parent.Status)
+	child, ok := result.Cache.OrderByClientID("backtest", "oto-child")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusAccepted, child.Status)
+	require.Equal(t, "1", child.Quantity.String())
+	require.Equal(t, "1", child.LeavesQuantity.String())
+	require.True(t, child.FilledQuantity.IsZero())
 }
 
 func TestBacktestDispatchesPositionLifecycleCallbacks(t *testing.T) {
@@ -1141,6 +1458,55 @@ func TestBacktestQueryAccountReturnsSnapshotToStrategy(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, impl.queried)
 	require.Equal(t, model.AccountID("backtest"), impl.snapshot.AccountID)
+}
+
+func TestBacktestRequestDataReturnsCachedMarketDataToStrategy(t *testing.T) {
+	engine := NewEngine(EngineConfig{})
+	impl := &requestDataBacktestStrategy{
+		instrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+	}
+	engine.AddStrategy(strategy.NewTyped("request-data", impl))
+	engine.AddData(tickerEvent(decimal.RequireFromString("123.45")))
+
+	_, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.True(t, impl.requested)
+	require.Equal(t, decimal.RequireFromString("123.45"), impl.last)
+	require.Equal(t, model.CommandID("data-request-command"), impl.commandID)
+	require.Equal(t, model.StrategyID("request-data"), impl.strategyID)
+}
+
+func TestBacktestRoutesOrderCommandsThroughExecutionEngine(t *testing.T) {
+	engine := NewEngine(EngineConfig{})
+	impl := &executionEngineBacktestStrategy{instrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")}
+	engine.AddStrategy(strategy.NewTyped("backtest-execution-engine", impl))
+
+	result, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), result.Execution.Submits)
+	require.Equal(t, int64(1), result.Execution.Modifies)
+	require.Equal(t, int64(1), result.Execution.Queries)
+	require.Equal(t, int64(1), result.Execution.Cancels)
+	require.Equal(t, model.OrderStatusCanceled, impl.cancelStatus)
+}
+
+func TestBacktestEngineReplaysSharedDataCatalog(t *testing.T) {
+	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	engine := NewEngine(EngineConfig{
+		DataCatalog: data.NewMemoryCatalog(model.MarketEvent{Ticker: &model.Ticker{
+			InstrumentID: instID,
+			Last:         decimal.RequireFromString("222.22"),
+			Timestamp:    time.Unix(33, 0),
+		}}),
+	})
+	impl := &requestDataBacktestStrategy{instrumentID: instID}
+	engine.AddStrategy(strategy.NewTyped("request-data", impl))
+
+	result, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, result.EventsProcessed)
+	require.True(t, impl.requested)
+	require.Equal(t, decimal.RequireFromString("222.22"), impl.last)
 }
 
 func TestBacktestCancelOrderDispatchesPendingCancelAndCanceled(t *testing.T) {
@@ -1407,17 +1773,20 @@ func (s *existingOrderObservationStrategy) OnEvent(ctx context.Context, env bus.
 func (s *existingOrderObservationStrategy) OnStop(context.Context) error { return nil }
 
 type submittingStrategy struct {
-	id         string
-	runtime    strategy.Runtime
-	side       model.OrderSide
-	orderType  model.OrderType
-	price      decimal.Decimal
-	trigger    decimal.Decimal
-	activation decimal.Decimal
-	trailing   decimal.Decimal
-	postOnly   bool
-	stopped    bool
-	done       bool
+	id            string
+	runtime       strategy.Runtime
+	accountID     model.AccountID
+	clientOrderID model.ClientOrderID
+	side          model.OrderSide
+	orderType     model.OrderType
+	quantity      decimal.Decimal
+	price         decimal.Decimal
+	trigger       decimal.Decimal
+	activation    decimal.Decimal
+	trailing      decimal.Decimal
+	postOnly      bool
+	stopped       bool
+	done          bool
 }
 
 func (s *submittingStrategy) ID() string { return s.id }
@@ -1442,14 +1811,26 @@ func (s *submittingStrategy) OnEvent(ctx context.Context, env bus.Envelope) erro
 	if side == "" {
 		side = model.OrderSideBuy
 	}
+	accountID := s.accountID
+	if accountID == "" {
+		accountID = "backtest"
+	}
+	clientOrderID := s.clientOrderID
+	if clientOrderID == "" {
+		clientOrderID = "bt-client-1"
+	}
+	quantity := s.quantity
+	if !quantity.IsPositive() {
+		quantity = decimal.RequireFromString("1")
+	}
 	_, err := s.runtime.SubmitOrder(ctx, model.SubmitOrder{
-		AccountID:       "backtest",
+		AccountID:       accountID,
 		InstrumentID:    event.Ticker.InstrumentID,
-		ClientOrderID:   "bt-client-1",
+		ClientOrderID:   clientOrderID,
 		Side:            side,
 		Type:            orderType,
 		TimeInForce:     model.TimeInForceGTC,
-		Quantity:        decimal.RequireFromString("1"),
+		Quantity:        quantity,
 		Price:           s.price,
 		TriggerPrice:    s.trigger,
 		ActivationPrice: s.activation,
@@ -1462,6 +1843,43 @@ func (s *submittingStrategy) OnStop(context.Context) error {
 	s.stopped = true
 	return nil
 }
+
+type multiAccountSubmittingStrategy struct {
+	runtime   strategy.Runtime
+	submitted bool
+}
+
+func (s *multiAccountSubmittingStrategy) ID() string { return "multi-account-submitter" }
+func (s *multiAccountSubmittingStrategy) OnStart(_ context.Context, rt strategy.Runtime) error {
+	s.runtime = rt
+	return nil
+}
+func (s *multiAccountSubmittingStrategy) OnEvent(ctx context.Context, env bus.Envelope) error {
+	if s.submitted || env.Topic != strategy.TopicMarketData {
+		return nil
+	}
+	event, ok := env.Message.(model.MarketEvent)
+	if !ok || event.Ticker == nil {
+		return nil
+	}
+	s.submitted = true
+	for _, accountID := range []model.AccountID{"acct-a", "acct-b"} {
+		_, err := s.runtime.SubmitOrder(ctx, model.SubmitOrder{
+			AccountID:     accountID,
+			InstrumentID:  event.Ticker.InstrumentID,
+			ClientOrderID: model.ClientOrderID(string(accountID) + "-client"),
+			Side:          model.OrderSideBuy,
+			Type:          model.OrderTypeMarket,
+			TimeInForce:   model.TimeInForceGTC,
+			Quantity:      decimal.RequireFromString("1"),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (s *multiAccountSubmittingStrategy) OnStop(context.Context) error { return nil }
 
 func tickerEvent(last decimal.Decimal) Event {
 	return tickerEventAt(time.Unix(10, 0), last)
@@ -1559,13 +1977,16 @@ func barEvent(barType model.BarType, close decimal.Decimal) Event {
 }
 
 type bookSubmittingStrategy struct {
-	id       string
-	runtime  strategy.Runtime
-	side     model.OrderSide
-	orderTyp model.OrderType
-	quantity decimal.Decimal
-	price    decimal.Decimal
-	done     bool
+	id            string
+	runtime       strategy.Runtime
+	clientOrderID model.ClientOrderID
+	side          model.OrderSide
+	orderTyp      model.OrderType
+	quantity      decimal.Decimal
+	price         decimal.Decimal
+	postOnly      bool
+	reduceOnly    bool
+	done          bool
 }
 
 func (s *bookSubmittingStrategy) ID() string { return s.id }
@@ -1582,15 +2003,21 @@ func (s *bookSubmittingStrategy) OnEvent(ctx context.Context, env bus.Envelope) 
 		return nil
 	}
 	s.done = true
+	clientOrderID := s.clientOrderID
+	if clientOrderID == "" {
+		clientOrderID = "book-client-1"
+	}
 	_, err := s.runtime.SubmitOrder(ctx, model.SubmitOrder{
 		AccountID:     "backtest",
 		InstrumentID:  event.OrderBook.InstrumentID,
-		ClientOrderID: "book-client-1",
+		ClientOrderID: clientOrderID,
 		Side:          s.side,
 		Type:          s.orderTyp,
 		TimeInForce:   model.TimeInForceGTC,
 		Quantity:      s.quantity,
 		Price:         s.price,
+		PostOnly:      s.postOnly,
+		ReduceOnly:    s.reduceOnly,
 	})
 	return err
 }
@@ -1700,6 +2127,23 @@ type bracketBacktestStrategy struct {
 	submitted    bool
 }
 
+type ouoBacktestStrategy struct {
+	accountID      model.AccountID
+	instrumentID   model.InstrumentID
+	runtime        strategy.Runtime
+	submitted      bool
+	exitsSubmitted bool
+}
+
+type otoPartialBacktestStrategy struct {
+	accountID                    model.AccountID
+	instrumentID                 model.InstrumentID
+	runtime                      strategy.Runtime
+	events                       int
+	childQuantityAfterFirstFill  decimal.Decimal
+	childQuantityAfterSecondFill decimal.Decimal
+}
+
 type positionLifecycleBacktestStrategy struct {
 	accountID    model.AccountID
 	instrumentID model.InstrumentID
@@ -1778,6 +2222,15 @@ type queryAccountBacktestStrategy struct {
 	runtime   strategy.Runtime
 	queried   bool
 	snapshot  model.AccountSnapshot
+}
+
+type requestDataBacktestStrategy struct {
+	instrumentID model.InstrumentID
+	runtime      strategy.Runtime
+	requested    bool
+	last         decimal.Decimal
+	commandID    model.CommandID
+	strategyID   model.StrategyID
 }
 
 type tradeSubmittingStrategy struct {
@@ -2039,6 +2492,86 @@ func (s *queryAccountBacktestStrategy) OnStart(ctx context.Context, rt strategy.
 	return nil
 }
 
+func (s *requestDataBacktestStrategy) OnStart(_ context.Context, rt strategy.Runtime) error {
+	s.runtime = rt
+	return nil
+}
+
+func (s *requestDataBacktestStrategy) OnTicker(ctx context.Context, tick model.Ticker) error {
+	if s.requested {
+		return nil
+	}
+	response, err := s.runtime.RequestData(ctx, model.DataRequest{
+		Metadata:     model.CommandMetadata{CommandID: "data-request-command"},
+		RequestID:    "request-data-1",
+		InstrumentID: tick.InstrumentID,
+		Type:         model.MarketDataTypeTicker,
+	})
+	if err != nil {
+		return err
+	}
+	if len(response.Events) != 1 || response.Events[0].Ticker == nil {
+		return fmt.Errorf("expected one ticker response, got %#v", response.Events)
+	}
+	s.requested = true
+	s.last = response.Events[0].Ticker.Last
+	s.commandID = response.Metadata.CommandID
+	s.strategyID = response.Metadata.StrategyID
+	return nil
+}
+
+type executionEngineBacktestStrategy struct {
+	runtime      strategy.Runtime
+	instrumentID model.InstrumentID
+	cancelStatus model.OrderStatus
+}
+
+func (s *executionEngineBacktestStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+	s.runtime = rt
+	report, err := rt.SubmitOrder(ctx, model.SubmitOrder{
+		AccountID:     "backtest",
+		InstrumentID:  s.instrumentID,
+		ClientOrderID: "bt-exec-engine-1",
+		Side:          model.OrderSideBuy,
+		Type:          model.OrderTypeLimit,
+		TimeInForce:   model.TimeInForceGTC,
+		Quantity:      decimal.RequireFromString("1"),
+		Price:         decimal.RequireFromString("90"),
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := rt.ModifyOrder(ctx, model.ModifyOrder{
+		AccountID:     report.AccountID,
+		InstrumentID:  report.InstrumentID,
+		OrderID:       report.OrderID,
+		ClientOrderID: report.ClientOrderID,
+		Quantity:      decimal.RequireFromString("1"),
+		Price:         decimal.RequireFromString("89"),
+	}); err != nil {
+		return err
+	}
+	if _, err := rt.QueryOrder(ctx, model.QueryOrder{
+		AccountID:     report.AccountID,
+		InstrumentID:  report.InstrumentID,
+		OrderID:       report.OrderID,
+		ClientOrderID: report.ClientOrderID,
+	}); err != nil {
+		return err
+	}
+	canceled, err := rt.CancelOrder(ctx, model.CancelOrder{
+		AccountID:     report.AccountID,
+		InstrumentID:  report.InstrumentID,
+		OrderID:       report.OrderID,
+		ClientOrderID: report.ClientOrderID,
+	})
+	if err != nil {
+		return err
+	}
+	s.cancelStatus = canceled.Status
+	return nil
+}
+
 func (s *tradeSubmittingStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
 	s.runtime = rt
 	return rt.SubscribeTradeTicks(ctx, s.instrumentID)
@@ -2224,6 +2757,121 @@ func (s *bracketBacktestStrategy) OnOrderBook(ctx context.Context, book model.Or
 	list.Metadata = model.CommandMetadata{CommandID: "list-command"}
 	_, err := s.runtime.SubmitOrderList(ctx, list)
 	return err
+}
+
+func (s *ouoBacktestStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+	s.runtime = rt
+	return rt.SubscribeOrderBookDepth(ctx, s.instrumentID, 2)
+}
+
+func (s *ouoBacktestStrategy) OnOrderBook(ctx context.Context, book model.OrderBook) error {
+	if s.submitted {
+		return nil
+	}
+	s.submitted = true
+	order := s.runtime.OrderFactory(s.accountID).Market(
+		book.InstrumentID,
+		model.OrderSideBuy,
+		decimal.RequireFromString("1"),
+		model.WithClientOrderID("ouo-entry"),
+	)
+	_, err := s.runtime.SubmitOrder(ctx, order)
+	return err
+}
+
+func (s *ouoBacktestStrategy) OnOrderFilled(ctx context.Context, fill model.FillReport) error {
+	if fill.ClientOrderID != "ouo-entry" || s.exitsSubmitted {
+		return nil
+	}
+	s.exitsSubmitted = true
+	listID := model.OrderListID("ouo-list")
+	list := model.OrderList{
+		ID: listID,
+		Orders: []model.SubmitOrder{
+			{
+				AccountID:     s.accountID,
+				InstrumentID:  fill.InstrumentID,
+				ClientOrderID: "ouo-exit-1",
+				OrderListID:   listID,
+				Side:          model.OrderSideSell,
+				Type:          model.OrderTypeLimit,
+				Contingency:   model.ContingencyTypeOUO,
+				TimeInForce:   model.TimeInForceGTC,
+				Quantity:      fill.Quantity,
+				Price:         decimal.RequireFromString("103"),
+				ReduceOnly:    true,
+			},
+			{
+				AccountID:     s.accountID,
+				InstrumentID:  fill.InstrumentID,
+				ClientOrderID: "ouo-exit-2",
+				OrderListID:   listID,
+				Side:          model.OrderSideSell,
+				Type:          model.OrderTypeLimit,
+				Contingency:   model.ContingencyTypeOUO,
+				TimeInForce:   model.TimeInForceGTC,
+				Quantity:      fill.Quantity,
+				Price:         decimal.RequireFromString("104"),
+				ReduceOnly:    true,
+			},
+		},
+	}
+	_, err := s.runtime.SubmitOrderList(ctx, list)
+	return err
+}
+
+func (s *otoPartialBacktestStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+	s.runtime = rt
+	return rt.SubscribeOrderBookDepth(ctx, s.instrumentID, 2)
+}
+
+func (s *otoPartialBacktestStrategy) OnOrderBook(ctx context.Context, book model.OrderBook) error {
+	s.events++
+	if s.events == 1 {
+		listID := model.OrderListID("oto-partial-list")
+		_, err := s.runtime.SubmitOrderList(ctx, model.OrderList{
+			ID: listID,
+			Orders: []model.SubmitOrder{
+				{
+					AccountID:     s.accountID,
+					InstrumentID:  book.InstrumentID,
+					ClientOrderID: "oto-parent",
+					OrderListID:   listID,
+					Side:          model.OrderSideBuy,
+					Type:          model.OrderTypeLimit,
+					Contingency:   model.ContingencyTypeOTO,
+					TimeInForce:   model.TimeInForceGTC,
+					Quantity:      decimal.RequireFromString("1"),
+					Price:         decimal.RequireFromString("101"),
+				},
+				{
+					AccountID:           s.accountID,
+					InstrumentID:        book.InstrumentID,
+					ClientOrderID:       "oto-child",
+					ParentClientOrderID: "oto-parent",
+					OrderListID:         listID,
+					Side:                model.OrderSideSell,
+					Type:                model.OrderTypeLimit,
+					Contingency:         model.ContingencyTypeOTO,
+					TimeInForce:         model.TimeInForceGTC,
+					Quantity:            decimal.RequireFromString("1"),
+					Price:               decimal.RequireFromString("110"),
+					ReduceOnly:          true,
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if child, ok := s.runtime.Cache().OrderByClientID(s.accountID, "oto-child"); ok {
+			s.childQuantityAfterFirstFill = child.Quantity
+		}
+		return nil
+	}
+	if child, ok := s.runtime.Cache().OrderByClientID(s.accountID, "oto-child"); ok {
+		s.childQuantityAfterSecondFill = child.Quantity
+	}
+	return nil
 }
 
 func (s *cascadingFillStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {

@@ -18,6 +18,13 @@ func NewTyped(id string, handler any) *TypedStrategy {
 	return &TypedStrategy{id: id, handler: handler}
 }
 
+func NewTypedWithConfig(cfg StrategyConfig, handler any) (*TypedStrategy, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return NewTyped(string(cfg.ID), handler), nil
+}
+
 func (s *TypedStrategy) ID() string {
 	if s.id != "" {
 		return s.id
@@ -66,9 +73,22 @@ func (s *TypedStrategy) dispatchTyped(ctx context.Context, env bus.Envelope) err
 		return s.dispatchExecution(ctx, msg)
 	case TimerEvent:
 		return s.dispatchTimer(ctx, msg)
+	case ErrorEvent:
+		return s.dispatchError(ctx, msg)
+	case error:
+		return s.dispatchError(ctx, ErrorEvent{Err: msg})
 	default:
 		return nil
 	}
+}
+
+func (s *TypedStrategy) dispatchError(ctx context.Context, event ErrorEvent) error {
+	if h, ok := s.handler.(interface {
+		OnError(context.Context, ErrorEvent) error
+	}); ok {
+		return h.OnError(ctx, event)
+	}
+	return nil
 }
 
 func (s *TypedStrategy) dispatchTimer(ctx context.Context, event TimerEvent) error {
@@ -115,6 +135,13 @@ func (s *TypedStrategy) dispatchMarket(ctx context.Context, event model.MarketEv
 			OnBar(context.Context, model.Bar) error
 		}); ok {
 			dispatchErr = errors.Join(dispatchErr, h.OnBar(ctx, *event.Bar))
+		}
+	}
+	if event.Custom != nil {
+		if h, ok := s.handler.(interface {
+			OnCustomData(context.Context, model.CustomData) error
+		}); ok {
+			dispatchErr = errors.Join(dispatchErr, h.OnCustomData(ctx, *event.Custom))
 		}
 	}
 	return dispatchErr

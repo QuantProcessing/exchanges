@@ -15,10 +15,11 @@ import (
 const defaultTrackerBufferSize = 16
 
 type TradingAccountConfig struct {
-	Cache             *cache.Cache
-	Instruments       []model.InstrumentID
-	BufferSize        int
-	ReconcileInterval time.Duration
+	Cache                   *cache.Cache
+	Instruments             []model.InstrumentID
+	BufferSize              int
+	ReconcileInterval       time.Duration
+	MissingOrderRepairDelay time.Duration
 }
 
 type TradingAccountHealth struct {
@@ -40,12 +41,13 @@ type TradingAccountHealth struct {
 }
 
 type TradingAccount struct {
-	client            venue.ExecutionClient
-	cache             *cache.Cache
-	reconciler        *Reconciler
-	instruments       []model.InstrumentID
-	bufferSize        int
-	reconcileInterval time.Duration
+	client             venue.ExecutionClient
+	cache              *cache.Cache
+	reconciler         *Reconciler
+	instruments        []model.InstrumentID
+	bufferSize         int
+	reconcileInterval  time.Duration
+	missingRepairDelay time.Duration
 
 	mu       sync.RWMutex
 	cancel   context.CancelFunc
@@ -73,13 +75,14 @@ func NewTradingAccount(client venue.ExecutionClient, cfg TradingAccountConfig) (
 		bufferSize = defaultTrackerBufferSize
 	}
 	return &TradingAccount{
-		client:            client,
-		cache:             c,
-		reconciler:        NewReconciler(c),
-		instruments:       append([]model.InstrumentID(nil), cfg.Instruments...),
-		bufferSize:        bufferSize,
-		reconcileInterval: cfg.ReconcileInterval,
-		trackers:          make(map[*OrderTracker]struct{}),
+		client:             client,
+		cache:              c,
+		reconciler:         NewReconciler(c),
+		instruments:        append([]model.InstrumentID(nil), cfg.Instruments...),
+		bufferSize:         bufferSize,
+		reconcileInterval:  cfg.ReconcileInterval,
+		missingRepairDelay: cfg.MissingOrderRepairDelay,
+		trackers:           make(map[*OrderTracker]struct{}),
 	}, nil
 }
 
@@ -356,7 +359,10 @@ func (a *TradingAccount) reconcileExecution(ctx context.Context, repairMissing b
 			}
 		}
 		if repairMissing {
-			missing, err := a.reconciler.ReconcileMissingOpenOrders(a.client.AccountID(), instrumentID, reports, model.OrderStatusCanceled)
+			missing, err := a.reconciler.ReconcileMissingOpenOrdersWithPolicy(a.client.AccountID(), instrumentID, reports, MissingOpenOrderRepairPolicy{
+				MissingStatus:        model.OrderStatusCanceled,
+				RecentActivityWindow: a.missingRepairDelay,
+			})
 			if err != nil {
 				return err
 			}

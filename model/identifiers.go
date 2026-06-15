@@ -14,6 +14,10 @@ type OrderID string
 type VenueOrderID string
 type TradeID string
 type PositionID string
+type VenuePositionID string
+type ExecAlgorithmID string
+type ExecSpawnID string
+type ComponentID string
 
 type InstrumentID struct {
 	Symbol string
@@ -59,4 +63,8 @@ func (id InstrumentID) Validate() error {
 		return fmt.Errorf("%w: %q", ErrInvalidInstrumentID, id.String())
 	}
 	return nil
+}
+
+func (id InstrumentID) IsSynthetic() bool {
+	return id.Venue == Venue("SYNTH")
 }

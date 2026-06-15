@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -58,7 +59,26 @@ const (
 	OrderTypeTrailingStopLimit  OrderType = "trailing_stop_limit"
 )
 
+func (t OrderType) Validate() error {
+	switch t {
+	case OrderTypeMarket,
+		OrderTypeLimit,
+		OrderTypeMarketToLimit,
+		OrderTypeStopMarket,
+		OrderTypeStopLimit,
+		OrderTypeMarketIfTouched,
+		OrderTypeLimitIfTouched,
+		OrderTypeTrailingStopMarket,
+		OrderTypeTrailingStopLimit:
+		return nil
+	default:
+		return fmt.Errorf("%w: invalid order type %q", ErrInvalidOrder, t)
+	}
+}
+
 type TimeInForce string
+type TriggerType string
+type TrailingOffsetType string
 
 const (
 	TimeInForceGTC TimeInForce = "gtc"
@@ -66,6 +86,19 @@ const (
 	TimeInForceFOK TimeInForce = "fok"
 	TimeInForceGTD TimeInForce = "gtd"
 	TimeInForceDAY TimeInForce = "day"
+)
+
+const (
+	TriggerTypeNoTrigger TriggerType = "no_trigger"
+	TriggerTypeDefault   TriggerType = "default"
+	TriggerTypeBidAsk    TriggerType = "bid_ask"
+	TriggerTypeLastPrice TriggerType = "last_price"
+)
+
+const (
+	TrailingOffsetTypePrice       TrailingOffsetType = "price"
+	TrailingOffsetTypeBasisPoints TrailingOffsetType = "basis_points"
+	TrailingOffsetTypeTicks       TrailingOffsetType = "ticks"
 )
 
 func (t TimeInForce) Validate() error {
@@ -77,6 +110,35 @@ func (t TimeInForce) Validate() error {
 		return nil
 	default:
 		return fmt.Errorf("%w: invalid time in force %q", ErrInvalidOrder, t)
+	}
+}
+
+func (t TriggerType) Validate() error {
+	switch t {
+	case "", TriggerTypeNoTrigger, TriggerTypeDefault, TriggerTypeBidAsk, TriggerTypeLastPrice:
+		return nil
+	default:
+		return fmt.Errorf("%w: invalid trigger type %q", ErrInvalidOrder, t)
+	}
+}
+
+func (t TriggerType) IsActive() bool {
+	return t != "" && t != TriggerTypeNoTrigger
+}
+
+func (t TrailingOffsetType) Canonical() TrailingOffsetType {
+	if t == "" {
+		return TrailingOffsetTypePrice
+	}
+	return t
+}
+
+func (t TrailingOffsetType) Validate() error {
+	switch t.Canonical() {
+	case TrailingOffsetTypePrice, TrailingOffsetTypeBasisPoints, TrailingOffsetTypeTicks:
+		return nil
+	default:
+		return fmt.Errorf("%w: invalid trailing offset type %q", ErrInvalidOrder, t)
 	}
 }
 
@@ -116,6 +178,7 @@ type SubmitOrder struct {
 	Metadata            CommandMetadata
 	AccountID           AccountID
 	InstrumentID        InstrumentID
+	TriggerInstrumentID InstrumentID
 	OrderListID         OrderListID
 	ParentClientOrderID ClientOrderID
 	ClientOrderID       ClientOrderID
@@ -128,6 +191,8 @@ type SubmitOrder struct {
 	TriggerPrice        decimal.Decimal
 	ActivationPrice     decimal.Decimal
 	TrailingOffset      decimal.Decimal
+	TrailingOffsetType  TrailingOffsetType
+	EmulationTrigger    TriggerType
 	PostOnly            bool
 	ReduceOnly          bool
 	ExpireTime          time.Time
@@ -137,7 +202,16 @@ func (o SubmitOrder) Validate() error {
 	if o.AccountID == "" || o.Side == "" || o.Type == "" || !o.Quantity.IsPositive() {
 		return fmt.Errorf("%w: invalid submit order", ErrInvalidOrder)
 	}
+	if err := o.Type.Validate(); err != nil {
+		return err
+	}
 	if err := o.TimeInForce.Validate(); err != nil {
+		return err
+	}
+	if err := o.EmulationTrigger.Validate(); err != nil {
+		return err
+	}
+	if err := o.TrailingOffsetType.Validate(); err != nil {
 		return err
 	}
 	if err := o.Contingency.Validate(); err != nil {
@@ -145,6 +219,11 @@ func (o SubmitOrder) Validate() error {
 	}
 	if err := o.InstrumentID.Validate(); err != nil {
 		return err
+	}
+	if o.TriggerInstrumentID != (InstrumentID{}) {
+		if err := o.TriggerInstrumentID.Validate(); err != nil {
+			return err
+		}
 	}
 	if o.TimeInForce == TimeInForceGTD {
 		if !o.ExpireTime.After(time.Unix(0, 0)) {
@@ -169,6 +248,13 @@ func (o SubmitOrder) Validate() error {
 		return fmt.Errorf("%w: post-only requires limit-style order", ErrInvalidOrder)
 	}
 	return nil
+}
+
+func (o SubmitOrder) TriggerInstrument() InstrumentID {
+	if o.TriggerInstrumentID != (InstrumentID{}) {
+		return o.TriggerInstrumentID
+	}
+	return o.InstrumentID
 }
 
 type CancelOrder struct {
@@ -255,18 +341,19 @@ func (q QueryOrder) Validate() error {
 }
 
 type ModifyOrder struct {
-	Metadata        CommandMetadata
-	AccountID       AccountID
-	InstrumentID    InstrumentID
-	OrderID         OrderID
-	VenueOrderID    VenueOrderID
-	ClientOrderID   ClientOrderID
-	Quantity        decimal.Decimal
-	Price           decimal.Decimal
-	TriggerPrice    decimal.Decimal
-	ActivationPrice decimal.Decimal
-	TrailingOffset  decimal.Decimal
-	TimeInForce     TimeInForce
+	Metadata           CommandMetadata
+	AccountID          AccountID
+	InstrumentID       InstrumentID
+	OrderID            OrderID
+	VenueOrderID       VenueOrderID
+	ClientOrderID      ClientOrderID
+	Quantity           decimal.Decimal
+	Price              decimal.Decimal
+	TriggerPrice       decimal.Decimal
+	ActivationPrice    decimal.Decimal
+	TrailingOffset     decimal.Decimal
+	TrailingOffsetType TrailingOffsetType
+	TimeInForce        TimeInForce
 }
 
 func (o ModifyOrder) Validate() error {
@@ -279,7 +366,13 @@ func (o ModifyOrder) Validate() error {
 	if err := o.TimeInForce.Validate(); err != nil {
 		return err
 	}
+	if err := o.TrailingOffsetType.Validate(); err != nil {
+		return err
+	}
 	hasChange := o.TimeInForce != ""
+	if o.TrailingOffsetType != "" {
+		hasChange = true
+	}
 	for _, value := range []decimal.Decimal{o.Quantity, o.Price, o.TriggerPrice, o.ActivationPrice, o.TrailingOffset} {
 		if value.IsNegative() {
 			return fmt.Errorf("%w: invalid modify value", ErrInvalidOrder)
@@ -368,6 +461,15 @@ func ApplyOrderModification(order OrderStatusReport, modify ModifyOrder) (OrderS
 			changed = true
 		}
 	}
+	if modify.TrailingOffsetType != "" {
+		if !orderTypeAllowsTrailing(order.Type) {
+			return OrderStatusReport{}, false, fmt.Errorf("%w: order type does not support trailing type modification", ErrInvalidOrder)
+		}
+		if modify.TrailingOffsetType.Canonical() != order.TrailingOffsetType.Canonical() {
+			updated.TrailingOffsetType = modify.TrailingOffsetType
+			changed = true
+		}
+	}
 	if modify.TimeInForce != "" && modify.TimeInForce != order.TimeInForce {
 		updated.TimeInForce = modify.TimeInForce
 		changed = true
@@ -402,7 +504,9 @@ type OrderStatusReport struct {
 	Metadata            CommandMetadata
 	AccountID           AccountID
 	InstrumentID        InstrumentID
+	TriggerInstrumentID InstrumentID
 	OrderListID         OrderListID
+	PositionID          PositionID
 	OrderID             OrderID
 	VenueOrderID        VenueOrderID
 	ParentClientOrderID ClientOrderID
@@ -418,6 +522,7 @@ type OrderStatusReport struct {
 	TriggerPrice        decimal.Decimal
 	ActivationPrice     decimal.Decimal
 	TrailingOffset      decimal.Decimal
+	TrailingOffsetType  TrailingOffsetType
 	PostOnly            bool
 	ReduceOnly          bool
 	TimeInForce         TimeInForce
@@ -433,7 +538,15 @@ func (r OrderStatusReport) Validate() error {
 	if err := r.InstrumentID.Validate(); err != nil {
 		return err
 	}
+	if r.TriggerInstrumentID != (InstrumentID{}) {
+		if err := r.TriggerInstrumentID.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := r.Contingency.Validate(); err != nil {
+		return err
+	}
+	if err := r.TrailingOffsetType.Validate(); err != nil {
 		return err
 	}
 	if r.FilledQuantity.IsNegative() || r.Quantity.IsNegative() {
@@ -448,6 +561,13 @@ func (r OrderStatusReport) Validate() error {
 	return nil
 }
 
+func (r OrderStatusReport) TriggerInstrument() InstrumentID {
+	if r.TriggerInstrumentID != (InstrumentID{}) {
+		return r.TriggerInstrumentID
+	}
+	return r.InstrumentID
+}
+
 type FillReport struct {
 	AccountID     AccountID
 	InstrumentID  InstrumentID
@@ -455,6 +575,8 @@ type FillReport struct {
 	VenueOrderID  VenueOrderID
 	ClientOrderID ClientOrderID
 	TradeID       TradeID
+	PositionID    PositionID
+	IsLeg         bool
 	Side          OrderSide
 	Price         decimal.Decimal
 	Quantity      decimal.Decimal
@@ -464,7 +586,10 @@ type FillReport struct {
 }
 
 func (r FillReport) Validate() error {
-	if r.AccountID == "" || r.OrderID == "" || r.TradeID == "" {
+	if r.AccountID == "" || r.TradeID == "" {
+		return fmt.Errorf("%w: invalid fill report", ErrInvalidOrder)
+	}
+	if r.OrderID == "" && !r.IsLegFill() {
 		return fmt.Errorf("%w: invalid fill report", ErrInvalidOrder)
 	}
 	if err := r.InstrumentID.Validate(); err != nil {
@@ -479,6 +604,12 @@ func (r FillReport) Validate() error {
 	return nil
 }
 
+func (r FillReport) IsLegFill() bool {
+	return r.IsLeg ||
+		strings.Contains(string(r.ClientOrderID), "-LEG-") ||
+		strings.Contains(string(r.VenueOrderID), "-LEG-")
+}
+
 type PositionSide string
 
 const (
@@ -488,13 +619,15 @@ const (
 )
 
 type PositionStatusReport struct {
-	AccountID    AccountID
-	InstrumentID InstrumentID
-	PositionID   PositionID
-	Side         PositionSide
-	Quantity     decimal.Decimal
-	EntryPrice   decimal.Decimal
-	Timestamp    time.Time
+	Metadata        CommandMetadata
+	AccountID       AccountID
+	InstrumentID    InstrumentID
+	PositionID      PositionID
+	VenuePositionID VenuePositionID
+	Side            PositionSide
+	Quantity        decimal.Decimal
+	EntryPrice      decimal.Decimal
+	Timestamp       time.Time
 }
 
 func (r PositionStatusReport) Validate() error {

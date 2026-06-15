@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/QuantProcessing/exchanges/account"
 	"github.com/QuantProcessing/exchanges/bus"
 	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/data"
+	"github.com/QuantProcessing/exchanges/execution"
+	"github.com/QuantProcessing/exchanges/kernel"
 	"github.com/QuantProcessing/exchanges/model"
 	"github.com/QuantProcessing/exchanges/portfolio"
 	"github.com/QuantProcessing/exchanges/risk"
@@ -24,34 +28,47 @@ const (
 )
 
 type Config struct {
-	Bus       *bus.Bus
-	Cache     *cache.Cache
-	Risk      *risk.Engine
-	Portfolio *portfolio.Portfolio
+	Bus             *bus.Bus
+	Cache           *cache.Cache
+	Risk            *risk.Engine
+	Portfolio       *portfolio.Portfolio
+	DataEngine      *data.Engine
+	ExecutionEngine *execution.Engine
+	DataCatalog     data.Catalog
+	DataStaleAfter  time.Duration
+	ReconnectPolicy RetryPolicy
+	Logger          *slog.Logger
 }
 
 type Node struct {
-	mu    sync.RWMutex
-	bus   *bus.Bus
-	cache *cache.Cache
-	risk  *risk.Engine
-	pf    *portfolio.Portfolio
+	mu         sync.RWMutex
+	bus        *bus.Bus
+	cache      *cache.Cache
+	risk       *risk.Engine
+	pf         *portfolio.Portfolio
+	dataEngine *data.Engine
+	execEngine *execution.Engine
+	component  *kernel.Component
 
-	dataClients      []venue.DataClient
-	execClients      []venue.ExecutionClient
-	dataSubs         map[string]venue.StreamingDataClient
-	activeDataSubs   map[string]model.SubscribeMarketData
-	pendingDataSubs  map[string]model.SubscribeMarketData
-	execByAccount    map[model.AccountID]venue.ExecutionClient
-	reconcilers      map[model.AccountID]*account.Reconciler
-	factories        map[model.AccountID]*model.OrderFactory
-	heldChildren     map[parentOrderKey][]model.SubmitOrder
-	orderListMembers map[orderListKey][]model.ClientOrderID
-	timers           map[string]context.CancelFunc
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	ready            bool
-	lastError        error
+	dataClients        []venue.DataClient
+	execClients        []venue.ExecutionClient
+	dataSubs           map[string]venue.StreamingDataClient
+	activeDataSubs     map[string]model.SubscribeMarketData
+	pendingDataSubs    map[string]model.SubscribeMarketData
+	execByAccount      map[model.AccountID]venue.ExecutionClient
+	reconcilers        map[model.AccountID]*account.Reconciler
+	factories          map[model.AccountID]*model.OrderFactory
+	heldChildren       map[parentOrderKey][]model.SubmitOrder
+	orderListMembers   map[orderListKey][]model.ClientOrderID
+	emulationDataSubs  map[string]int
+	emulationOrderSubs map[parentOrderKey][]model.SubscribeMarketData
+	timers             map[string]context.CancelFunc
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
+	reconnectPolicy    RetryPolicy
+	logger             *slog.Logger
+	ready              bool
+	lastError          error
 }
 
 type parentOrderKey struct {
@@ -65,8 +82,25 @@ type orderListKey struct {
 }
 
 type Health struct {
-	Ready     bool
-	LastError error
+	Ready      bool
+	State      kernel.ComponentState
+	Risk       risk.Health
+	DataEngine data.Health
+	Data       []DataClientHealth
+	Execution  []ExecutionClientHealth
+	LastError  error
+}
+
+type DataClientHealth struct {
+	Venue    model.Venue
+	ClientID string
+	Health   venue.DataHealth
+}
+
+type ExecutionClientHealth struct {
+	Venue     model.Venue
+	AccountID model.AccountID
+	Health    venue.ExecutionHealth
 }
 
 func NewNode(cfg Config) *Node {
@@ -82,30 +116,70 @@ func NewNode(cfg Config) *Node {
 	if pf == nil {
 		pf = portfolio.New(c)
 	}
+	dataEngine := cfg.DataEngine
+	if dataEngine == nil {
+		dataEngine = data.NewEngine(data.Config{
+			Bus:             b,
+			Cache:           c,
+			Catalog:         cfg.DataCatalog,
+			ReconnectPolicy: data.RetryPolicy{MaxAttempts: cfg.ReconnectPolicy.MaxAttempts, Backoff: cfg.ReconnectPolicy.Backoff},
+			StaleAfter:      cfg.DataStaleAfter,
+		})
+	}
+	execEngine := cfg.ExecutionEngine
+	if execEngine == nil {
+		execEngine = execution.NewEngine(execution.EngineConfig{Cache: c})
+	}
 	return &Node{
-		bus:              b,
-		cache:            c,
-		risk:             cfg.Risk,
-		pf:               pf,
-		dataSubs:         make(map[string]venue.StreamingDataClient),
-		activeDataSubs:   make(map[string]model.SubscribeMarketData),
-		pendingDataSubs:  make(map[string]model.SubscribeMarketData),
-		execByAccount:    make(map[model.AccountID]venue.ExecutionClient),
-		reconcilers:      make(map[model.AccountID]*account.Reconciler),
-		factories:        make(map[model.AccountID]*model.OrderFactory),
-		heldChildren:     make(map[parentOrderKey][]model.SubmitOrder),
-		orderListMembers: make(map[orderListKey][]model.ClientOrderID),
-		timers:           make(map[string]context.CancelFunc),
+		component:          kernel.NewComponent("platform.node", kernel.ComponentHooks{}),
+		bus:                b,
+		cache:              c,
+		risk:               cfg.Risk,
+		pf:                 pf,
+		dataEngine:         dataEngine,
+		execEngine:         execEngine,
+		dataSubs:           make(map[string]venue.StreamingDataClient),
+		activeDataSubs:     make(map[string]model.SubscribeMarketData),
+		pendingDataSubs:    make(map[string]model.SubscribeMarketData),
+		execByAccount:      make(map[model.AccountID]venue.ExecutionClient),
+		reconcilers:        make(map[model.AccountID]*account.Reconciler),
+		factories:          make(map[model.AccountID]*model.OrderFactory),
+		heldChildren:       make(map[parentOrderKey][]model.SubmitOrder),
+		orderListMembers:   make(map[orderListKey][]model.ClientOrderID),
+		emulationDataSubs:  make(map[string]int),
+		emulationOrderSubs: make(map[parentOrderKey][]model.SubscribeMarketData),
+		timers:             make(map[string]context.CancelFunc),
+		reconnectPolicy:    cfg.ReconnectPolicy,
+		logger:             cfg.Logger,
 	}
 }
 
 func (n *Node) Bus() *bus.Bus       { return n.bus }
 func (n *Node) Cache() *cache.Cache { return n.cache }
+func (n *Node) DataEngine() *data.Engine {
+	if n == nil {
+		return nil
+	}
+	return n.dataEngine
+}
+func (n *Node) ExecutionEngine() *execution.Engine {
+	if n == nil {
+		return nil
+	}
+	return n.execEngine
+}
 func (n *Node) Portfolio() *portfolio.Portfolio {
 	return n.pf
 }
 
 func (n *Node) Clock() strategy.Clock { return strategy.WallClock{} }
+
+func (n *Node) Logger() *slog.Logger {
+	if n == nil {
+		return nil
+	}
+	return n.logger
+}
 
 func (n *Node) SetTimer(_ context.Context, name string, interval time.Duration) error {
 	if err := strategy.ValidateTimer(name, interval); err != nil {
@@ -170,11 +244,23 @@ func (n *Node) OrderFactory(accountID model.AccountID) *model.OrderFactory {
 }
 
 func (n *Node) AddDataClient(client venue.DataClient) error {
+	if n.dataEngine == nil {
+		n.dataEngine = data.NewEngine(data.Config{Bus: n.bus, Cache: n.cache})
+	}
+	if err := n.dataEngine.AddClient(client); err != nil {
+		return err
+	}
 	n.dataClients = append(n.dataClients, client)
 	return nil
 }
 
 func (n *Node) AddExecutionClient(client venue.ExecutionClient) error {
+	if n.execEngine == nil {
+		n.execEngine = execution.NewEngine(execution.EngineConfig{Cache: n.cache})
+	}
+	if err := n.execEngine.AddClient(client); err != nil {
+		return err
+	}
 	n.execClients = append(n.execClients, client)
 	if client.AccountID() != "" {
 		n.execByAccount[client.AccountID()] = client
@@ -182,38 +268,48 @@ func (n *Node) AddExecutionClient(client venue.ExecutionClient) error {
 	return nil
 }
 
-func (n *Node) Start(ctx context.Context) error {
+func (n *Node) Start(ctx context.Context) (err error) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	n.cancel = cancel
+	riskStarted := false
+	dataStarted := false
+	defer func() {
+		if err == nil {
+			return
+		}
+		cancel()
+		if dataStarted {
+			err = errors.Join(err, n.dataEngine.Stop(context.Background()))
+		}
+		if riskStarted {
+			err = errors.Join(err, n.risk.Stop(context.Background()))
+		}
+		n.recordError(err)
+		n.component.Fault(err)
+		n.mu.Lock()
+		n.ready = false
+		n.mu.Unlock()
+	}()
 	n.mu.Lock()
 	n.ready = false
 	n.lastError = nil
 	n.mu.Unlock()
-	for _, client := range n.dataClients {
-		provider := client.Instruments()
-		if provider != nil {
-			if err := provider.LoadAll(ctx); err != nil {
-				cancel()
-				return err
-			}
-			for _, inst := range provider.List() {
-				if err := n.cache.PutInstrument(inst); err != nil {
-					cancel()
-					return err
-				}
-			}
-		}
-		if err := client.Connect(ctx); err != nil {
+	if n.risk != nil {
+		if err := n.risk.Start(ctx); err != nil {
 			cancel()
 			return err
 		}
-		if streaming, ok := client.(venue.StreamingDataClient); ok {
-			if err := n.applyPendingMarketData(ctx, client.Venue(), streaming); err != nil {
-				cancel()
-				return err
-			}
+		riskStarted = true
+	}
+	if n.dataEngine != nil {
+		if err := n.dataEngine.Start(ctx); err != nil {
+			cancel()
+			return err
+		}
+		dataStarted = true
+		if n.execEngine != nil {
 			n.wg.Add(1)
-			go n.forwardMarketEvents(runCtx, streaming)
+			go n.forwardMarketDataToExecution(runCtx)
 		}
 	}
 	for _, client := range n.execClients {
@@ -232,31 +328,24 @@ func (n *Node) Start(ctx context.Context) error {
 	n.mu.Lock()
 	n.ready = true
 	n.mu.Unlock()
-	return nil
+	return n.component.Start(ctx)
 }
 
 func (n *Node) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
 	if err := sub.Validate(); err != nil {
 		return err
 	}
-	if _, ok := n.cache.Instrument(sub.InstrumentID); !ok {
-		if _, found := n.streamingDataClient(sub.InstrumentID.Venue); !found {
-			return fmt.Errorf("%w: no streaming data client for venue %s", model.ErrNotSupported, sub.InstrumentID.Venue)
-		}
-		n.mu.Lock()
-		n.pendingDataSubs[sub.Key()] = sub
-		n.mu.Unlock()
-		return nil
-	}
-	client, ok := n.streamingDataClient(sub.InstrumentID.Venue)
-	if !ok {
+	if n.dataEngine == nil {
 		return fmt.Errorf("%w: no streaming data client for venue %s", model.ErrNotSupported, sub.InstrumentID.Venue)
 	}
-	if err := client.SubscribeMarketData(ctx, sub); err != nil {
+	if err := n.dataEngine.Subscribe(ctx, sub); err != nil {
 		return err
 	}
+	client, ok := n.streamingDataClient(sub.InstrumentID.Venue)
 	n.mu.Lock()
-	n.dataSubs[sub.Key()] = client
+	if ok {
+		n.dataSubs[sub.Key()] = client
+	}
 	n.activeDataSubs[sub.Key()] = sub
 	n.mu.Unlock()
 	return nil
@@ -304,27 +393,14 @@ func (n *Node) UnsubscribeMarketData(ctx context.Context, sub model.SubscribeMar
 	if err := sub.Validate(); err != nil {
 		return err
 	}
-	n.mu.Lock()
-	if _, ok := n.pendingDataSubs[sub.Key()]; ok {
-		delete(n.pendingDataSubs, sub.Key())
-		n.mu.Unlock()
-		return nil
+	if n.dataEngine == nil {
+		return fmt.Errorf("%w: no streaming data client for venue %s", model.ErrNotSupported, sub.InstrumentID.Venue)
 	}
-	n.mu.Unlock()
-	n.mu.RLock()
-	client, ok := n.dataSubs[sub.Key()]
-	n.mu.RUnlock()
-	if !ok {
-		var found bool
-		client, found = n.streamingDataClient(sub.InstrumentID.Venue)
-		if !found {
-			return fmt.Errorf("%w: no streaming data client for venue %s", model.ErrNotSupported, sub.InstrumentID.Venue)
-		}
-	}
-	if err := client.UnsubscribeMarketData(ctx, sub); err != nil {
+	if err := n.dataEngine.Unsubscribe(ctx, sub); err != nil {
 		return err
 	}
 	n.mu.Lock()
+	delete(n.pendingDataSubs, sub.Key())
 	delete(n.dataSubs, sub.Key())
 	delete(n.activeDataSubs, sub.Key())
 	n.mu.Unlock()
@@ -369,6 +445,16 @@ func (n *Node) UnsubscribeOrderBookDepth(ctx context.Context, instrumentID model
 	})
 }
 
+func (n *Node) RequestData(ctx context.Context, request model.DataRequest) (model.DataResponse, error) {
+	if err := request.Validate(); err != nil {
+		return model.DataResponse{}, err
+	}
+	if n.dataEngine == nil {
+		return model.DataResponse{}, fmt.Errorf("%w: no data client for venue %s", model.ErrNotSupported, request.InstrumentID.Venue)
+	}
+	return n.dataEngine.Request(ctx, request)
+}
+
 func (n *Node) SubmitOrder(ctx context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {
 	if err := order.Validate(); err != nil {
 		_ = n.publishOrderDenied(ctx, order, err)
@@ -380,23 +466,38 @@ func (n *Node) SubmitOrder(ctx context.Context, order model.SubmitOrder) (model.
 			return model.OrderStatusReport{}, err
 		}
 	}
-	client, ok := n.executionClient(order.AccountID)
-	if !ok {
-		return model.OrderStatusReport{}, fmt.Errorf("%w: no execution client for account %s", model.ErrNotSupported, order.AccountID)
+	if n.execEngine == nil {
+		return model.OrderStatusReport{}, fmt.Errorf("%w: no execution engine for account %s", model.ErrNotSupported, order.AccountID)
+	}
+	emulationSubs, err := n.retainEmulationSubscriptions(ctx, order)
+	if err != nil {
+		return model.OrderStatusReport{}, err
 	}
 	reconciler := n.reconcilerFor(order.AccountID)
 	if err := n.publishOrderLifecycle(ctx, reconciler, orderSubmittedLifecycle(order)); err != nil {
+		_ = n.releaseEmulationSubscriptions(ctx, emulationSubs)
 		return model.OrderStatusReport{}, err
 	}
-	report, err := client.SubmitOrder(ctx, order)
+	report, err := n.execEngine.SubmitOrder(ctx, order)
 	if err != nil {
+		_ = n.releaseEmulationSubscriptions(ctx, emulationSubs)
 		_ = n.publishOrderLifecycle(ctx, reconciler, orderRejectedLifecycle(order, err))
 		return model.OrderStatusReport{}, err
 	}
 	report = fillSubmittedReport(report, order)
 	if err := n.applyAndPublish(ctx, reconciler, model.ExecutionEvent{Order: &report}); err != nil {
+		_ = n.releaseEmulationSubscriptions(ctx, emulationSubs)
 		return model.OrderStatusReport{}, err
 	}
+	if err := n.drainExecutionEngineEvents(ctx); err != nil {
+		_ = n.releaseEmulationSubscriptions(ctx, emulationSubs)
+		return model.OrderStatusReport{}, err
+	}
+	if report.Status == model.OrderStatusEmulated {
+		n.trackOrderEmulationSubscriptions(order, emulationSubs)
+		return report, nil
+	}
+	_ = n.releaseEmulationSubscriptions(ctx, emulationSubs)
 	if err := n.publishOrderLifecycle(ctx, reconciler, orderLifecycleFromReport(report, model.OrderEventAccepted, model.OrderStatusSubmitted, "")); err != nil {
 		return model.OrderStatusReport{}, err
 	}
@@ -469,24 +570,17 @@ func (n *Node) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (model
 	}
 
 	if n.risk != nil {
-		if err := n.risk.Check(submitFromOrderReport(updated)); err != nil {
+		if err := n.risk.CheckExistingOrder(submitFromOrderReport(updated)); err != nil {
 			_ = n.restoreAndRejectModify(ctx, reconciler, existing, modify, err)
 			return model.OrderStatusReport{}, err
 		}
 	}
-	client, ok := n.executionClient(modify.AccountID)
-	if !ok {
-		err := fmt.Errorf("%w: no execution client for account %s", model.ErrNotSupported, modify.AccountID)
+	if n.execEngine == nil {
+		err := fmt.Errorf("%w: no execution engine for account %s", model.ErrNotSupported, modify.AccountID)
 		_ = n.restoreAndRejectModify(ctx, reconciler, existing, modify, err)
 		return model.OrderStatusReport{}, err
 	}
-	modifier, ok := client.(venue.OrderModifier)
-	if !ok {
-		err := fmt.Errorf("%w: execution client does not support order modification", model.ErrNotSupported)
-		_ = n.restoreAndRejectModify(ctx, reconciler, existing, modify, err)
-		return model.OrderStatusReport{}, err
-	}
-	report, err := modifier.ModifyOrder(ctx, modify)
+	report, err := n.execEngine.ModifyOrder(ctx, modify)
 	if err != nil {
 		_ = n.restoreAndRejectModify(ctx, reconciler, existing, modify, err)
 		return model.OrderStatusReport{}, err
@@ -502,22 +596,8 @@ func (n *Node) ModifyOrder(ctx context.Context, modify model.ModifyOrder) (model
 }
 
 func (n *Node) publishOrderDenied(ctx context.Context, order model.SubmitOrder, cause error) error {
-	if order.AccountID == "" || order.ClientOrderID == "" {
-		return nil
-	}
-	lifecycle := model.OrderLifecycleEvent{
-		Metadata:      order.Metadata,
-		AccountID:     order.AccountID,
-		InstrumentID:  order.InstrumentID,
-		ClientOrderID: order.ClientOrderID,
-		Kind:          model.OrderEventDenied,
-		Status:        model.OrderStatusDenied,
-	}
-	if cause != nil {
-		lifecycle.Reason = cause.Error()
-	}
-	event := model.ExecutionEvent{Lifecycle: &lifecycle}
-	if err := event.Validate(); err != nil {
+	event, ok := risk.OrderDeniedEvent(order, cause)
+	if !ok {
 		return nil
 	}
 	if err := n.reconcilerFor(order.AccountID).Apply(event); err != nil {
@@ -633,13 +713,12 @@ func (n *Node) CancelOrder(ctx context.Context, cancel model.CancelOrder) (model
 	if err := n.publishOrderLifecycle(ctx, reconciler, orderLifecycleFromReport(pending, model.OrderEventPendingCancel, existing.Status, "")); err != nil {
 		return model.OrderStatusReport{}, err
 	}
-	client, ok := n.executionClient(cancel.AccountID)
-	if !ok {
-		err := fmt.Errorf("%w: no execution client for account %s", model.ErrNotSupported, cancel.AccountID)
+	if n.execEngine == nil {
+		err := fmt.Errorf("%w: no execution engine for account %s", model.ErrNotSupported, cancel.AccountID)
 		_ = n.restoreAndRejectCancel(ctx, reconciler, existing, cancel, err)
 		return model.OrderStatusReport{}, err
 	}
-	report, err := client.CancelOrder(ctx, cancel)
+	report, err := n.execEngine.CancelOrder(ctx, cancel)
 	if err != nil {
 		_ = n.restoreAndRejectCancel(ctx, reconciler, existing, cancel, err)
 		return model.OrderStatusReport{}, err
@@ -708,20 +787,22 @@ func (n *Node) QueryOrder(ctx context.Context, query model.QueryOrder) (model.Or
 	if order, ok := n.findQueriedOrder(query); ok {
 		return fillQueriedReport(order, query), nil
 	}
+	if n.execEngine != nil {
+		report, err := n.execEngine.QueryOrder(ctx, query)
+		if err == nil {
+			report = fillQueriedReport(report, query)
+			if err := n.applyAndPublish(ctx, n.reconcilerFor(query.AccountID), model.ExecutionEvent{Order: &report}); err != nil {
+				return model.OrderStatusReport{}, err
+			}
+			return report, nil
+		}
+		if !errors.Is(err, model.ErrNotSupported) {
+			return model.OrderStatusReport{}, err
+		}
+	}
 	client, ok := n.executionClient(query.AccountID)
 	if !ok {
 		return model.OrderStatusReport{}, fmt.Errorf("%w: no execution client for account %s", model.ErrNotSupported, query.AccountID)
-	}
-	if querier, ok := client.(venue.OrderQuerier); ok {
-		report, err := querier.QueryOrder(ctx, query)
-		if err != nil {
-			return model.OrderStatusReport{}, err
-		}
-		report = fillQueriedReport(report, query)
-		if err := n.applyAndPublish(ctx, n.reconcilerFor(query.AccountID), model.ExecutionEvent{Order: &report}); err != nil {
-			return model.OrderStatusReport{}, err
-		}
-		return report, nil
 	}
 	reports, err := client.GenerateOrderStatusReports(ctx, query.InstrumentID)
 	if err != nil {
@@ -770,7 +851,14 @@ func (n *Node) forwardEvents(ctx context.Context, client venue.ExecutionClient, 
 			return
 		case event, ok := <-events:
 			if !ok {
-				if err := n.recoverExecutionStream(context.Background(), client, reconciler); err != nil {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				if err := n.retryReconnect(ctx, func(ctx context.Context) error {
+					return n.recoverExecutionStream(ctx, client, reconciler)
+				}); err != nil {
 					n.recordError(err)
 					return
 				}
@@ -901,7 +989,9 @@ func (n *Node) forwardMarketEvents(ctx context.Context, client venue.StreamingDa
 					return
 				default:
 				}
-				if err := n.recoverMarketDataStream(context.Background(), client); err != nil {
+				if err := n.retryReconnect(ctx, func(ctx context.Context) error {
+					return n.recoverMarketDataStream(ctx, client)
+				}); err != nil {
 					n.recordError(err)
 					return
 				}
@@ -914,6 +1004,26 @@ func (n *Node) forwardMarketEvents(ctx context.Context, client venue.StreamingDa
 				continue
 			}
 			if err := n.applyMarketAndPublish(context.Background(), event); err != nil {
+				n.recordError(err)
+			}
+		}
+	}
+}
+
+func (n *Node) forwardMarketDataToExecution(ctx context.Context) {
+	defer n.wg.Done()
+	sub := n.bus.Subscribe(TopicMarketData, 256)
+	defer sub.Close()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case env := <-sub.C():
+			event, ok := env.Message.(model.MarketEvent)
+			if !ok {
+				continue
+			}
+			if err := n.processMarketEventForExecution(context.Background(), event); err != nil {
 				n.recordError(err)
 			}
 		}
@@ -971,6 +1081,85 @@ func (n *Node) applyPendingMarketData(ctx context.Context, venueID model.Venue, 
 	return nil
 }
 
+func (n *Node) processMarketEventForExecution(ctx context.Context, event model.MarketEvent) error {
+	if n.execEngine == nil {
+		return nil
+	}
+	reports, err := n.execEngine.ProcessMarketEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	if err := n.drainExecutionEngineEvents(ctx); err != nil {
+		return err
+	}
+	for _, report := range reports {
+		report := report
+		reconciler := n.reconcilerFor(report.AccountID)
+		if err := n.applyAndPublish(ctx, reconciler, model.ExecutionEvent{Order: &report}); err != nil {
+			return err
+		}
+		if report.Status == model.OrderStatusAccepted {
+			if err := n.publishOrderLifecycle(ctx, reconciler, orderLifecycleFromReport(report, model.OrderEventAccepted, model.OrderStatusReleased, "")); err != nil {
+				return err
+			}
+		}
+		if err := n.releaseOrderEmulationSubscriptions(ctx, report.AccountID, report.ClientOrderID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *Node) drainExecutionEngineEvents(ctx context.Context) error {
+	if n.execEngine == nil {
+		return nil
+	}
+	events := n.execEngine.Events()
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if err := n.applyExecutionEngineEvent(ctx, event); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func (n *Node) applyExecutionEngineEvent(ctx context.Context, event model.ExecutionEvent) error {
+	accountID := executionEventAccountID(event)
+	if accountID == "" {
+		if err := event.Validate(); err != nil {
+			return err
+		}
+		return n.bus.Publish(ctx, TopicExecution, event)
+	}
+	return n.applyAndPublish(ctx, n.reconcilerFor(accountID), event)
+}
+
+func executionEventAccountID(event model.ExecutionEvent) model.AccountID {
+	switch {
+	case event.Account != nil:
+		return event.Account.AccountID
+	case event.Order != nil:
+		return event.Order.AccountID
+	case event.Lifecycle != nil:
+		return event.Lifecycle.AccountID
+	case event.Fill != nil:
+		return event.Fill.AccountID
+	case event.Position != nil:
+		return event.Position.AccountID
+	case event.PositionLifecycle != nil:
+		return event.PositionLifecycle.AccountID
+	default:
+		return ""
+	}
+}
+
 func (n *Node) applyAndPublish(ctx context.Context, reconciler *account.Reconciler, event model.ExecutionEvent) error {
 	positionLifecycle := n.derivePositionLifecycle(event)
 	if err := reconciler.Apply(event); err != nil {
@@ -1020,6 +1209,116 @@ func (n *Node) applyMarketAndPublish(ctx context.Context, event model.MarketEven
 	return n.bus.Publish(ctx, TopicMarketData, event)
 }
 
+func (n *Node) retainEmulationSubscriptions(ctx context.Context, order model.SubmitOrder) ([]model.SubscribeMarketData, error) {
+	subs := emulationTriggerSubscriptions(order)
+	if len(subs) == 0 {
+		return nil, nil
+	}
+	for i, sub := range subs {
+		if err := n.retainEmulationSubscription(ctx, sub); err != nil {
+			_ = n.releaseEmulationSubscriptions(ctx, subs[:i])
+			return nil, err
+		}
+	}
+	return subs, nil
+}
+
+func (n *Node) retainEmulationSubscription(ctx context.Context, sub model.SubscribeMarketData) error {
+	if n.dataEngine == nil {
+		return fmt.Errorf("%w: no data engine for emulated order trigger %s", model.ErrNotSupported, sub.InstrumentID)
+	}
+	key := sub.Key()
+	n.mu.Lock()
+	if n.emulationDataSubs == nil {
+		n.emulationDataSubs = make(map[string]int)
+	}
+	if n.emulationDataSubs[key] > 0 {
+		n.emulationDataSubs[key]++
+		n.mu.Unlock()
+		return nil
+	}
+	n.emulationDataSubs[key] = 1
+	n.mu.Unlock()
+	if err := n.dataEngine.Subscribe(ctx, sub); err != nil {
+		n.mu.Lock()
+		delete(n.emulationDataSubs, key)
+		n.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (n *Node) trackOrderEmulationSubscriptions(order model.SubmitOrder, subs []model.SubscribeMarketData) {
+	if len(subs) == 0 {
+		return
+	}
+	key := parentOrderKey{accountID: order.AccountID, clientOrderID: order.ClientOrderID}
+	n.mu.Lock()
+	if n.emulationOrderSubs == nil {
+		n.emulationOrderSubs = make(map[parentOrderKey][]model.SubscribeMarketData)
+	}
+	n.emulationOrderSubs[key] = append([]model.SubscribeMarketData(nil), subs...)
+	n.mu.Unlock()
+}
+
+func (n *Node) releaseOrderEmulationSubscriptions(ctx context.Context, accountID model.AccountID, clientOrderID model.ClientOrderID) error {
+	key := parentOrderKey{accountID: accountID, clientOrderID: clientOrderID}
+	n.mu.Lock()
+	subs := append([]model.SubscribeMarketData(nil), n.emulationOrderSubs[key]...)
+	delete(n.emulationOrderSubs, key)
+	n.mu.Unlock()
+	return n.releaseEmulationSubscriptions(ctx, subs)
+}
+
+func (n *Node) releaseEmulationSubscriptions(ctx context.Context, subs []model.SubscribeMarketData) error {
+	var result error
+	for _, sub := range subs {
+		result = errors.Join(result, n.releaseEmulationSubscription(ctx, sub))
+	}
+	return result
+}
+
+func (n *Node) releaseEmulationSubscription(ctx context.Context, sub model.SubscribeMarketData) error {
+	key := sub.Key()
+	n.mu.Lock()
+	count := n.emulationDataSubs[key]
+	if count > 1 {
+		n.emulationDataSubs[key] = count - 1
+		n.mu.Unlock()
+		return nil
+	}
+	delete(n.emulationDataSubs, key)
+	_, userOwned := n.activeDataSubs[key]
+	n.mu.Unlock()
+	if userOwned || n.dataEngine == nil {
+		return nil
+	}
+	return n.dataEngine.Unsubscribe(ctx, sub)
+}
+
+func emulationTriggerSubscriptions(order model.SubmitOrder) []model.SubscribeMarketData {
+	if !order.EmulationTrigger.IsActive() {
+		return nil
+	}
+	triggerInstrumentID := order.TriggerInstrument()
+	quoteSub := model.SubscribeMarketData{InstrumentID: triggerInstrumentID, Type: model.MarketDataTypeQuoteTick}
+	tradeSub := model.SubscribeMarketData{InstrumentID: triggerInstrumentID, Type: model.MarketDataTypeTradeTick}
+	bidAskSubs := []model.SubscribeMarketData{quoteSub}
+	if !triggerInstrumentID.IsSynthetic() {
+		bidAskSubs = append([]model.SubscribeMarketData{{InstrumentID: triggerInstrumentID, Type: model.MarketDataTypeOrderBook, Depth: 1}}, bidAskSubs...)
+	}
+	switch order.EmulationTrigger {
+	case model.TriggerTypeBidAsk:
+		return bidAskSubs
+	case model.TriggerTypeLastPrice:
+		return []model.SubscribeMarketData{tradeSub}
+	case model.TriggerTypeDefault:
+		return bidAskSubs
+	default:
+		return nil
+	}
+}
+
 func (n *Node) derivePositionLifecycle(event model.ExecutionEvent) *model.PositionLifecycleEvent {
 	if event.Position == nil {
 		return nil
@@ -1052,6 +1351,17 @@ func (n *Node) streamingDataClient(venueID model.Venue) (venue.StreamingDataClie
 		streaming, ok := client.(venue.StreamingDataClient)
 		if ok {
 			return streaming, true
+		}
+	}
+	return nil, false
+}
+
+func (n *Node) dataClient(venueID model.Venue) (venue.DataClient, bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	for _, client := range n.dataClients {
+		if client.Venue() == venueID {
+			return client, true
 		}
 	}
 	return nil, false
@@ -1129,6 +1439,9 @@ func fillSubmittedReport(report model.OrderStatusReport, order model.SubmitOrder
 	if report.InstrumentID == (model.InstrumentID{}) {
 		report.InstrumentID = order.InstrumentID
 	}
+	if report.TriggerInstrumentID == (model.InstrumentID{}) {
+		report.TriggerInstrumentID = order.TriggerInstrumentID
+	}
 	if report.ClientOrderID == "" {
 		report.ClientOrderID = order.ClientOrderID
 	}
@@ -1161,6 +1474,9 @@ func fillSubmittedReport(report model.OrderStatusReport, order model.SubmitOrder
 	}
 	if report.TrailingOffset.IsZero() {
 		report.TrailingOffset = order.TrailingOffset
+	}
+	if report.TrailingOffsetType == "" {
+		report.TrailingOffsetType = order.TrailingOffsetType
 	}
 	if report.TimeInForce == "" {
 		report.TimeInForce = order.TimeInForce
@@ -1252,6 +1568,7 @@ func submitFromOrderReport(report model.OrderStatusReport) model.SubmitOrder {
 	return model.SubmitOrder{
 		AccountID:           report.AccountID,
 		InstrumentID:        report.InstrumentID,
+		TriggerInstrumentID: report.TriggerInstrumentID,
 		OrderListID:         report.OrderListID,
 		ParentClientOrderID: report.ParentClientOrderID,
 		ClientOrderID:       report.ClientOrderID,
@@ -1264,6 +1581,7 @@ func submitFromOrderReport(report model.OrderStatusReport) model.SubmitOrder {
 		TriggerPrice:        report.TriggerPrice,
 		ActivationPrice:     report.ActivationPrice,
 		TrailingOffset:      report.TrailingOffset,
+		TrailingOffsetType:  report.TrailingOffsetType,
 		PostOnly:            report.PostOnly,
 		ReduceOnly:          report.ReduceOnly,
 		ExpireTime:          report.ExpireTime,
@@ -1278,6 +1596,9 @@ func fillModifiedReport(report model.OrderStatusReport, modify model.ModifyOrder
 	}
 	if report.InstrumentID == (model.InstrumentID{}) {
 		report.InstrumentID = updated.InstrumentID
+	}
+	if report.TriggerInstrumentID == (model.InstrumentID{}) {
+		report.TriggerInstrumentID = updated.TriggerInstrumentID
 	}
 	if report.OrderListID == "" {
 		report.OrderListID = updated.OrderListID
@@ -1329,6 +1650,9 @@ func fillModifiedReport(report model.OrderStatusReport, modify model.ModifyOrder
 	}
 	if report.TrailingOffset.IsZero() {
 		report.TrailingOffset = updated.TrailingOffset
+	}
+	if report.TrailingOffsetType == "" {
+		report.TrailingOffsetType = updated.TrailingOffsetType
 	}
 	if report.TimeInForce == "" {
 		report.TimeInForce = updated.TimeInForce
@@ -1475,6 +1799,9 @@ func fillCanceledReport(report model.OrderStatusReport, cancel model.CancelOrder
 	if report.InstrumentID == (model.InstrumentID{}) {
 		report.InstrumentID = cancel.InstrumentID
 	}
+	if report.TriggerInstrumentID == (model.InstrumentID{}) {
+		report.TriggerInstrumentID = existing.TriggerInstrumentID
+	}
 	if report.OrderID == "" {
 		report.OrderID = cancel.OrderID
 	}
@@ -1521,6 +1848,9 @@ func fillCanceledReport(report model.OrderStatusReport, cancel model.CancelOrder
 	if report.TrailingOffset.IsZero() {
 		report.TrailingOffset = existing.TrailingOffset
 	}
+	if report.TrailingOffsetType == "" {
+		report.TrailingOffsetType = existing.TrailingOffsetType
+	}
 	if report.TimeInForce == "" {
 		report.TimeInForce = existing.TimeInForce
 	}
@@ -1539,6 +1869,9 @@ func (n *Node) recordError(err error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.lastError = err
+	if n.component != nil && n.component.State() != kernel.ComponentStateFaulted {
+		n.component.Degrade(err)
+	}
 }
 
 func (n *Node) Stop(ctx context.Context) error {
@@ -1551,13 +1884,21 @@ func (n *Node) Stop(ctx context.Context) error {
 	for _, client := range n.execClients {
 		stopErr = errors.Join(stopErr, client.Disconnect(ctx))
 	}
-	for _, client := range n.dataClients {
-		stopErr = errors.Join(stopErr, client.Disconnect(ctx))
+	if n.dataEngine != nil {
+		stopErr = errors.Join(stopErr, n.dataEngine.Stop(ctx))
+	}
+	if n.risk != nil && componentStateRequiresStop(n.risk.Health().State) {
+		stopErr = errors.Join(stopErr, n.risk.Stop(ctx))
 	}
 	n.mu.Lock()
 	n.ready = false
 	n.mu.Unlock()
-	return stopErr
+	if stopErr != nil {
+		n.recordError(stopErr)
+		n.component.Fault(stopErr)
+		return stopErr
+	}
+	return n.component.Stop(ctx)
 }
 
 func (n *Node) cancelAllTimers() {
@@ -1572,6 +1913,61 @@ func (n *Node) cancelAllTimers() {
 
 func (n *Node) Health() Health {
 	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return Health{Ready: n.ready, LastError: n.lastError}
+	state := kernel.ComponentStateInitialized
+	if n.component != nil {
+		state = n.component.State()
+	}
+	var riskHealth risk.Health
+	if n.risk != nil {
+		riskHealth = n.risk.Health()
+	}
+	var dataEngineHealth data.Health
+	if n.dataEngine != nil {
+		dataEngineHealth = n.dataEngine.Health()
+	}
+	lastError := n.lastError
+	if lastError == nil && dataEngineHealth.LastError != nil {
+		lastError = dataEngineHealth.LastError
+	}
+	health := Health{
+		Ready:      n.ready,
+		State:      state,
+		Risk:       riskHealth,
+		DataEngine: dataEngineHealth,
+		Data:       make([]DataClientHealth, 0, len(n.dataClients)),
+		Execution:  make([]ExecutionClientHealth, 0, len(n.execClients)),
+		LastError:  lastError,
+	}
+	if len(dataEngineHealth.ClientsHealth) > 0 {
+		for _, client := range dataEngineHealth.ClientsHealth {
+			health.Data = append(health.Data, DataClientHealth{
+				Venue:    client.Venue,
+				ClientID: client.ClientID,
+				Health:   client.Health,
+			})
+		}
+	} else {
+		for _, client := range n.dataClients {
+			health.Data = append(health.Data, DataClientHealth{
+				Venue:    client.Venue(),
+				ClientID: client.ClientID(),
+				Health:   client.Health(),
+			})
+		}
+	}
+	for _, client := range n.execClients {
+		health.Execution = append(health.Execution, ExecutionClientHealth{
+			Venue:     client.Venue(),
+			AccountID: client.AccountID(),
+			Health:    client.Health(),
+		})
+	}
+	n.mu.RUnlock()
+	return health
+}
+
+func componentStateRequiresStop(state kernel.ComponentState) bool {
+	return state == kernel.ComponentStateStarting ||
+		state == kernel.ComponentStateRunning ||
+		state == kernel.ComponentStateDegraded
 }

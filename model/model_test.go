@@ -147,6 +147,20 @@ func TestSubmitOrderRejectsGTDMarketOrders(t *testing.T) {
 	require.ErrorIs(t, order.Validate(), ErrInvalidOrder)
 }
 
+func TestSubmitOrderRejectsInvalidOrderType(t *testing.T) {
+	order := SubmitOrder{
+		AccountID:     AccountID("acct"),
+		InstrumentID:  MustInstrumentID("BTC-USDT-PERP.BINANCE"),
+		ClientOrderID: ClientOrderID("client-invalid-type"),
+		Side:          OrderSideBuy,
+		Type:          OrderType("because-i-said-so"),
+		TimeInForce:   TimeInForceGTC,
+		Quantity:      decimal.RequireFromString("1"),
+		Price:         decimal.RequireFromString("100"),
+	}
+	require.ErrorIs(t, order.Validate(), ErrInvalidOrder)
+}
+
 func TestModifyOrderRequiresIdentityAndAChangedField(t *testing.T) {
 	modify := ModifyOrder{
 		AccountID:     "acct",
@@ -293,6 +307,73 @@ func TestOrderListAppliesCommandMetadataDefaultsToChildren(t *testing.T) {
 	require.Empty(t, list.Orders[0].Metadata.CommandID)
 }
 
+func TestOrderListClassifiesBracketAndUniformInstrument(t *testing.T) {
+	inst := MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	list := NewOrderFactory("acct").Bracket(BracketOrderRequest{
+		InstrumentID: inst,
+		Side:         OrderSideBuy,
+		Quantity:     decimal.RequireFromString("1"),
+		EntryPrice:   decimal.RequireFromString("101"),
+		TakeProfit:   decimal.RequireFromString("103"),
+		StopLoss:     decimal.RequireFromString("99"),
+	})
+
+	require.NoError(t, list.Validate())
+	require.True(t, list.IsBracket())
+	require.Equal(t, OrderListKindBracket, list.Kind())
+
+	uniform, ok := list.UniformInstrument()
+	require.True(t, ok)
+	require.Equal(t, inst, uniform)
+
+	venue, ok := list.Venue()
+	require.True(t, ok)
+	require.Equal(t, Venue("BINANCE"), venue)
+}
+
+func TestOrderListAllowsMultiInstrumentSameVenueWithoutUniformInstrument(t *testing.T) {
+	btc := MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	eth := MustInstrumentID("ETH-USDT-PERP.BINANCE")
+	list := OrderList{
+		ID: "list-multi-instrument",
+		Orders: []SubmitOrder{
+			{
+				AccountID:     "acct",
+				InstrumentID:  btc,
+				OrderListID:   "list-multi-instrument",
+				ClientOrderID: "btc-entry",
+				Side:          OrderSideBuy,
+				Type:          OrderTypeLimit,
+				TimeInForce:   TimeInForceGTC,
+				Quantity:      decimal.RequireFromString("1"),
+				Price:         decimal.RequireFromString("101"),
+			},
+			{
+				AccountID:     "acct",
+				InstrumentID:  eth,
+				OrderListID:   "list-multi-instrument",
+				ClientOrderID: "eth-entry",
+				Side:          OrderSideBuy,
+				Type:          OrderTypeLimit,
+				TimeInForce:   TimeInForceGTC,
+				Quantity:      decimal.RequireFromString("1"),
+				Price:         decimal.RequireFromString("101"),
+			},
+		},
+	}
+
+	require.NoError(t, list.Validate())
+	_, ok := list.UniformInstrument()
+	require.False(t, ok)
+
+	venue, ok := list.Venue()
+	require.True(t, ok)
+	require.Equal(t, Venue("BINANCE"), venue)
+
+	list.Orders[1].InstrumentID = MustInstrumentID("ETH-USDT-PERP.OKX")
+	require.ErrorIs(t, list.Validate(), ErrInvalidOrder)
+}
+
 func TestAccountSnapshotValidatesBalancesAndMargins(t *testing.T) {
 	snapshot := AccountSnapshot{
 		AccountID: "acct",
@@ -359,6 +440,28 @@ func TestExecutionEventValidatesFillAndPositionPayloads(t *testing.T) {
 
 	position.PositionID = ""
 	require.ErrorIs(t, ExecutionEvent{Position: &position}.Validate(), ErrInvalidOrder)
+}
+
+func TestFillReportDetectsLegFillsAndAllowsMissingOrderID(t *testing.T) {
+	fill := FillReport{
+		AccountID:     AccountID("acct"),
+		InstrumentID:  MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+		ClientOrderID: ClientOrderID("spread-LEG-BTC"),
+		TradeID:       TradeID("trade-leg-1"),
+		Price:         decimal.RequireFromString("100"),
+		Quantity:      decimal.RequireFromString("0.25"),
+	}
+	require.True(t, fill.IsLegFill())
+	require.NoError(t, fill.Validate())
+
+	fill.ClientOrderID = "plain-client"
+	fill.VenueOrderID = "plain-venue"
+	require.False(t, fill.IsLegFill())
+	require.ErrorIs(t, fill.Validate(), ErrInvalidOrder)
+
+	fill.IsLeg = true
+	require.True(t, fill.IsLegFill())
+	require.NoError(t, fill.Validate())
 }
 
 func TestOrderBookValidateKeepsInstrumentIdentity(t *testing.T) {

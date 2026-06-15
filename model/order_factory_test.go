@@ -110,6 +110,41 @@ func TestOrderFactoryCreatesAdvancedNautilusOrderTypes(t *testing.T) {
 	require.Equal(t, ClientOrderID("adv-7"), orders[6].ClientOrderID)
 }
 
+func TestOrderFactoryCreatesTrailingStopWithOffsetType(t *testing.T) {
+	factory := NewOrderFactory("acct")
+
+	order := factory.TrailingStopMarket(
+		MustInstrumentID("ETH-USDT-PERP.BINANCE"),
+		OrderSideSell,
+		decimal.RequireFromString("1"),
+		decimal.RequireFromString("250"),
+		WithTrailingOffsetType(TrailingOffsetTypeBasisPoints),
+	)
+
+	require.NoError(t, order.Validate())
+	require.Equal(t, TrailingOffsetTypeBasisPoints, order.TrailingOffsetType)
+	require.Equal(t, TrailingOffsetTypeBasisPoints, order.TrailingOffsetType.Canonical())
+}
+
+func TestOrderFactoryCreatesOrderWithTriggerInstrument(t *testing.T) {
+	factory := NewOrderFactory("acct")
+	orderInstrument := MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	triggerInstrument := MustInstrumentID("ETH-USDT-SPOT.BINANCE")
+
+	order := factory.StopMarket(
+		orderInstrument,
+		OrderSideBuy,
+		decimal.RequireFromString("1"),
+		decimal.RequireFromString("201"),
+		WithTriggerInstrumentID(triggerInstrument),
+	)
+
+	require.NoError(t, order.Validate())
+	require.Equal(t, orderInstrument, order.InstrumentID)
+	require.Equal(t, triggerInstrument, order.TriggerInstrumentID)
+	require.Equal(t, triggerInstrument, order.TriggerInstrument())
+}
+
 func TestOrderFactoryCreatesBracketOrderList(t *testing.T) {
 	factory := NewOrderFactory("acct", WithClientOrderIDPrefix("bracket"))
 	instID := MustInstrumentID("ETH-USDT-PERP.BINANCE")

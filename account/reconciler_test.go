@@ -182,6 +182,46 @@ func TestReconcilerMarksOpenOrdersMissingFromSnapshotCanceled(t *testing.T) {
 	require.Equal(t, model.OrderStatusAccepted, gotObserved.Status)
 }
 
+func TestReconcilerSkipsRecentMissingOpenOrdersUntilRepairThreshold(t *testing.T) {
+	c := cache.New()
+	r := NewReconciler(c)
+	instID := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+	now := time.Unix(200, 0)
+	recent := model.OrderStatusReport{
+		AccountID:       "acct",
+		InstrumentID:    instID,
+		OrderID:         "recent-order",
+		ClientOrderID:   "recent-client",
+		Status:          model.OrderStatusAccepted,
+		Quantity:        decimal.RequireFromString("1"),
+		LeavesQuantity:  decimal.RequireFromString("1"),
+		LastUpdatedTime: now.Add(-10 * time.Second),
+	}
+	stale := recent
+	stale.OrderID = "stale-order"
+	stale.ClientOrderID = "stale-client"
+	stale.LastUpdatedTime = now.Add(-2 * time.Minute)
+	require.NoError(t, r.Apply(model.ExecutionEvent{Order: &recent}))
+	require.NoError(t, r.Apply(model.ExecutionEvent{Order: &stale}))
+
+	generated, err := r.ReconcileMissingOpenOrdersWithPolicy("acct", instID, nil, MissingOpenOrderRepairPolicy{
+		MissingStatus:        model.OrderStatusCanceled,
+		RecentActivityWindow: time.Minute,
+		Now:                  now,
+	})
+	require.NoError(t, err)
+	require.Len(t, generated, 1)
+	require.Equal(t, model.OrderID("stale-order"), generated[0].OrderID)
+	require.Equal(t, model.OrderStatusCanceled, generated[0].Status)
+
+	gotRecent, ok := c.Order("acct", "recent-order")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusAccepted, gotRecent.Status)
+	gotStale, ok := c.Order("acct", "stale-order")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusCanceled, gotStale.Status)
+}
+
 func TestReconcilerGeneratesFlatPositionReportsMissingFromSnapshot(t *testing.T) {
 	c := cache.New()
 	r := NewReconciler(c)
@@ -208,6 +248,52 @@ func TestReconcilerGeneratesFlatPositionReportsMissingFromSnapshot(t *testing.T)
 	require.True(t, ok)
 	require.Equal(t, model.PositionSideFlat, got.Side)
 	require.True(t, got.Quantity.IsZero())
+}
+
+func TestReconcilerRepairsMissingAndStalePositionsUntilRetryLimit(t *testing.T) {
+	c := cache.New()
+	r := NewReconciler(c)
+	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	missing := model.PositionStatusReport{
+		AccountID:    "acct",
+		InstrumentID: instID,
+		PositionID:   "missing-position",
+		Side:         model.PositionSideLong,
+		Quantity:     decimal.RequireFromString("1"),
+		EntryPrice:   decimal.RequireFromString("100"),
+	}
+	stale := model.PositionStatusReport{
+		AccountID:    "acct",
+		InstrumentID: instID,
+		PositionID:   "stale-position",
+		Side:         model.PositionSideLong,
+		Quantity:     decimal.RequireFromString("2"),
+		EntryPrice:   decimal.RequireFromString("100"),
+	}
+	venueStale := stale
+	venueStale.Quantity = decimal.RequireFromString("1")
+	venueStale.EntryPrice = decimal.RequireFromString("101")
+	require.NoError(t, r.Apply(model.ExecutionEvent{Position: &missing}))
+	require.NoError(t, r.Apply(model.ExecutionEvent{Position: &stale}))
+
+	first, err := r.RepairPositionReports("acct", instID, []model.PositionStatusReport{venueStale}, PositionRepairPolicy{MaxAttempts: 2})
+	require.NoError(t, err)
+	require.Len(t, first.Generated, 2)
+	require.Empty(t, first.Unresolved)
+	requirePositionRepair(t, first.Generated, "missing-position", model.PositionSideFlat, "0")
+	requirePositionRepair(t, first.Generated, "stale-position", model.PositionSideLong, "1")
+
+	second, err := r.RepairPositionReports("acct", instID, []model.PositionStatusReport{venueStale}, PositionRepairPolicy{MaxAttempts: 2})
+	require.NoError(t, err)
+	require.Len(t, second.Generated, 2)
+	require.Empty(t, second.Unresolved)
+
+	third, err := r.RepairPositionReports("acct", instID, []model.PositionStatusReport{venueStale}, PositionRepairPolicy{MaxAttempts: 2})
+	require.NoError(t, err)
+	require.Empty(t, third.Generated)
+	require.Len(t, third.Unresolved, 2)
+	requirePositionDiscrepancy(t, third.Unresolved, "missing-position", "position_missing_from_venue", 2)
+	requirePositionDiscrepancy(t, third.Unresolved, "stale-position", "position_quantity_mismatch", 2)
 }
 
 func TestReconcilerUpdatesPositionsAndRejectsInvalidTransitions(t *testing.T) {
@@ -239,6 +325,32 @@ func TestReconcilerUpdatesPositionsAndRejectsInvalidTransitions(t *testing.T) {
 	gotPosition, ok := c.PositionByInstrument("acct", instID)
 	require.True(t, ok)
 	require.Equal(t, position, gotPosition)
+}
+
+func requirePositionRepair(t *testing.T, reports []model.PositionStatusReport, positionID model.PositionID, side model.PositionSide, quantity string) {
+	t.Helper()
+	for _, report := range reports {
+		if report.PositionID != positionID {
+			continue
+		}
+		require.Equal(t, side, report.Side)
+		require.True(t, decimal.RequireFromString(quantity).Equal(report.Quantity), "position %s quantity %s != %s", positionID, report.Quantity, quantity)
+		return
+	}
+	require.Failf(t, "missing position repair", "position %s not found in %+v", positionID, reports)
+}
+
+func requirePositionDiscrepancy(t *testing.T, discrepancies []PositionRepairDiscrepancy, positionID model.PositionID, kind string, attempts int) {
+	t.Helper()
+	for _, discrepancy := range discrepancies {
+		if discrepancy.PositionID != positionID {
+			continue
+		}
+		require.Equal(t, kind, discrepancy.Kind)
+		require.Equal(t, attempts, discrepancy.Attempts)
+		return
+	}
+	require.Failf(t, "missing position discrepancy", "position %s not found in %+v", positionID, discrepancies)
 }
 
 func TestReconcilerAcceptsVenueFillsWhileCancelPending(t *testing.T) {

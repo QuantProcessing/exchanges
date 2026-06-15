@@ -1,15 +1,54 @@
 package risk
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuantProcessing/exchanges/cache"
+	"github.com/QuantProcessing/exchanges/kernel"
 	"github.com/QuantProcessing/exchanges/model"
 	"github.com/shopspring/decimal"
 )
 
 var ErrRiskRejected = errors.New("risk rejected")
+var ErrRiskQueueFull = errors.New("risk queue full")
+
+const defaultQueueSize = 1024
+
+type Health struct {
+	kernel.Health
+	CommandQueueDepth    int
+	EventQueueDepth      int
+	CommandQueueCapacity int
+	EventQueueCapacity   int
+	TradingState         TradingState
+	TradingStateReason   string
+	ProcessedCommands    int64
+	RejectedCommands     int64
+	ProcessedEvents      int64
+	DroppedCommands      int64
+	DroppedEvents        int64
+	ThrottledCommands    int64
+}
+
+type Decision struct {
+	Order model.SubmitOrder
+	Error error
+	Event *model.ExecutionEvent
+}
+
+func (d Decision) Accepted() bool {
+	return d.Error == nil
+}
+
+type riskCommand struct {
+	order model.SubmitOrder
+	reply chan Decision
+}
 
 type TradingState string
 
@@ -19,29 +58,303 @@ const (
 	TradingStateReducing TradingState = "reducing"
 )
 
-type Config struct {
+type Limits struct {
 	MaxOrderNotional    decimal.Decimal
 	MaxPositionNotional decimal.Decimal
 	MaxAccountExposure  decimal.Decimal
-	ExposureCurrency    model.Currency
-	TradingState        TradingState
+}
+
+type Config struct {
+	MaxOrderNotional     decimal.Decimal
+	MaxPositionNotional  decimal.Decimal
+	MaxAccountExposure   decimal.Decimal
+	ExposureCurrency     model.Currency
+	TradingState         TradingState
+	QueueSize            int
+	Clock                kernel.Clock
+	MaxCommandsPerWindow int
+	CommandRateWindow    time.Duration
+	MaxOpenOrders        int
+	AccountLimits        map[model.AccountID]Limits
+	StrategyLimits       map[model.StrategyID]Limits
+	InstrumentLimits     map[model.InstrumentID]Limits
+}
+
+type resolvedLimits struct {
+	Limits
+	orderSource    string
+	positionSource string
+	exposureSource string
 }
 
 type Engine struct {
-	cache *cache.Cache
-	cfg   Config
+	mu        sync.RWMutex
+	cache     *cache.Cache
+	cfg       Config
+	stateNote string
+	clock     kernel.Clock
+	component *kernel.Component
+	cmdQueue  chan riskCommand
+	evtQueue  chan model.ExecutionEvent
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	cmdWindow []time.Time
+
+	processedCommands atomic.Int64
+	rejectedCommands  atomic.Int64
+	processedEvents   atomic.Int64
+	droppedCommands   atomic.Int64
+	droppedEvents     atomic.Int64
+	throttledCommands atomic.Int64
 }
 
 func NewEngine(c *cache.Cache, cfg Config) *Engine {
 	if c == nil {
 		c = cache.New()
 	}
-	return &Engine{cache: c, cfg: cfg}
+	clock := cfg.Clock
+	if clock == nil {
+		clock = kernel.LiveClock{}
+	}
+	e := &Engine{
+		cache:     c,
+		cfg:       cfg,
+		clock:     clock,
+		component: kernel.NewComponent("risk.engine", kernel.ComponentHooks{}),
+	}
+	e.ensureQueues()
+	return e
+}
+
+func (e *Engine) Start(ctx context.Context) error {
+	e.ensureQueues()
+	if e.component == nil {
+		e.component = kernel.NewComponent("risk.engine", kernel.ComponentHooks{})
+	}
+	if e.component.State() == kernel.ComponentStateRunning {
+		return nil
+	}
+	if err := e.component.Start(ctx); err != nil {
+		return err
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	e.cancel = cancel
+	e.wg.Add(2)
+	go e.runCommandQueue(runCtx)
+	go e.runEventQueue(runCtx)
+	return nil
+}
+
+func (e *Engine) Stop(ctx context.Context) error {
+	if e.component == nil {
+		return nil
+	}
+	if e.cancel != nil {
+		e.cancel()
+		e.cancel = nil
+	}
+	e.wg.Wait()
+	return e.component.Stop(ctx)
+}
+
+func (e *Engine) Health() Health {
+	if e == nil || e.component == nil {
+		return Health{Health: kernel.Health{ID: "risk.engine", State: kernel.ComponentStateInitialized}}
+	}
+	e.ensureQueues()
+	cfg, stateNote := e.configSnapshot()
+	return Health{
+		Health:               e.component.Health(),
+		CommandQueueDepth:    len(e.cmdQueue),
+		EventQueueDepth:      len(e.evtQueue),
+		CommandQueueCapacity: cap(e.cmdQueue),
+		EventQueueCapacity:   cap(e.evtQueue),
+		TradingState:         normalizedTradingState(cfg.TradingState),
+		TradingStateReason:   stateNote,
+		ProcessedCommands:    e.processedCommands.Load(),
+		RejectedCommands:     e.rejectedCommands.Load(),
+		ProcessedEvents:      e.processedEvents.Load(),
+		DroppedCommands:      e.droppedCommands.Load(),
+		DroppedEvents:        e.droppedEvents.Load(),
+		ThrottledCommands:    e.throttledCommands.Load(),
+	}
+}
+
+func (e *Engine) SetTradingState(state TradingState, reason string) error {
+	state = normalizedTradingState(state)
+	switch state {
+	case TradingStateActive, TradingStateHalted, TradingStateReducing:
+	default:
+		return fmt.Errorf("%w: invalid trading state %q", ErrRiskRejected, state)
+	}
+	e.mu.Lock()
+	e.cfg.TradingState = state
+	if state == TradingStateActive {
+		e.stateNote = ""
+	} else {
+		e.stateNote = reason
+	}
+	e.mu.Unlock()
+	return nil
+}
+
+func (e *Engine) EngageKillSwitch(reason string) error {
+	return e.SetTradingState(TradingStateHalted, reason)
+}
+
+func (e *Engine) SetReducingOnly(reason string) error {
+	return e.SetTradingState(TradingStateReducing, reason)
+}
+
+func (e *Engine) ResumeTrading() error {
+	return e.SetTradingState(TradingStateActive, "")
+}
+
+func (e *Engine) configSnapshot() (Config, string) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.cfg, e.stateNote
+}
+
+func normalizedTradingState(state TradingState) TradingState {
+	if state == "" {
+		return TradingStateActive
+	}
+	return state
+}
+
+func (e *Engine) Execute(ctx context.Context, order model.SubmitOrder) (<-chan Decision, error) {
+	e.ensureQueues()
+	reply := make(chan Decision, 1)
+	cmd := riskCommand{order: order, reply: reply}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case e.cmdQueue <- cmd:
+		return reply, nil
+	default:
+		e.droppedCommands.Add(1)
+		return nil, ErrRiskQueueFull
+	}
+}
+
+func (e *Engine) Process(ctx context.Context, event model.ExecutionEvent) error {
+	if err := event.Validate(); err != nil {
+		return err
+	}
+	e.ensureQueues()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case e.evtQueue <- event:
+		return nil
+	default:
+		e.droppedEvents.Add(1)
+		return ErrRiskQueueFull
+	}
+}
+
+func (e *Engine) ensureQueues() {
+	if e.cmdQueue != nil && e.evtQueue != nil {
+		return
+	}
+	size := e.cfg.QueueSize
+	if size <= 0 {
+		size = defaultQueueSize
+	}
+	if e.cmdQueue == nil {
+		e.cmdQueue = make(chan riskCommand, size)
+	}
+	if e.evtQueue == nil {
+		e.evtQueue = make(chan model.ExecutionEvent, size)
+	}
+}
+
+func (e *Engine) runCommandQueue(ctx context.Context) {
+	defer e.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case cmd := <-e.cmdQueue:
+			e.handleCommand(cmd)
+		}
+	}
+}
+
+func (e *Engine) handleCommand(cmd riskCommand) {
+	err := e.Check(cmd.order)
+	decision := Decision{Order: cmd.order, Error: err}
+	if err != nil {
+		e.rejectedCommands.Add(1)
+		if event, ok := OrderDeniedEvent(cmd.order, err); ok {
+			decision.Event = &event
+		}
+	}
+	e.processedCommands.Add(1)
+	cmd.reply <- decision
+	close(cmd.reply)
+}
+
+func (e *Engine) runEventQueue(ctx context.Context) {
+	defer e.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-e.evtQueue:
+			if err := e.applyExecutionEvent(event); err != nil && e.component != nil {
+				e.component.Degrade(err)
+			}
+			e.processedEvents.Add(1)
+		}
+	}
+}
+
+func (e *Engine) applyExecutionEvent(event model.ExecutionEvent) error {
+	if event.Account != nil {
+		e.cache.PutAccount(*event.Account)
+		return nil
+	}
+	if event.Order != nil {
+		return e.cache.PutOrder(*event.Order)
+	}
+	if event.Fill != nil {
+		_, err := e.cache.PutFill(*event.Fill)
+		return err
+	}
+	if event.Position != nil {
+		return e.cache.PutPosition(*event.Position)
+	}
+	if event.Lifecycle != nil && event.Lifecycle.Report != nil {
+		return e.cache.PutOrder(*event.Lifecycle.Report)
+	}
+	return nil
 }
 
 func (e *Engine) Check(order model.SubmitOrder) error {
+	return e.check(order, true, false)
+}
+
+func (e *Engine) CheckExistingOrder(order model.SubmitOrder) error {
+	return e.check(order, false, true)
+}
+
+func (e *Engine) check(order model.SubmitOrder, rejectDuplicateClientID bool, existingOrder bool) error {
 	if err := order.Validate(); err != nil {
 		return err
+	}
+	cfg, stateNote := e.configSnapshot()
+	if err := e.checkCommandRate(cfg); err != nil {
+		return err
+	}
+	if rejectDuplicateClientID && order.ClientOrderID != "" {
+		if _, ok := e.cache.OrderByClientID(order.AccountID, order.ClientOrderID); ok {
+			return fmt.Errorf("%w: duplicate client order ID %s", ErrRiskRejected, order.ClientOrderID)
+		}
+	}
+	if !existingOrder && cfg.MaxOpenOrders > 0 && len(e.cache.OpenOrders(order.AccountID)) >= cfg.MaxOpenOrders {
+		return fmt.Errorf("%w: max open orders exceeded", ErrRiskRejected)
 	}
 	inst, ok := e.cache.Instrument(order.InstrumentID)
 	if !ok {
@@ -50,16 +363,16 @@ func (e *Engine) Check(order model.SubmitOrder) error {
 	if inst.Status != model.InstrumentStatusTrading {
 		return fmt.Errorf("%w: instrument is not trading", ErrRiskRejected)
 	}
-	switch e.cfg.TradingState {
-	case "", TradingStateActive:
+	switch normalizedTradingState(cfg.TradingState) {
+	case TradingStateActive:
 	case TradingStateHalted:
-		return fmt.Errorf("%w: trading state halted", ErrRiskRejected)
+		return stateRejectedError("trading state halted", stateNote)
 	case TradingStateReducing:
 		if e.increasesCurrentExposure(order) {
-			return fmt.Errorf("%w: reducing state rejects exposure increase", ErrRiskRejected)
+			return stateRejectedError("reducing state rejects exposure increase", stateNote)
 		}
 	default:
-		return fmt.Errorf("%w: invalid trading state %q", ErrRiskRejected, e.cfg.TradingState)
+		return fmt.Errorf("%w: invalid trading state %q", ErrRiskRejected, cfg.TradingState)
 	}
 	if err := inst.ValidateSize(order.Quantity); err != nil {
 		return err
@@ -79,33 +392,34 @@ func (e *Engine) Check(order model.SubmitOrder) error {
 			return err
 		}
 	}
+	limits := resolveLimits(order, cfg)
 	price := e.estimatedPrice(order)
-	if e.cfg.MaxOrderNotional.IsPositive() {
+	if limits.MaxOrderNotional.IsPositive() {
 		if !price.IsPositive() {
 			return fmt.Errorf("%w: cannot estimate order notional", ErrRiskRejected)
 		}
-		if price.Mul(order.Quantity).GreaterThan(e.cfg.MaxOrderNotional) {
-			return fmt.Errorf("%w: max order notional exceeded", ErrRiskRejected)
+		if price.Mul(order.Quantity).GreaterThan(limits.MaxOrderNotional) {
+			return limitExceededError(limits.orderSource, "max order notional exceeded")
 		}
 	}
-	if e.cfg.MaxPositionNotional.IsPositive() {
+	if limits.MaxPositionNotional.IsPositive() {
 		if !price.IsPositive() {
 			return fmt.Errorf("%w: cannot estimate position notional", ErrRiskRejected)
 		}
-		if e.projectedPositionNotional(order, price).GreaterThan(e.cfg.MaxPositionNotional) {
-			return fmt.Errorf("%w: max position notional exceeded", ErrRiskRejected)
+		if e.projectedPositionNotional(order, price).GreaterThan(limits.MaxPositionNotional) {
+			return limitExceededError(limits.positionSource, "max position notional exceeded")
 		}
 	}
-	if e.cfg.MaxAccountExposure.IsPositive() {
+	if limits.MaxAccountExposure.IsPositive() {
 		if !price.IsPositive() {
 			return fmt.Errorf("%w: cannot estimate account exposure", ErrRiskRejected)
 		}
-		exposure, ok := e.projectedAccountExposure(order, price)
+		exposure, ok := e.projectedAccountExposure(order, price, cfg)
 		if !ok {
 			return fmt.Errorf("%w: cannot estimate account exposure", ErrRiskRejected)
 		}
-		if exposure.GreaterThan(e.cfg.MaxAccountExposure) {
-			return fmt.Errorf("%w: max account exposure exceeded", ErrRiskRejected)
+		if exposure.GreaterThan(limits.MaxAccountExposure) {
+			return limitExceededError(limits.exposureSource, "max account exposure exceeded")
 		}
 	}
 	if err := e.checkAvailableInitialMargin(order, inst, price); err != nil {
@@ -115,6 +429,105 @@ func (e *Engine) Check(order model.SubmitOrder) error {
 		return fmt.Errorf("%w: reduce-only would increase exposure", ErrRiskRejected)
 	}
 	return nil
+}
+
+func (e *Engine) checkCommandRate(cfg Config) error {
+	if cfg.MaxCommandsPerWindow <= 0 {
+		return nil
+	}
+	window := cfg.CommandRateWindow
+	if window <= 0 {
+		window = time.Second
+	}
+	now := e.clock.Now()
+	cutoff := now.Add(-window)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	kept := e.cmdWindow[:0]
+	for _, ts := range e.cmdWindow {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	e.cmdWindow = kept
+	if len(e.cmdWindow) >= cfg.MaxCommandsPerWindow {
+		e.throttledCommands.Add(1)
+		return fmt.Errorf("%w: command rate limit exceeded", ErrRiskRejected)
+	}
+	e.cmdWindow = append(e.cmdWindow, now)
+	return nil
+}
+
+func resolveLimits(order model.SubmitOrder, cfg Config) resolvedLimits {
+	resolved := resolvedLimits{
+		Limits: Limits{
+			MaxOrderNotional:    cfg.MaxOrderNotional,
+			MaxPositionNotional: cfg.MaxPositionNotional,
+			MaxAccountExposure:  cfg.MaxAccountExposure,
+		},
+	}
+	if limit, ok := cfg.AccountLimits[order.AccountID]; ok {
+		resolved.apply("account "+string(order.AccountID), limit)
+	}
+	if order.Metadata.StrategyID != "" {
+		if limit, ok := cfg.StrategyLimits[order.Metadata.StrategyID]; ok {
+			resolved.apply("strategy "+string(order.Metadata.StrategyID), limit)
+		}
+	}
+	if limit, ok := cfg.InstrumentLimits[order.InstrumentID]; ok {
+		resolved.apply("instrument "+order.InstrumentID.String(), limit)
+	}
+	return resolved
+}
+
+func (l *resolvedLimits) apply(source string, limit Limits) {
+	l.MaxOrderNotional, l.orderSource = tighterLimit(l.MaxOrderNotional, l.orderSource, limit.MaxOrderNotional, source)
+	l.MaxPositionNotional, l.positionSource = tighterLimit(l.MaxPositionNotional, l.positionSource, limit.MaxPositionNotional, source)
+	l.MaxAccountExposure, l.exposureSource = tighterLimit(l.MaxAccountExposure, l.exposureSource, limit.MaxAccountExposure, source)
+}
+
+func tighterLimit(current decimal.Decimal, currentSource string, candidate decimal.Decimal, candidateSource string) (decimal.Decimal, string) {
+	if !candidate.IsPositive() {
+		return current, currentSource
+	}
+	if !current.IsPositive() || candidate.LessThan(current) {
+		return candidate, candidateSource
+	}
+	return current, currentSource
+}
+
+func limitExceededError(source string, message string) error {
+	if source == "" {
+		return fmt.Errorf("%w: %s", ErrRiskRejected, message)
+	}
+	return fmt.Errorf("%w: %s %s", ErrRiskRejected, source, message)
+}
+
+func OrderDeniedEvent(order model.SubmitOrder, cause error) (model.ExecutionEvent, bool) {
+	lifecycle := model.OrderLifecycleEvent{
+		Metadata:      order.Metadata,
+		AccountID:     order.AccountID,
+		InstrumentID:  order.InstrumentID,
+		ClientOrderID: order.ClientOrderID,
+		Kind:          model.OrderEventDenied,
+		Status:        model.OrderStatusDenied,
+	}
+	if cause != nil {
+		lifecycle.Reason = cause.Error()
+	}
+	event := model.ExecutionEvent{Lifecycle: &lifecycle}
+	if err := event.Validate(); err != nil {
+		return model.ExecutionEvent{}, false
+	}
+	return event, true
+}
+
+func stateRejectedError(message string, note string) error {
+	if note == "" {
+		return fmt.Errorf("%w: %s", ErrRiskRejected, message)
+	}
+	return fmt.Errorf("%w: %s: %s", ErrRiskRejected, message, note)
 }
 
 func (e *Engine) estimatedPrice(order model.SubmitOrder) decimal.Decimal {
@@ -161,9 +574,9 @@ func (e *Engine) projectedPositionNotional(order model.SubmitOrder, price decima
 	return e.projectedSignedPosition(order).Abs().Mul(price)
 }
 
-func (e *Engine) projectedAccountExposure(order model.SubmitOrder, orderPrice decimal.Decimal) (decimal.Decimal, bool) {
+func (e *Engine) projectedAccountExposure(order model.SubmitOrder, orderPrice decimal.Decimal, cfg Config) (decimal.Decimal, bool) {
 	total := decimal.Zero
-	target := e.accountExposureCurrency(order.AccountID)
+	target := e.accountExposureCurrency(order.AccountID, cfg)
 	for _, inst := range e.cache.Instruments() {
 		projected := e.signedPositionWithOpenOrders(order.AccountID, inst.ID)
 		if inst.ID == order.InstrumentID {
@@ -191,9 +604,9 @@ func (e *Engine) projectedAccountExposure(order model.SubmitOrder, orderPrice de
 	return total, true
 }
 
-func (e *Engine) accountExposureCurrency(accountID model.AccountID) model.Currency {
-	if e.cfg.ExposureCurrency != "" {
-		return e.cfg.ExposureCurrency
+func (e *Engine) accountExposureCurrency(accountID model.AccountID, cfg Config) model.Currency {
+	if cfg.ExposureCurrency != "" {
+		return cfg.ExposureCurrency
 	}
 	account, ok := e.cache.Account(accountID)
 	if !ok {

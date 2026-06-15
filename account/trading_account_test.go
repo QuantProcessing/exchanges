@@ -372,6 +372,47 @@ func TestTradingAccountPeriodicReconciliationRepairsMissingOrderAndPosition(t *t
 	require.False(t, acct.Health().LastReconcileTime.IsZero())
 }
 
+func TestTradingAccountReconciliationHonorsMissingOrderRepairDelay(t *testing.T) {
+	ctx := context.Background()
+	inst := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	client := newTradingAccountExecutionClient(inst)
+	c := cache.New()
+	recent := model.OrderStatusReport{
+		AccountID:       client.AccountID(),
+		InstrumentID:    inst,
+		OrderID:         "recent-order",
+		ClientOrderID:   "recent-client",
+		Status:          model.OrderStatusAccepted,
+		Side:            model.OrderSideBuy,
+		Type:            model.OrderTypeLimit,
+		Quantity:        decimal.RequireFromString("1"),
+		LeavesQuantity:  decimal.RequireFromString("1"),
+		Price:           decimal.RequireFromString("100"),
+		LastUpdatedTime: time.Now().Add(-10 * time.Second),
+	}
+	stale := recent
+	stale.OrderID = "stale-order"
+	stale.ClientOrderID = "stale-client"
+	stale.LastUpdatedTime = time.Now().Add(-2 * time.Hour)
+	require.NoError(t, c.PutOrder(recent))
+	require.NoError(t, c.PutOrder(stale))
+
+	acct, err := NewTradingAccount(client, TradingAccountConfig{
+		Cache:                   c,
+		Instruments:             []model.InstrumentID{inst},
+		MissingOrderRepairDelay: time.Hour,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, acct.reconcileExecution(ctx, true))
+	gotRecent, ok := acct.Cache().Order(client.AccountID(), "recent-order")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusAccepted, gotRecent.Status)
+	gotStale, ok := acct.Cache().Order(client.AccountID(), "stale-order")
+	require.True(t, ok)
+	require.Equal(t, model.OrderStatusCanceled, gotStale.Status)
+}
+
 func TestTradingAccountMarksFillsUnsupportedWhenClientCannotGenerateFills(t *testing.T) {
 	ctx := context.Background()
 	inst := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")

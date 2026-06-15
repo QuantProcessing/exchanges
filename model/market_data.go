@@ -15,11 +15,12 @@ const (
 	MarketDataTypeTradeTick MarketDataType = "trade_tick"
 	MarketDataTypeQuoteTick MarketDataType = "quote_tick"
 	MarketDataTypeBar       MarketDataType = "bar"
+	MarketDataTypeCustom    MarketDataType = "custom"
 )
 
 func (t MarketDataType) Validate() error {
 	switch t {
-	case MarketDataTypeTicker, MarketDataTypeOrderBook, MarketDataTypeTradeTick, MarketDataTypeQuoteTick, MarketDataTypeBar:
+	case MarketDataTypeTicker, MarketDataTypeOrderBook, MarketDataTypeTradeTick, MarketDataTypeQuoteTick, MarketDataTypeBar, MarketDataTypeCustom:
 		return nil
 	default:
 		return fmt.Errorf("%w: invalid market data type %q", ErrInvalidMarketData, t)
@@ -287,12 +288,31 @@ func (b OrderBook) Validate() error {
 	return nil
 }
 
+type CustomData struct {
+	InstrumentID InstrumentID
+	Type         string
+	Fields       map[string]string
+	Timestamp    time.Time
+	InitTime     time.Time
+}
+
+func (d CustomData) Validate() error {
+	if err := d.InstrumentID.Validate(); err != nil {
+		return err
+	}
+	if d.Type == "" {
+		return fmt.Errorf("%w: missing custom data type", ErrInvalidMarketData)
+	}
+	return nil
+}
+
 type MarketEvent struct {
 	Ticker    *Ticker
 	OrderBook *OrderBook
 	Trade     *TradeTick
 	Quote     *QuoteTick
 	Bar       *Bar
+	Custom    *CustomData
 }
 
 func (e MarketEvent) InstrumentID() InstrumentID {
@@ -307,6 +327,8 @@ func (e MarketEvent) InstrumentID() InstrumentID {
 		return e.Quote.InstrumentID
 	case e.Bar != nil:
 		return e.Bar.BarType.Canonical().InstrumentID
+	case e.Custom != nil:
+		return e.Custom.InstrumentID
 	default:
 		return InstrumentID{}
 	}
@@ -341,6 +363,12 @@ func (e MarketEvent) Validate() error {
 	if e.Bar != nil {
 		count++
 		if err := e.Bar.Validate(); err != nil {
+			return err
+		}
+	}
+	if e.Custom != nil {
+		count++
+		if err := e.Custom.Validate(); err != nil {
 			return err
 		}
 	}

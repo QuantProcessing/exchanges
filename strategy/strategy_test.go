@@ -1,7 +1,11 @@
 package strategy
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -62,6 +66,80 @@ func TestEnginePassesCommandRuntimeToStrategies(t *testing.T) {
 	require.NoError(t, engine.Stop(context.Background()))
 }
 
+func TestEngineFreezesRuntimeIdentityAtAdd(t *testing.T) {
+	b := bus.New()
+	rt := &fakeRuntime{cache: cache.New()}
+	s := &mutableIDStrategy{id: "alpha"}
+	engine := NewEngine(b, WithRuntime(rt), WithTraderID("TRADER-001"))
+	require.NoError(t, engine.Add(s))
+	s.id = "beta"
+	require.NoError(t, engine.Start(context.Background()))
+
+	_, err := s.runtime.SubmitOrder(context.Background(), model.SubmitOrder{
+		AccountID:     "acct",
+		InstrumentID:  model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+		ClientOrderID: "client-immutable",
+		Side:          model.OrderSideBuy,
+		Type:          model.OrderTypeMarket,
+		Quantity:      decimal.RequireFromString("1"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.TraderID("TRADER-001"), rt.lastSubmit.Metadata.TraderID)
+	require.Equal(t, model.StrategyID("alpha"), rt.lastSubmit.Metadata.StrategyID)
+	require.NoError(t, engine.Stop(context.Background()))
+}
+
+func TestEnginePassesStrategyScopedLogger(t *testing.T) {
+	var buf bytes.Buffer
+	rt := &fakeRuntime{
+		cache:  cache.New(),
+		logger: slog.New(slog.NewJSONHandler(&buf, nil)),
+	}
+	s := &runtimeStrategy{id: "logger-strategy"}
+	engine := NewEngine(bus.New(), WithRuntime(rt), WithTraderID("TRADER-001"))
+	require.NoError(t, engine.Add(s))
+	require.NoError(t, engine.Start(context.Background()))
+
+	s.runtime.Logger().Info("strategy ready", "phase", "start")
+
+	line := strings.TrimSpace(buf.String())
+	require.Contains(t, line, `"msg":"strategy ready"`)
+	require.Contains(t, line, `"trader_id":"TRADER-001"`)
+	require.Contains(t, line, `"strategy_id":"logger-strategy"`)
+	require.Contains(t, line, `"phase":"start"`)
+	require.NoError(t, engine.Stop(context.Background()))
+}
+
+func TestEnginePassesCommandMetadataToDataRequests(t *testing.T) {
+	b := bus.New()
+	rt := &fakeRuntime{cache: cache.New()}
+	s := &runtimeStrategy{id: "requester"}
+	engine := NewEngine(b, WithRuntime(rt), WithTraderID("TRADER-REQ"))
+	require.NoError(t, engine.Add(s))
+	require.NoError(t, engine.Start(context.Background()))
+
+	_, err := s.runtime.RequestData(context.Background(), model.DataRequest{
+		Metadata:     model.CommandMetadata{CommandID: "request-command"},
+		RequestID:    "request-1",
+		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
+		Type:         model.MarketDataTypeTicker,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.TraderID("TRADER-REQ"), rt.lastDataRequest.Metadata.TraderID)
+	require.Equal(t, model.StrategyID("requester"), rt.lastDataRequest.Metadata.StrategyID)
+	require.Equal(t, model.CommandID("request-command"), rt.lastDataRequest.Metadata.CommandID)
+	require.False(t, rt.lastDataRequest.Metadata.TsInit.IsZero())
+	require.NoError(t, engine.Stop(context.Background()))
+}
+
+func TestEngineRejectsInvalidStrategyIdentity(t *testing.T) {
+	engine := NewEngine(bus.New())
+	require.ErrorContains(t, engine.Add(nil), "strategy is required")
+	require.ErrorContains(t, engine.Add(&recordingStrategy{}), "strategy id is required")
+	require.NoError(t, engine.Add(&recordingStrategy{id: "duplicate"}))
+	require.ErrorContains(t, engine.Add(&recordingStrategy{id: "duplicate"}), "duplicate strategy id")
+}
+
 func TestEngineSerializesAsyncCallbacksPerStrategy(t *testing.T) {
 	b := bus.New()
 	s := newNonReentrantStrategy()
@@ -82,6 +160,49 @@ func TestEngineSerializesAsyncCallbacksPerStrategy(t *testing.T) {
 		return s.count.Load() == 2
 	}, eventuallyWait, eventuallyTick)
 	require.False(t, s.overlapped.Load())
+	require.NoError(t, engine.Stop(context.Background()))
+}
+
+func TestEngineIsolatesAsyncStrategyActors(t *testing.T) {
+	b := bus.New()
+	blocked := newBlockingStrategy("blocked")
+	fast := &recordingStrategy{id: "fast"}
+	engine := NewEngine(b)
+	require.NoError(t, engine.Add(blocked))
+	require.NoError(t, engine.Add(fast))
+	require.NoError(t, engine.Start(context.Background()))
+
+	require.NoError(t, b.Publish(context.Background(), TopicTimer, "isolation"))
+	require.Eventually(t, func() bool {
+		return blocked.entered.Load()
+	}, eventuallyWait, eventuallyTick)
+	require.Eventually(t, func() bool {
+		return fast.hasMessages("isolation")
+	}, eventuallyWait, eventuallyTick)
+	close(blocked.release)
+	require.NoError(t, engine.Stop(context.Background()))
+}
+
+func TestEngineReportsStrategyActorErrorsWithoutSkippingPeers(t *testing.T) {
+	b := bus.New()
+	requireErr := errors.New("strategy actor failed")
+	failing := &failingStrategy{id: "failing", err: requireErr}
+	healthy := &recordingStrategy{id: "healthy"}
+	engine := NewEngine(b)
+	require.NoError(t, engine.Add(failing))
+	require.NoError(t, engine.Add(healthy))
+	require.NoError(t, engine.Start(context.Background()))
+
+	require.NoError(t, b.Publish(context.Background(), TopicTimer, "peer-event"))
+	select {
+	case err := <-engine.Errors():
+		require.ErrorIs(t, err, requireErr)
+	case <-time.After(eventuallyWait):
+		t.Fatal("engine did not report strategy actor error")
+	}
+	require.Eventually(t, func() bool {
+		return healthy.hasMessages("peer-event")
+	}, eventuallyWait, eventuallyTick)
 	require.NoError(t, engine.Stop(context.Background()))
 }
 
@@ -141,6 +262,19 @@ func (s *runtimeStrategy) OnStart(_ context.Context, rt Runtime) error {
 func (s *runtimeStrategy) OnEvent(context.Context, bus.Envelope) error { return nil }
 func (s *runtimeStrategy) OnStop(context.Context) error                { return nil }
 
+type mutableIDStrategy struct {
+	id      string
+	runtime Runtime
+}
+
+func (s *mutableIDStrategy) ID() string { return s.id }
+func (s *mutableIDStrategy) OnStart(_ context.Context, rt Runtime) error {
+	s.runtime = rt
+	return nil
+}
+func (s *mutableIDStrategy) OnEvent(context.Context, bus.Envelope) error { return nil }
+func (s *mutableIDStrategy) OnStop(context.Context) error                { return nil }
+
 type nonReentrantStrategy struct {
 	active       atomic.Int32
 	count        atomic.Int64
@@ -171,10 +305,43 @@ func (s *nonReentrantStrategy) OnEvent(context.Context, bus.Envelope) error {
 }
 func (s *nonReentrantStrategy) OnStop(context.Context) error { return nil }
 
+type blockingStrategy struct {
+	id      string
+	entered atomic.Bool
+	release chan struct{}
+}
+
+func newBlockingStrategy(id string) *blockingStrategy {
+	return &blockingStrategy{id: id, release: make(chan struct{})}
+}
+
+func (s *blockingStrategy) ID() string                             { return s.id }
+func (s *blockingStrategy) OnStart(context.Context, Runtime) error { return nil }
+func (s *blockingStrategy) OnEvent(context.Context, bus.Envelope) error {
+	s.entered.Store(true)
+	<-s.release
+	return nil
+}
+func (s *blockingStrategy) OnStop(context.Context) error { return nil }
+
+type failingStrategy struct {
+	id  string
+	err error
+}
+
+func (s *failingStrategy) ID() string                             { return s.id }
+func (s *failingStrategy) OnStart(context.Context, Runtime) error { return nil }
+func (s *failingStrategy) OnEvent(context.Context, bus.Envelope) error {
+	return s.err
+}
+func (s *failingStrategy) OnStop(context.Context) error { return nil }
+
 type fakeRuntime struct {
-	cache      *cache.Cache
-	factories  map[model.AccountID]*model.OrderFactory
-	lastSubmit model.SubmitOrder
+	cache           *cache.Cache
+	factories       map[model.AccountID]*model.OrderFactory
+	logger          *slog.Logger
+	lastDataRequest model.DataRequest
+	lastSubmit      model.SubmitOrder
 }
 
 func (r *fakeRuntime) Cache() *cache.Cache { return r.cache }
@@ -182,6 +349,9 @@ func (r *fakeRuntime) Portfolio() *portfolio.Portfolio {
 	return nil
 }
 func (r *fakeRuntime) Clock() Clock { return WallClock{} }
+func (r *fakeRuntime) Logger() *slog.Logger {
+	return r.logger
+}
 func (r *fakeRuntime) SetTimer(context.Context, string, time.Duration) error {
 	return nil
 }
@@ -224,6 +394,17 @@ func (r *fakeRuntime) SubscribeOrderBookDepth(ctx context.Context, instrumentID 
 }
 func (r *fakeRuntime) UnsubscribeOrderBookDepth(context.Context, model.InstrumentID, int) error {
 	return nil
+}
+func (r *fakeRuntime) RequestData(_ context.Context, request model.DataRequest) (model.DataResponse, error) {
+	r.lastDataRequest = request
+	return model.DataResponse{
+		Metadata:     request.Metadata,
+		RequestID:    request.RequestID,
+		InstrumentID: request.InstrumentID,
+		Type:         request.Type,
+		BarType:      request.BarType,
+		IsFinal:      true,
+	}, nil
 }
 func (r *fakeRuntime) SubmitOrder(_ context.Context, order model.SubmitOrder) (model.OrderStatusReport, error) {
 	r.lastSubmit = order

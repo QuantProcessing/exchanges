@@ -24,6 +24,13 @@ func TestAdapterCapabilityReportRejectsClaimedGranularExecutionWithoutInterface(
 	requireCaseFailed(t, report, "TC-A07", "modify capability requires venue.OrderModifier")
 }
 
+func TestAdapterCapabilityReportRejectsClaimedResubscribeWithoutInterface(t *testing.T) {
+	report := AdapterCapabilityReport(t, fakeClaimedResubscribeAdapter{})
+
+	require.False(t, report.AllPassed(), "claimed resubscribe without ExecutionResubscriber must fail: %#v", report)
+	requireCaseFailed(t, report, "TC-A07", "resubscribe capability requires venue.ExecutionResubscriber")
+}
+
 type fakeCapabilityAdapter struct{}
 
 func (fakeCapabilityAdapter) Venue() model.Venue { return "FAKE" }
@@ -40,7 +47,7 @@ func (fakeCapabilityAdapter) Capabilities() venue.DeclaredCapabilities {
 	return venue.DeclaredCapabilities{
 		Venue:       "FAKE",
 		Instruments: true,
-		MarketData:  venue.MarketDataCapabilities{Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, Streams: true},
+		MarketData:  venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, Streams: true},
 		Execution: venue.ExecutionCapabilities{
 			Submit:          true,
 			Cancel:          true,
@@ -50,6 +57,9 @@ func (fakeCapabilityAdapter) Capabilities() venue.DeclaredCapabilities {
 			FillReports:     true,
 			PositionReports: true,
 			PrivateStream:   true,
+			Resubscribe:     true,
+			MassStatus:      true,
+			OrderLists:      true,
 		},
 		Account: venue.AccountCapabilities{Snapshot: true},
 	}
@@ -71,6 +81,22 @@ func (fakeClaimedModifyAdapter) Capabilities() venue.DeclaredCapabilities {
 	}
 }
 func (fakeClaimedModifyAdapter) Close(context.Context) error { return nil }
+
+type fakeClaimedResubscribeAdapter struct{}
+
+func (fakeClaimedResubscribeAdapter) Venue() model.Venue                    { return "FAKE" }
+func (fakeClaimedResubscribeAdapter) Instruments() venue.InstrumentProvider { return nil }
+func (fakeClaimedResubscribeAdapter) Data() venue.DataClient                { return nil }
+func (fakeClaimedResubscribeAdapter) Execution() venue.ExecutionClient {
+	return fakeCoreExecution{events: make(chan model.ExecutionEvent)}
+}
+func (fakeClaimedResubscribeAdapter) Capabilities() venue.DeclaredCapabilities {
+	return venue.DeclaredCapabilities{
+		Venue:     "FAKE",
+		Execution: venue.ExecutionCapabilities{PrivateStream: true, Resubscribe: true},
+	}
+}
+func (fakeClaimedResubscribeAdapter) Close(context.Context) error { return nil }
 
 type fakeProvider struct{}
 
@@ -137,6 +163,12 @@ func (fakeExecution) GenerateFillReports(context.Context, model.InstrumentID) ([
 	return nil, nil
 }
 func (fakeExecution) GeneratePositionStatusReports(context.Context, model.InstrumentID) ([]model.PositionStatusReport, error) {
+	return nil, nil
+}
+func (fakeExecution) GenerateExecutionMassStatus(context.Context, model.GenerateExecutionMassStatus) (model.ExecutionMassStatus, error) {
+	return model.ExecutionMassStatus{}, nil
+}
+func (fakeExecution) SubmitOrderList(context.Context, model.SubmitOrderList) ([]model.OrderStatusReport, error) {
 	return nil, nil
 }
 func (f fakeExecution) Events() <-chan model.ExecutionEvent { return f.events }
