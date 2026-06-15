@@ -9,7 +9,7 @@ import (
 )
 
 func TestNautilusQualityGateDefinesReviewRequirements(t *testing.T) {
-	content, err := os.ReadFile("../docs/parity/nautilus-complete-quality-gate.json")
+	content, err := os.ReadFile("../docs/parity/complete-quality-gate.json")
 	require.NoError(t, err)
 
 	var gate struct {
@@ -21,33 +21,33 @@ func TestNautilusQualityGateDefinesReviewRequirements(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(content, &gate))
 
-	require.Equal(t, "go-nautilustrader-complete-replica", gate.GoalID)
+	require.Equal(t, "go-trading-platform-complete", gate.GoalID)
 	require.Contains(t, gate.RequiredReviewApprovals, "code-reviewer:APPROVE")
 	require.Contains(t, gate.RequiredReviewApprovals, "architect:CLEAR")
-	require.Contains(t, gate.RequiredVerification, "bash scripts/verify_nautilus_parity.sh")
-	require.Contains(t, gate.RequiredVerification, "bash scripts/generate_nautilus_benchmark_report.sh")
+	require.Contains(t, gate.RequiredVerification, "go vet ./...")
+	require.Contains(t, gate.RequiredVerification, "git diff --check")
 	require.Contains(t, gate.RequiredReleaseSections, "Completed Score")
-	require.Contains(t, gate.RequiredReleaseSections, "Known Unsupported External Adapters")
+	require.Contains(t, gate.RequiredReleaseSections, "Known Unsupported Extension Adapters")
 	require.Contains(t, gate.RequiredReleaseSections, "Verification Evidence")
 	require.Contains(t, gate.BlockingResidualRiskTags, "critical")
 }
 
 func TestNautilusReleaseNotesTemplateHasEvidenceSections(t *testing.T) {
-	contentBytes, err := os.ReadFile("../docs/parity/nautilus-release-notes-template.md")
+	contentBytes, err := os.ReadFile("../docs/parity/release-notes-template.md")
 	require.NoError(t, err)
 	content := string(contentBytes)
 
 	for _, heading := range []string{
-		"# Go NautilusTrader Release Notes",
+		"# Trading Platform Release Notes",
 		"## Completed Score",
 		"## Verification Evidence",
 		"## Benchmark Evidence",
-		"## Known Unsupported External Adapters",
+		"## Known Unsupported Extension Adapters",
 		"## Adapter Capability Changes",
 		"## Residual Risks",
 	} {
 		require.Contains(t, content, heading)
 	}
-	require.Contains(t, content, "scripts/verify_nautilus_parity.sh")
-	require.Contains(t, content, "scripts/generate_nautilus_benchmark_report.sh")
+	require.Contains(t, content, "go vet ./...")
+	require.Contains(t, content, "git diff --check")
 }

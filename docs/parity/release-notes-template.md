@@ -1,4 +1,4 @@
-# Go NautilusTrader Release Notes
+# Trading Platform Release Notes
 
 Release: `<version or commit>`
 Date: `<YYYY-MM-DD>`
@@ -11,8 +11,7 @@ Date: `<YYYY-MM-DD>`
 
 ## Verification Evidence
 
-- `bash scripts/verify_nautilus_parity.sh`: `<pass/fail, date, operator>`
-- Targeted master gate: `<command and result>`
+- Scorecard metadata: `<command and result>`
 - Full non-SDK suite: `<command and result>`
 - Core race suites: `<command and result>`
 - SDK compile gate: `<command and result>`
@@ -21,16 +20,15 @@ Date: `<YYYY-MM-DD>`
 
 ## Benchmark Evidence
 
-- `bash scripts/generate_nautilus_benchmark_report.sh`: `<pass/fail, date, operator>`
-- Report path: `.omx/reports/nautilus-benchmark-report.md`
 - Matching core baseline: `<ns/op, B/op, allocs/op>`
 - Event dispatch baseline: `<ns/op, B/op, allocs/op>`
 - Reconciliation baseline: `<ns/op, B/op, allocs/op>`
 - Adapter fake contract suite status: `<pass/fail summary>`
 
-## Known Unsupported External Adapters
+## Known Unsupported Extension Adapters
 
-List NautilusTrader providers outside this repository's SDK universe, such as Interactive Brokers, Databento, Betfair, Deribit, Kraken, dYdX, BitMEX, Polymarket, Tardis, or sandbox providers, and state whether they are unavailable, planned, or represented only by extension notes.
+List providers outside the current repository SDK universe and state whether
+they are unavailable, planned, or represented only by extension notes.
 
 ## Adapter Capability Changes
 

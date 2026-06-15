@@ -2,13 +2,13 @@
 
 Adapter capabilities are claims, not aspirations. A capability may be marked
 `Yes` only when the adapter implements the matching interface and passes shared
-contract tests. Missing capability must be represented as unsupported behavior
-or `Planned`, not as a no-op success path.
+contract tests. A missing capability must be represented as unsupported
+behavior or `Planned`, not as a no-op success path.
 
 ## Capability Matrix
 
-Use `docs/parity/adapter-capability-matrix.md` as the current support
-matrix. It separates:
+Use `docs/parity/adapter-capability-matrix.md` as the current support matrix.
+It separates:
 
 - data snapshots;
 - data streams;
@@ -16,14 +16,14 @@ matrix. It separates:
 - submit, cancel, modify, and query;
 - order, fill, and position reports;
 - private stream;
-- Resubscribe;
+- resubscribe;
 - mass status;
 - order lists.
 
-Use `docs/parity/adapter-live-test-policy.md` as the live-test gate
-policy for public reads, private reads, and mutating live write tests.
+Use `docs/parity/adapter-live-test-policy.md` as the live-test gate policy for
+public reads, private reads, and mutating live write tests.
 
-Private stream and Resubscribe are separate lifecycle claims. An adapter may
+Private stream and resubscribe are separate lifecycle claims. An adapter may
 stream private execution events without proving restart resubscription, or may
 support resubscription without claiming mass-status recovery.
 
@@ -46,15 +46,15 @@ Read-only SDK and adapter tests may run by default when they do not mutate
 exchange state. Any live write test must be gated by both credentials and an
 exchange-specific enable flag, such as `BYBIT_ENABLE_WS_ORDER_TESTS=1`.
 
-The phrase live write means a test can place, cancel, modify, or otherwise
-mutate venue state. Such tests must skip clearly unless the operator opted in
-with the documented flag and credentials.
+The phrase live write means a test can place, cancel, modify, transfer, or
+otherwise mutate venue state. Such tests must skip clearly unless the operator
+opted in with the documented flag and credentials.
 
 ## Release Rule
 
-The release notes must list:
+Release notes must list:
 
 - every adapter currently counted as supported;
 - every planned capability still missing;
-- external Nautilus reference adapters that are outside the current SDK scope;
+- extension targets still outside the current SDK scope;
 - the exact contract command used as evidence.

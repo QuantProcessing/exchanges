@@ -1,47 +1,73 @@
 # Strategy Authoring With Brackets
 
-This project follows the NautilusTrader authoring shape while using Go
-composition instead of Python inheritance. A strategy receives a
-`strategy.Runtime`, subscribes to data in `OnStart`, reacts through typed
-callbacks, creates normalized orders with `OrderFactory`, and submits them
-through the runtime so risk, execution, cache, and portfolio remain on the
-same lifecycle path.
+Bracket orders express a common lifecycle: enter a position, then release a
+take-profit and stop-loss pair that closes the position. This repository models
+that workflow as a `model.OrderList` created by `model.OrderFactory`.
 
-## Runnable Example
+## Bracket Shape
 
-The bracket example lives in `examples/nautilus_style`:
+```go
+list := rt.OrderFactory(accountID).Bracket(model.BracketOrderRequest{
+    InstrumentID: instrumentID,
+    Side:         model.OrderSideBuy,
+    Quantity:     decimal.RequireFromString("1"),
+    EntryPrice:   decimal.RequireFromString("100"),
+    TakeProfit:   decimal.RequireFromString("104"),
+    StopLoss:     decimal.RequireFromString("98"),
+})
 
-```bash
-env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/nautilus_style -v
+reports, err := rt.SubmitOrderList(ctx, list)
 ```
 
-`examples/nautilus_style/bracket_strategy.go` demonstrates the target flow:
+`OrderFactory.Bracket` creates:
 
-- `OnStart` calls `SubscribeOrderBookDepth`.
-- `OnOrderBook` waits for the entry price to be touched.
-- `runtime.OrderFactory(accountID).Bracket(...)` builds an entry, stop-loss,
-  and take-profit order list with shared metadata.
-- `SubmitOrderList` routes the complete bracket into platform execution.
-- `OnOrderStatus`, `OnOrderLifecycle`, and `OnOrderFilled` collect normalized
-  execution events for later assertions.
+- one parent limit entry order;
+- one stop-market child;
+- one limit take-profit child;
+- one shared `OrderListID`;
+- child `ParentClientOrderID` references;
+- OTO/OCO contingency metadata;
+- reduce-only exit children.
 
-## Bracket Semantics
+## Runtime Semantics
 
-`OrderFactory.Bracket` creates one parent entry order and two held child orders.
-The platform and execution manager keep the list indexed by `OrderListID`.
-When the entry fills, held children become actionable. When one OCO child fills,
-the sibling is cancelled. The same order-list model is also used by backtests
-so live and simulated behavior share the same command shape.
+1. The parent entry order is submitted first.
+2. Exit children are held by the platform/execution path.
+3. When the parent fills, children are released.
+4. When one OCO child fills, the sibling is canceled.
+5. Cache records order and fill state.
+6. Portfolio records position, fee, and PnL changes.
+7. Strategy callbacks receive order status, lifecycle, fill, and position
+   events.
 
-## Authoring Contract
+## Strategy Pattern
 
-Strategy code should not call exchange SDKs directly. Keep strategies expressed
-in terms of:
+```go
+func (s *BracketStrategy) OnOrderBook(ctx context.Context, book model.OrderBook) error {
+    if s.submitted || book.InstrumentID != s.instrumentID || !s.entryTouched(book) {
+        return nil
+    }
+    s.submitted = true
 
-- `model.InstrumentID`, `model.AccountID`, and normalized order types;
-- `strategy.Runtime` subscriptions and submission methods;
-- `model.OrderFactory` helpers for order creation;
-- typed callbacks such as `OnOrderBook`, `OnOrderStatus`, and `OnOrderFilled`.
+    list := s.runtime.OrderFactory(s.accountID).Bracket(model.BracketOrderRequest{
+        InstrumentID: s.instrumentID,
+        Side:         model.OrderSideBuy,
+        Quantity:     decimal.RequireFromString("1"),
+        EntryPrice:   decimal.RequireFromString("100"),
+        TakeProfit:   decimal.RequireFromString("104"),
+        StopLoss:     decimal.RequireFromString("98"),
+    })
+    _, err := s.runtime.SubmitOrderList(ctx, list)
+    return err
+}
+```
 
-This mirrors NautilusTrader's strategy UX while preserving Go's explicit
-interfaces and compile-time callback checks.
+## Verification
+
+Bracket behavior crosses strategy, execution, backtest, cache, and portfolio
+state. Use focused tests for the package you changed and a broader example or
+runtime test when changing list lifecycle behavior.
+
+```bash
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./strategy ./execution ./backtest ./examples/... -run 'Bracket|OrderList|OCO|OTO' -v
+```

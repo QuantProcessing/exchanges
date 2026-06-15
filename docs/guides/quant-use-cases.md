@@ -44,12 +44,14 @@ Minimal strategy shape:
 
 ```go
 type ImbalanceStrategy struct {
+    runtime      strategy.Runtime
     accountID    model.AccountID
     instrumentID model.InstrumentID
     submitted    bool
 }
 
 func (s *ImbalanceStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+    s.runtime = rt
     return rt.SubscribeOrderBookDepth(ctx, s.instrumentID, 2)
 }
 
@@ -153,7 +155,7 @@ Best-practice notes:
 - Listen to `OnOrderLifecycle` and `OnOrderFilled` when asserting strategy
   behavior.
 
-Runnable reference: `examples/nautilus_style`.
+Runnable reference: the repository bracket strategy example under `examples/`.
 
 ## Use Case 3: Deterministic Backtest For Strategy Research
 
@@ -355,5 +357,5 @@ env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./testsuite
 For release-facing confidence:
 
 ```bash
-bash scripts/verify_nautilus_parity.sh
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'Master|Score|Requirement'
 ```

@@ -1,353 +1,186 @@
 # Project Architecture
 
-This document describes how the repository is structured and how the major
-modules cooperate to form a Go NautilusTrader-style trading platform.
-
-The project is intentionally not a flat exchange wrapper. It has three
-boundaries:
-
-1. `sdk/` packages speak venue-native REST and WebSocket protocols.
-2. `adapter/` and `venue/` packages expose stable, capability-honest exchange
-   interfaces.
-3. Runtime packages implement strategy, data, execution, risk, portfolio,
-   backtest, live-node, cache, and reconciliation behavior above adapters.
+This project is a layered Go trading platform. It is not a flat exchange
+wrapper. The repository separates venue-native protocol clients, normalized
+venue adapters, and a strategy/runtime layer that owns data, execution, risk,
+portfolio, cache, reconciliation, backtest, and live operation.
 
 ## Design Goals
 
-- Keep venue-specific protocol detail in SDK packages.
-- Keep adapter interfaces small, explicit, and test-backed.
-- Let strategy code target normalized model types rather than exchange payloads.
-- Make backtest and live paths share command, event, risk, cache, portfolio,
-  and lifecycle semantics.
-- Treat `testsuite` and `docs/parity` as release-facing evidence, not as
-  optional documentation.
-- Return explicit unsupported errors instead of silent no-op success.
+- Keep exchange protocol detail in `sdk/` packages.
+- Keep cross-venue contracts in `venue` and `adapter`.
+- Let strategies use normalized `model` types instead of venue payloads.
+- Route trading commands through risk, execution, cache, portfolio, and event
+  publication.
+- Make backtest and live mode use the same strategy authoring surface.
+- Expose unsupported behavior explicitly instead of returning no-op success.
+- Make local state repair inspectable through reconciliation results and audit
+  trails.
 
 ## Layer Map
 
 ```text
-Strategy / Application
+Application code
         |
         v
-live.Node / platform.Node
+strategy.Strategy implementations
         |
-        +--> strategy.Engine ----> strategy.Runtime
+        v
+strategy.Runtime
         |
-        +--> data.Engine --------> venue.DataClient --------> adapter/* --------> sdk/*
+        +--> backtest.Runner for deterministic simulation
         |
-        +--> risk.Engine
-        |
-        +--> execution.Engine ---> venue.ExecutionClient ---> adapter/* --------> sdk/*
-        |
-        +--> portfolio.Portfolio
-        |
-        +--> cache.Cache
-        |
-        +--> bus.Bus / kernel.Component
+        +--> live.Node for live operation
+                 |
+                 v
+             platform.Node
+                 |
+                 +--> data.Engine -----> venue.DataClient -----> adapter/* -----> sdk/*
+                 +--> execution.Engine -> venue.ExecutionClient -> adapter/* -----> sdk/*
+                 +--> account.Reconciler
+                 +--> risk.Engine
+                 +--> portfolio.Portfolio
+                 +--> cache.Cache
+                 +--> bus.Bus
+                 +--> kernel health and lifecycle helpers
 ```
 
-## Core Packages
+The dependency direction is one-way:
+
+1. runtime packages depend on `venue` abstractions;
+2. adapters depend on SDKs and map venue-native payloads into `model`;
+3. SDKs talk to exchange protocols and do not import adapter or runtime
+   packages.
+
+## Boundary Rules
+
+### SDK Boundary
+
+`sdk/` packages own official REST/WebSocket endpoint names, signing, request
+and response types, listen-key flows, product-specific options, and exchange
+protocol details.
+
+Use SDKs for direct exchange API access. Do not put strategy lifecycle logic,
+cache mutation, risk checks, portfolio accounting, or adapter capability claims
+inside SDK packages.
+
+### Adapter Boundary
+
+`adapter/` packages expose SDK behavior through `venue` interfaces. They own
+instrument lookup, raw symbol mapping, normalized market data, order validation,
+common error mapping, private execution streams where implemented, and
+`venue.DeclaredCapabilities`.
+
+Adapters should use optional interfaces for optional features. If a capability
+is not implemented, callers should receive `model.ErrNotSupported` or an error
+that wraps it.
+
+### Runtime Boundary
+
+Runtime packages own trading behavior: strategy callbacks, command metadata,
+risk checks, execution lifecycle, reconciliation, cache indexes, portfolio
+accounting, backtesting, live node health, timers, and event fanout.
+
+Strategies should interact with runtime APIs, not SDKs.
+
+## Core Runtime Modules
 
 ### `model`
 
-`model` is the shared vocabulary for the runtime.
+`model` is the shared type system. It defines identifiers, instruments, data
+events, account snapshots, positions, orders, command metadata, order lists,
+execution reports, lifecycle events, and errors.
 
-It owns identifiers, instruments, account snapshots, orders, order lists,
-commands, command metadata, market data, execution reports, lifecycle events,
-and validation errors.
-
-Important design rules:
-
-- Strategy, execution, risk, portfolio, cache, and adapters should communicate
-  through `model` types.
-- Identifiers such as `AccountID`, `InstrumentID`, `ClientOrderID`,
-  `VenueOrderID`, `OrderListID`, `PositionID`, `CommandID`, and
-  `CorrelationID` must survive the full command and event path.
-- Decimal trading values use `shopspring/decimal`; avoid float math in trading
-  state.
-- Advanced order semantics such as brackets, OTO, OCO, OUO, reduce-only,
-  triggers, trailing offsets, order lists, and command metadata belong here.
+The most important invariant is identity preservation. Account IDs, strategy
+IDs, command IDs, correlation IDs, client order IDs, venue order IDs, position
+IDs, and order-list IDs should survive strategy, risk, execution, adapter,
+report, cache, portfolio, reconciliation, and callback paths.
 
 ### `venue`
 
-`venue` defines the stable interfaces runtime code can depend on.
-
-Key interfaces:
-
-- `Adapter`: owns venue identity and exposes instruments, data, execution, and
-  declared capabilities.
-- `InstrumentProvider`: loads and lists normalized instruments.
-- `DataClient`: fetches snapshot market data.
-- `StreamingDataClient`: subscribes to live market-data events.
-- `ExecutionClient`: connects account execution, queries account state, submits
-  and cancels orders, generates order reports, and exposes private execution
-  events.
-- Optional execution interfaces: modify, query, order lists, fill reports,
-  position reports, mass status, and resubscribe.
-
-`venue.DeclaredCapabilities` is a promise. A true field must match implemented
-behavior and shared contract tests.
-
-### `sdk`
-
-`sdk/` packages are venue-native protocol clients. They can expose endpoint
-names, venue-specific request/response payloads, signing rules, account modes,
-and product-specific details.
-
-SDK packages should not depend on adapter or runtime packages. They are the
-lowest layer.
-
-### `adapter`
-
-`adapter/` packages convert SDK behavior into stable venue interfaces.
-
-Adapters are responsible for:
-
-- symbol and instrument resolution;
-- exchange-native to normalized `model` mapping;
-- precision and order validation;
-- common error mapping;
-- snapshot and streaming market data;
-- private execution streams;
-- honest capability declarations.
-
-Adapters should not grow the core runtime interface for a feature that only one
-venue supports. Use optional interfaces and return `model.ErrNotSupported` for
-unsupported behavior.
+`venue` is the stable interface layer. Runtime code talks to `venue.DataClient`,
+`venue.StreamingDataClient`, and `venue.ExecutionClient`. Optional capability
+interfaces describe features such as modify, query, order lists, fill reports,
+position reports, mass status, and resubscribe.
 
 ### `cache`
 
-`cache.Cache` is the local runtime source of truth.
-
-It indexes:
-
-- instruments;
-- account snapshots and account history;
-- orders by account, order ID, client ID, venue order ID, strategy, position,
-  order list, execution spawn, and open/closed state;
-- fills by account, order, trade, and venue order;
-- deferred fills for fill-before-order reconciliation;
-- positions by account, instrument, position ID, strategy, venue position ID,
-  and open/closed state;
-- market snapshots and market events;
-- residual and snapshot state for reconciliation and diagnostics.
+`cache.Cache` is the runtime's local state index. It stores and indexes
+instruments, account snapshots, order reports, fill reports, positions, market
+events, deferred fills, residuals, and snapshots.
 
 Execution, risk, portfolio, strategy, backtest, and reconciliation should query
 cache instead of scanning unrelated state.
 
-### `bus`
-
-`bus.Bus` is the runtime event fanout mechanism. It carries `bus.Envelope`
-values on topics such as:
-
-- `market.data`;
-- `execution`;
-- `timer`;
-- `error`.
-
-Strategy engines subscribe to topics and dispatch events to strategy instances.
-Platform and data/execution components publish normalized events into the bus.
-
-### `kernel`
-
-`kernel` contains reusable infrastructure:
-
-- component lifecycle states;
-- health snapshots;
-- clocks;
-- message-bus primitives.
-
-Runtime components should expose health and lifecycle state instead of hiding
-reconnect, queue, or stream failures.
-
 ### `data`
 
-`data.Engine` normalizes market data.
-
-It owns:
-
-- data-client registration;
-- instrument loading into cache;
-- live subscriptions;
-- subscription replay after restart;
-- market-event forwarding into cache and bus;
-- bar aggregation;
-- historical/catalog requests;
-- health and stale-client reporting.
-
-`data.Catalog` and `ReplayCatalog` make historical and replay data explicit.
-`MemoryCatalog` is the simple in-memory implementation used by examples and
-tests.
+`data.Engine` registers data clients, loads instruments, tracks subscriptions,
+forwards market data into cache and bus, supports aggregation and catalog-backed
+requests, and reports data health.
 
 ### `execution`
 
-`execution.Engine` and `execution.Manager` own order lifecycle behavior.
-
-Responsibilities include:
-
-- submit, modify, cancel, query, cancel-all, and batch-cancel commands;
-- order-list handling;
-- contingent order release;
-- emulated stop, touched, and trailing order behavior;
-- normalized order, fill, position, and lifecycle events;
-- matching-core behavior used by backtests;
-- health reporting;
-- reconciliation support.
-
-Execution should not bypass cache, risk, portfolio, or command metadata.
+`execution.Engine` and `execution.Manager` route commands, manage order state,
+handle order lists, release contingent children, emulate trigger behavior,
+produce normalized execution events, and support reconciliation.
 
 ### `account`
 
-`account.TradingAccount` is the account-level lifecycle runtime.
-
-It coordinates:
-
-- account startup readiness;
-- private execution stream connection;
-- startup and gap reconciliation;
-- normalized order/fill reports;
-- per-order tracking through `OrderTracker`;
-- stream health, unsupported stream state, event counters, and slow-subscriber
-  accounting.
-
-`account.Reconciler` turns venue reports into local lifecycle repairs and
-structured unresolved discrepancies.
+`account.TradingAccount`, `account.OrderTracker`, and `account.Reconciler`
+coordinate startup readiness, private stream events, account/order/fill/position
+reports, delayed reports, external venue activity, and unresolved discrepancy
+state.
 
 ### `risk`
 
-`risk.Engine` enforces pre-execution controls.
-
-It checks:
-
-- instrument validity and precision;
-- order notional;
-- position notional;
-- account exposure;
-- scoped limits by account, strategy, or instrument;
-- reduce-only behavior;
-- trading state, halt, and kill switch;
-- command throttles and queue capacity;
-- duplicate client-order risks where applicable.
-
-Risk rejection happens before adapter submission in normal runtime paths. A
-rejection should be typed, visible, and should not mutate orders, fills,
-positions, or portfolio state.
+`risk.Engine` protects the execution boundary. It checks validity, precision,
+notional, exposure, scoped limits, reduce-only constraints, trading state,
+kill switch, throttles, duplicate client IDs, and queue capacity where
+configured.
 
 ### `portfolio`
 
-`portfolio.Portfolio` is the event-driven accounting layer.
-
-It consumes account, order, fill, position, position lifecycle, and market data
-events. It updates:
-
-- balances;
-- positions;
-- commissions;
-- realized PnL;
-- unrealized PnL;
-- mark values;
-- exposures by instrument, account, venue, and target currency;
-- conversion rates;
-- analyzer trade records.
-
-Fills are deduplicated before accounting. Mark updates invalidate cached
-unrealized PnL where needed.
+`portfolio.Portfolio` consumes account, order, fill, position, lifecycle, and
+market data events. It updates balances, positions, commissions, realized PnL,
+unrealized PnL, marks, conversion rates, exposure, and analyzer records.
 
 ### `strategy`
 
-`strategy` is the developer-facing authoring layer.
-
-A strategy receives a `strategy.Runtime`, subscribes to data in `OnStart`, uses
-typed callbacks for market and execution events, creates orders with
-`model.OrderFactory`, and submits commands through the runtime.
-
-The runtime exposes:
-
-- cache and portfolio access;
-- clocks and timers;
-- market-data subscriptions;
-- historical data requests;
-- order factory helpers;
-- submit, modify, cancel, query, and account commands.
-
-`strategy.NewTyped` lets a plain Go struct implement only the callbacks it
-needs, such as `OnOrderBook`, `OnOrderFilled`, or `OnTimer`.
+`strategy` is the user-facing authoring layer. Strategies receive
+`strategy.Runtime`, subscribe in `OnStart`, react to typed callbacks, create
+orders with `model.OrderFactory`, and submit commands through the runtime.
 
 ### `backtest`
 
-`backtest.Runner` runs strategies against timestamped events with deterministic
-state.
-
-It owns:
-
-- event ordering;
-- deterministic clock advancement;
-- timer dispatch;
-- order expiration;
-- same-timestamp command draining;
-- matching and fill generation;
-- fill model, slippage, and order latency;
-- result summaries and deterministic JSON.
-
-Backtest should share the same strategy/runtime, model, cache, portfolio, risk,
-and execution semantics as live where the parity contract says behavior is
-shared.
+`backtest.Runner` replays timestamped events through the strategy runtime. It
+controls deterministic time, timer dispatch, order expiration, same-timestamp
+command draining, matching, fill modeling, slippage, latency, and result
+summaries.
 
 ### `live`
 
-`live.Node` wraps `platform.Node` into a live trading node.
-
-It wires:
-
-- data clients;
-- execution clients;
-- strategies;
-- risk engine;
-- portfolio;
-- cache;
-- bus;
-- reconnect policy;
-- health reporting;
-- start and stop lifecycle.
-
-Use `live.NewNodeBuilder()` when assembling a live node from application code.
+`live.Node` wraps `platform.Node` with start/stop lifecycle, reconnect policy,
+health monitoring, data client registration, execution client registration, and
+strategy startup.
 
 ### `platform`
 
-`platform.Node` is the orchestration layer. It wires data, execution, risk,
-portfolio, cache, strategy runtime, bus, timers, subscriptions, and reconcilers
-into one runtime facade.
-
-Strategy runtime methods are implemented here for live mode:
-
-- market data subscriptions route to `data.Engine`;
-- orders route through `risk.Engine` before `execution.Engine`;
-- execution events update cache and portfolio and publish to the bus;
-- reconciliation runs against registered execution clients;
-- timers publish strategy timer events.
+`platform.Node` is the live runtime facade and implements `strategy.Runtime`.
+It wires data, execution, risk, portfolio, cache, bus, timers, subscriptions,
+and reconciliation into one command and event path.
 
 ### `testsuite`
 
-`testsuite` is the parity oracle.
-
-It contains reusable contract testers for:
-
-- adapter capability honesty;
-- model/cache/data/execution/risk/portfolio/backtest/live behavior;
-- reconciliation;
-- master scorecard metadata;
-- release-gate documentation artifacts;
-- benchmark report scripts.
-
-When a behavior crosses packages, prefer adding a reusable `testsuite` case in
-addition to package-local tests.
+`testsuite` contains cross-package contract tests and scorecards. Use
+package-local tests for narrow behavior and testsuite cases when a claim crosses
+module boundaries.
 
 ## Runtime Flows
 
 ### Market Data Flow
 
 ```text
-venue.DataClient / StreamingDataClient
+venue.DataClient / venue.StreamingDataClient
         |
         v
 data.Engine
@@ -361,8 +194,9 @@ strategy.Engine dispatches typed callbacks
 ```
 
 Snapshot requests call `FetchTicker` or `FetchOrderBook`. Streaming
-subscriptions call `SubscribeMarketData`, forward venue events into
-`model.MarketEvent`, update cache, run bar aggregators, and publish to the bus.
+subscriptions call `SubscribeMarketData`, normalize venue events into
+`model.MarketEvent`, update cache, run aggregators, and publish to strategy
+callbacks.
 
 ### Strategy Order Flow
 
@@ -373,7 +207,7 @@ strategy callback
 strategy.Runtime.SubmitOrder / SubmitOrderList
         |
         v
-platform.Node adds command metadata and checks risk
+platform.Node fills command metadata and checks risk
         |
         v
 execution.Engine sends command to venue.ExecutionClient
@@ -382,7 +216,7 @@ execution.Engine sends command to venue.ExecutionClient
 adapter maps model command to SDK request
         |
         v
-sdk talks to venue API
+venue API or simulated execution path
         |
         v
 order/fill/position reports return as model.ExecutionEvent
@@ -392,25 +226,32 @@ order/fill/position reports return as model.ExecutionEvent
         +--> bus.Bus -> strategy callbacks
 ```
 
-The important invariant is that strategy code does not call SDKs directly.
-Commands go through runtime so risk, cache, portfolio, lifecycle, and metadata
-stay consistent.
+The invariant is that strategy code does not call SDKs directly. Commands go
+through the runtime so risk, cache, portfolio, lifecycle, and metadata stay
+consistent.
 
 ### Bracket Order Flow
 
-`model.OrderFactory.Bracket` creates an order list with:
+`model.OrderFactory.Bracket` creates one parent entry order and two reduce-only
+exit children. The parent carries OTO metadata; the children carry OCO metadata
+and share the same `OrderListID`.
 
-- one parent entry order;
-- one take-profit child;
-- one stop-loss child;
-- shared `OrderListID`;
-- parent-child IDs;
-- reduce-only exit children;
-- OTO/OCO contingency metadata.
-
-The platform and execution manager hold children until the parent fills. When
-one OCO child fills, the sibling is cancelled. This flow is shared by live and
-backtest tests.
+```text
+SubmitOrderList
+        |
+        +--> submit parent
+        +--> hold children by parent client order ID
+        |
+        v
+parent fill
+        |
+        +--> release take-profit and stop-loss children
+        |
+        v
+one child fills
+        |
+        +--> cancel the sibling
+```
 
 ### Reconciliation Flow
 
@@ -435,22 +276,24 @@ cache and portfolio repair
 audit trail records resolved and unresolved discrepancies
 ```
 
-Unresolved discrepancies are structured state. They are not log-only warnings.
-Missing fills must be applied once, and duplicate repair must be idempotent.
+Unresolved discrepancies are structured state. Missing fills must be applied
+once. Fill-before-order reports should be deferred and replayed when the order
+appears. External orders should be imported only under an explicit policy.
 
-## Backtest vs Live
+## Backtest And Live Equivalence
 
-Backtest and live share the same strategy authoring surface. The difference is
-the source of truth:
+Backtest and live share `strategy.Runtime`, normalized model types, order
+factory helpers, typed callbacks, cache queries, portfolio queries, risk
+checks, lifecycle events, and command metadata.
 
-- backtest uses deterministic market events and a simulated execution path;
+The source of truth changes:
+
+- backtest uses deterministic events and simulated matching;
 - live uses registered venue data and execution clients;
-- both should preserve model types, command metadata, risk semantics, cache
-  updates, portfolio accounting, and lifecycle events.
+- both should make state transitions and failures visible.
 
-Use backtest to prove strategy behavior and lifecycle expectations. Use live
-node tests to prove wiring, stream health, reconnect, and adapter capability
-claims.
+Use backtests to prove strategy behavior. Use live-node and adapter tests to
+prove wiring, health, reconnect, stream, and venue capability behavior.
 
 ## Failure And Unsupported Behavior
 
@@ -458,26 +301,22 @@ Failure should be explicit:
 
 - unsupported adapter surfaces return `model.ErrNotSupported` or a wrapped
   equivalent;
-- risk rejection returns typed `risk.ErrRiskRejected` behavior and emits a
-  visible rejection event where appropriate;
+- risk rejection returns typed behavior and should publish a visible lifecycle
+  event in runtime paths;
 - reconciliation discrepancies are recorded in audit state;
-- health snapshots expose stale streams, queue pressure, and last errors.
+- health snapshots expose stale streams, queue pressure, and last errors;
+- live write tests are opt-in and must not run by default.
 
-Silent success is a bug when a caller asked for trading lifecycle behavior.
+Silent success is a bug when a caller asked for lifecycle behavior the system
+does not support.
 
-## Documentation And Evidence
+## Verification
 
-Long-lived docs live in:
-
-- `docs/architecture.md` for this architecture overview;
-- `docs/guides/` for usage guides;
-- `docs/parity/` for scorecards, matrices, quality gates, and release evidence;
-- `docs/plans/` for the active master plan.
-
-Release-facing evidence should be backed by:
+Run the smallest command that proves your claim:
 
 ```bash
-env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'TestNautilusMaster'
-bash scripts/verify_nautilus_parity.sh
-bash scripts/generate_nautilus_benchmark_report.sh
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./strategy ./backtest ./live ./platform
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./execution ./account ./risk ./portfolio ./testsuite
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./adapter/... ./config/all ./testsuite -run 'Adapter|Capability|Contract|PrivateStream|Resubscribe'
+git diff --check
 ```

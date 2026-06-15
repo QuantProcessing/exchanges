@@ -1,7 +1,7 @@
 # Reconciliation States
 
 Reconciliation turns venue truth into local lifecycle state and records every
-case that cannot be resolved automatically. The Go replica keeps this behavior
+case that cannot be resolved automatically. The runtime keeps this behavior
 explicit so live execution can restart, recover missed private-stream events,
 and report an unresolved discrepancy instead of silently drifting.
 
@@ -48,7 +48,7 @@ include:
 
 Callers must either repair the discrepancy through a documented policy or carry
 it into release and operations notes. The release gate forbids claiming clean
-parity while reconciliation differences are being ignored.
+runtime state while reconciliation differences are being ignored.
 
 ## Verification
 

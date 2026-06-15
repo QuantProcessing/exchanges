@@ -27,7 +27,7 @@ portfolio are created when they are not supplied.
 
 ## Startup Order
 
-`Node.Start(ctx)` delegates to `Runner.Start(ctx)`:
+`Node.Start(ctx)` delegates to the live runner:
 
 1. the platform node starts data and execution clients;
 2. the strategy engine starts with the platform node as `strategy.Runtime`;
@@ -50,11 +50,6 @@ state and unsubscribe through the platform.
 
 ## Verification
 
-Live-node behavior is covered by:
-
 ```bash
-env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./live ./platform ./testsuite -run 'Live|Node|Runner|NautilusMaster' -v
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./live ./platform ./testsuite -run 'Live|Node|Runner|Startup|Shutdown|Health' -v
 ```
-
-The master gate maps this surface to the `live` suite in
-`NautilusMasterRequirements`.

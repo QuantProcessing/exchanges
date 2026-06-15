@@ -1,6 +1,8 @@
 # Adapter Capability Matrix
 
-This matrix is the source of truth for adapter capability honesty during the complete Go NautilusTrader replica program. It reflects current `venue.DeclaredCapabilities` claims and the test evidence required before any adapter can count toward the master parity score.
+This matrix is the source of truth for adapter capability honesty. It reflects
+current `venue.DeclaredCapabilities` claims and the test evidence required
+before an adapter can be treated as supporting a workflow.
 
 ## Capability Key
 
@@ -8,8 +10,8 @@ This matrix is the source of truth for adapter capability honesty during the com
 | --- | --- |
 | Yes | Claimed by the adapter today and must be backed by contract tests. |
 | No | Not claimed today; callers should receive explicit unsupported behavior where applicable. |
-| Planned | Required for full Nautilus-style parity but not claimed by the adapter today. |
-| External | Reference venue is outside the current repository SDK universe. |
+| Planned | Implementation target, not current support. |
+| External | Outside the current repository SDK universe. |
 
 ## Current Repository Adapters
 
@@ -31,11 +33,13 @@ This matrix is the source of truth for adapter capability honesty during the com
 | StandX | sdk/standx | adapter/standx | Yes | Yes | Yes | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/standx/standx_test.go; testsuite/contracts.go |
 | Backpack | sdk/backpack | adapter/backpack | Yes | Yes | Yes | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/backpack/backpack_test.go; testsuite/contracts.go |
 
-## Nautilus Reference Adapters Outside Current SDK Scope
+## Extension Targets Outside Current SDK Scope
 
-These rows are intentionally not counted as supported repository adapters. They remain extension targets until SDK modules, adapter packages, and contract tests exist.
+These rows are intentionally not counted as supported repository adapters. They
+remain extension targets until SDK modules, adapter packages, and contract
+tests exist.
 
-| Reference adapter | Current repository owner | Status | Required before support can be claimed |
+| Extension target | Current repository owner | Status | Required before support can be claimed |
 | --- | --- | --- | --- |
 | Betfair | adapter extension | External | SDK module, instrument model extension, data client, execution client, account reports, adapter contract tests. |
 | BitMEX | adapter extension | External | SDK module, market data client, execution client, private stream, report generators, adapter contract tests. |
@@ -52,7 +56,7 @@ These rows are intentionally not counted as supported repository adapters. They 
 
 | Purpose | Command |
 | --- | --- |
-| Capability matrix and master metadata | `go test -count=1 ./testsuite -run 'TestNautilusMaster'` |
+| Capability matrix and scorecard metadata | `go test -count=1 ./testsuite -run 'Master|Score|Requirement'` |
 | Adapter contract tests | `go test -count=1 ./adapter/... ./config/all ./testsuite -run 'Adapter|Capability|Contract'` |
 | SDK compile-only check | `go test -run '^$' -count=1 ./sdk/...` |
 | Public SDK read tests | `go test -count=1 ./sdk/...` |
@@ -60,8 +64,12 @@ These rows are intentionally not counted as supported repository adapters. They 
 
 ## Capability Policy
 
-- A `Yes` capability must have a passing shared contract case before it can count toward the master parity score.
+- A `Yes` capability must have a passing shared contract case before it can
+  count toward release evidence.
 - A `No` capability must not be treated as a lifecycle requirement by callers.
-- A `Planned` capability is an explicit implementation target, not a current support claim.
-- Private stream and resubscribe are separate claims; full lifecycle readiness also requires reconciliation evidence.
-- Fill, position, mass-status, and order-list support must be claimed only after SDK-backed implementation and shared tests exist.
+- A `Planned` capability is an explicit implementation target, not current
+  support.
+- Private stream and resubscribe are separate claims; full lifecycle readiness
+  also requires reconciliation evidence.
+- Fill, position, mass-status, and order-list support must be claimed only
+  after SDK-backed implementation and shared tests exist.

@@ -49,14 +49,14 @@ venue SDKs and capability-honest adapters.
 Read these artifacts before changing architecture, lifecycle, risk, portfolio,
 adapter capabilities, or parity tests:
 
-- `docs/plans/nautilustrader-complete-replica.md`
-- `docs/parity/nautilustrader-complete-feature-matrix.md`
+- `docs/plans/platform-completion-plan.md`
+- `docs/parity/complete-feature-matrix.md`
 - `docs/parity/adapter-capability-matrix.md`
-- `docs/guides/master-parity-scorecard.md`
+- `docs/guides/master-scorecard.md`
 - `docs/guides/adapter-capability-policy.md`
 - `docs/guides/reconciliation-states.md`
 - `docs/parity/adapter-live-test-policy.md`
-- `docs/parity/nautilus-complete-quality-gate.json`
+- `docs/parity/complete-quality-gate.json`
 - `testsuite/nautilus_master_tester.go`
 - `scripts/verify_nautilus_parity.sh`
 

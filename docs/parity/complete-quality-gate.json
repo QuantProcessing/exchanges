@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "goalId": "go-trading-platform-complete",
+  "purpose": "Prevent a partial trading runtime or over-claimed adapter capability from being released as complete.",
+  "requiredReviewApprovals": [
+    "code-reviewer:APPROVE",
+    "architect:CLEAR"
+  ],
+  "requiredVerification": [
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'Master|Score|Requirement|QualityGate|ReleaseNotes' -v",
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./model ./cache ./account ./execution ./risk ./portfolio ./platform ./strategy ./backtest ./live ./testsuite -v",
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./adapter/... ./config/all ./testsuite -run 'Adapter|Capability|Contract|PrivateStream|Resubscribe' -v",
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -run '^$' -count=1 ./sdk/...",
+    "go vet ./...",
+    "git diff --check"
+  ],
+  "requiredEvidenceArtifacts": [
+    "docs/plans/platform-completion-plan.md",
+    "docs/parity/complete-feature-matrix.md",
+    "docs/parity/adapter-capability-matrix.md",
+    "docs/parity/release-notes-template.md"
+  ],
+  "requiredReleaseSections": [
+    "Completed Score",
+    "Verification Evidence",
+    "Benchmark Evidence",
+    "Known Unsupported Extension Adapters",
+    "Adapter Capability Changes",
+    "Residual Risks"
+  ],
+  "blockingResidualRiskTags": [
+    "critical",
+    "high"
+  ],
+  "approvalRules": {
+    "code-reviewer": "Must report no unresolved correctness, safety, lifecycle, risk, portfolio, adapter capability, or test-gate findings before release.",
+    "architect": "Must report no unresolved architecture boundary violations across SDK, adapter, account, execution, risk, portfolio, backtest, live, or strategy runtime layers."
+  },
+  "releaseRules": {
+    "score": "Mandatory scope must reach 1000/1000 before claiming the platform complete.",
+    "capabilities": "Every claimed adapter capability must have local fake-SDK, contract, or live-gated evidence. Unsupported capabilities must be explicit errors or documented unavailable extension providers.",
+    "reconciliation": "No unresolved reconciliation discrepancy may be silently ignored; each release note must list remaining discrepancy policy limitations if any.",
+    "reports": "Release notes must link verification output and benchmark evidence."
+  }
+}

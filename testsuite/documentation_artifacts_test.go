@@ -9,16 +9,39 @@ import (
 
 func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 	docs := map[string][]string{
+		"../docs/README.md": {
+			"# Documentation",
+			"Getting Started",
+			"Module Guide",
+			"Reliable Quant Program Guide",
+		},
+		"../docs/getting-started.md": {
+			"# Getting Started",
+			"Choose The Right Layer",
+			"Run The Strategy In A Backtest",
+		},
+		"../docs/module-guide.md": {
+			"# Module Guide",
+			"`model`",
+			"`platform`",
+			"`testsuite`",
+		},
+		"../docs/runtime-flow.md": {
+			"# Runtime Flow",
+			"Market Data Flow",
+			"Order Flow",
+			"Reconciliation Flow",
+		},
 		"../docs/architecture.md": {
 			"# Project Architecture",
 			"Strategy Order Flow",
 			"Reconciliation Flow",
 			"`platform.Node`",
 		},
-		"../docs/guides/master-parity-scorecard.md": {
-			"# Master Parity Scorecard",
-			"scripts/verify_nautilus_parity.sh",
-			"NautilusMasterRequirements",
+		"../docs/guides/master-scorecard.md": {
+			"# Master Scorecard",
+			"Complete Feature Matrix",
+			"Complete Quality Gate",
 		},
 		"../docs/guides/quant-use-cases.md": {
 			"# Quant Developer Use Cases",
@@ -26,10 +49,15 @@ func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 			"Deterministic Backtest",
 			"Adapter Capability-Aware Live Setup",
 		},
+		"../docs/guides/reliable-quant-program.md": {
+			"# Reliable Quant Program Guide",
+			"Create Orders Through `OrderFactory`",
+			"Production Rollout Checklist",
+		},
 		"../docs/guides/strategy-authoring-bracket.md": {
 			"# Strategy Authoring With Brackets",
-			"examples/nautilus_style",
 			"SubmitOrderList",
+			"Runtime Semantics",
 		},
 		"../docs/guides/live-node-configuration.md": {
 			"# Live Node Configuration",
@@ -43,11 +71,11 @@ func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 		},
 		"../docs/guides/adapter-capability-policy.md": {
 			"# Adapter Capability Policy",
-			"Resubscribe",
+			"resubscribe",
 			"live write",
 		},
-		"../docs/guides/side-by-side-nautilus-go-examples.md": {
-			"# Side-By-Side Nautilus And Go Examples",
+		"../docs/guides/workflow-recipes.md": {
+			"# Workflow Recipes",
 			"Bracket Strategy",
 			"Portfolio Query",
 			"Risk Rejection",

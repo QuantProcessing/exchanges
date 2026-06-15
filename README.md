@@ -1,117 +1,180 @@
 # exchanges
 
-Go trading platform and exchange SDK, rebuilt toward a measurable
-NautilusTrader-style runtime.
+Go exchange SDKs, capability-honest adapters, and a trading runtime inspired by
+NautilusTrader's strategy, execution, risk, portfolio, backtest, and live-node
+workflow style.
 
 This repository has two connected responsibilities:
 
-- Provide venue-native SDKs and stable exchange adapters for crypto venues.
-- Provide a Go trading runtime whose lifecycle, risk, portfolio, strategy,
-  backtest, live-node, and reconciliation behavior can be scored against the
-  local NautilusTrader reference.
+- provide venue-native SDKs and normalized crypto exchange adapters;
+- provide a Go trading runtime where one strategy can use the same
+  `strategy.Runtime` shape in deterministic backtests and live node wiring.
 
-The target is a complete, test-backed Go replica of NautilusTrader's core
-trading workflows, implemented idiomatically in Go and backed by this
-repository's SDK and adapter layers.
+The implementation is clean-room and idiomatic Go. NautilusTrader is used as
+the behavioral style reference in this README only; the docs site describes this
+project on its own terms.
 
-## Status
+## Start Here
 
-The project tracks completion through a 1000 point Nautilus parity scorecard.
-Mandatory release status requires all required scorecard cases to pass, every
-claimed adapter capability to be backed by tests, and no silent success for
-unsupported lifecycle behavior.
+If you are new to the repository, read these in order:
 
-Primary target artifacts:
+1. [Getting Started](./docs/getting-started.md): install the module, fetch data,
+   write a strategy, run a backtest, and assemble a live node.
+2. [Module Guide](./docs/module-guide.md): what every package does and when to
+   import it.
+3. [Runtime Flow](./docs/runtime-flow.md): how data, orders, fills, risk,
+   portfolio, and reconciliation move through the system.
+4. [Reliable Quant Program Guide](./docs/guides/reliable-quant-program.md):
+   practical rules for writing safer trading programs.
+5. [Documentation Index](./docs/README.md): the full docs site map.
 
-- [Complete replica plan](./docs/plans/nautilustrader-complete-replica.md)
-- [Project architecture](./docs/architecture.md)
-- [Master parity scorecard guide](./docs/guides/master-parity-scorecard.md)
-- [Complete feature matrix](./docs/parity/nautilustrader-complete-feature-matrix.md)
-- [Adapter capability matrix](./docs/parity/adapter-capability-matrix.md)
-- [Quality gate definition](./docs/parity/nautilus-complete-quality-gate.json)
-- [Release notes template](./docs/parity/nautilus-release-notes-template.md)
+## Current Status
 
-Runnable gates:
+The repository already contains first-pass implementations across SDKs,
+adapters, model, cache, data, execution, account, risk, portfolio, strategy,
+backtest, live, platform, and reusable tests. Many surfaces are still marked
+`Partial` or `Planned` in the feature and capability matrices.
 
-```bash
-bash scripts/verify_nautilus_parity.sh
-bash scripts/generate_nautilus_benchmark_report.sh
+Do not treat a venue or runtime feature as production-complete only because a
+package exists. Capability truth comes from:
+
+- [Complete Feature Matrix](./docs/parity/complete-feature-matrix.md)
+- [Adapter Capability Matrix](./docs/parity/adapter-capability-matrix.md)
+- [Master Scorecard](./docs/guides/master-scorecard.md)
+- [Complete Quality Gate](./docs/parity/complete-quality-gate.json)
+
+The long-running project target is measured through a 1000 point
+NautilusTrader-style parity scorecard implemented in `testsuite`. Required
+release status means all mandatory cases pass, every claimed adapter capability
+has evidence, and unsupported lifecycle behavior is explicit.
+
+## Architecture At A Glance
+
+```text
+strategy code
+        |
+        v
+strategy.Runtime
+        |
+        +--> backtest.Runner
+        |
+        +--> live.Node
+                 |
+                 v
+             platform.Node
+                 |
+                 +--> data.Engine -----> venue.DataClient -----> adapter/* -----> sdk/*
+                 +--> execution.Engine -> venue.ExecutionClient -> adapter/* -----> sdk/*
+                 +--> account.Reconciler
+                 +--> risk.Engine
+                 +--> portfolio.Portfolio
+                 +--> cache.Cache
+                 +--> bus.Bus
 ```
 
-For local Go command runs, prefer a writable cache outside the repository:
+Layer boundaries:
+
+- `sdk/`: venue-native protocol clients.
+- `adapter/` and `venue/`: normalized cross-venue surfaces and declared
+  capabilities.
+- runtime packages: strategy, data, execution, account, risk, portfolio, cache,
+  backtest, live, platform, bus, and kernel behavior.
+
+Read [Project Architecture](./docs/architecture.md) and
+[Module Guide](./docs/module-guide.md) for the detailed version.
+
+## Supported Venue Families
+
+The repository currently has SDK and adapter coverage for Binance, Aster, OKX,
+Bybit, Bitget, Hyperliquid, Lighter, Nado, EdgeX, GRVT, StandX, and Backpack.
+
+Capability truth is not this overview table; it is the adapter's
+`venue.DeclaredCapabilities` plus the
+[Adapter Capability Matrix](./docs/parity/adapter-capability-matrix.md).
+
+## Installation
 
 ```bash
-env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'TestNautilusMaster'
+go get github.com/QuantProcessing/exchanges
 ```
 
-## Architecture
+The module currently targets Go 1.26.
 
-The repository is organized around three boundaries.
+## Quick Example: Adapter Market Data
 
-### SDK layer
+```go
+package main
 
-The exchange-local `sdk/` packages are venue-native protocol clients. They
-track official REST and WebSocket APIs as closely as practical and may expose
-venue-specific endpoints, request fields, response shapes, signing rules, and
-product concepts.
+import (
+    "context"
+    "fmt"
 
-Use this layer when you need direct access to an official exchange API.
+    "github.com/QuantProcessing/exchanges/adapter/binance"
+    "github.com/QuantProcessing/exchanges/model"
+)
 
-### Adapter layer
+func main() {
+    ctx := context.Background()
 
-The `adapter/` and `venue/` packages expose stable cross-exchange convenience
-interfaces for common trading workflows.
+    adp, err := binance.NewAdapter(ctx, binance.Options{})
+    if err != nil {
+        panic(err)
+    }
+    defer adp.Close(ctx)
 
-Adapters own:
+    ticker, err := adp.Data().FetchTicker(ctx, model.MustInstrumentID("BTC-USDT-SPOT.BINANCE"))
+    if err != nil {
+        panic(err)
+    }
 
-- instrument and market resolution;
-- exchange-native to unified model mapping;
-- order validation and common error mapping;
-- REST and WebSocket convenience methods;
-- honest `venue.DeclaredCapabilities` reporting.
+    fmt.Println(ticker.LastPrice)
+}
+```
 
-Adapters do not mirror every SDK endpoint. New capability families should use
-small optional interfaces before becoming core cross-exchange contracts.
+## Quick Example: Strategy Shape
 
-### Runtime layer
+```go
+type Strategy struct {
+    runtime      strategy.Runtime
+    accountID    model.AccountID
+    instrumentID model.InstrumentID
+}
 
-The Nautilus-style runtime is built above SDKs and adapters:
+func (s *Strategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+    s.runtime = rt
+    return rt.SubscribeOrderBookDepth(ctx, s.instrumentID, 2)
+}
 
-| Package | Responsibility |
-| --- | --- |
-| `model` | identifiers, instruments, commands, orders, reports, events, data types |
-| `cache` | authoritative runtime state and indexes |
-| `kernel` | component lifecycle, clocks, health, message bus primitives |
-| `bus` | event dispatch and fanout |
-| `data` | data catalog, historical requests, live subscriptions, aggregation |
-| `execution` | command routing, matching, emulation, lifecycle, reconciliation |
-| `account` | trading-account readiness, order tracking, stream reconciliation |
-| `risk` | pre-execution checks, limits, kill switch, reduce-only, throttling |
-| `portfolio` | balances, positions, commissions, exposure, realized and unrealized PnL |
-| `strategy` | strategy runtime, typed callbacks, order factory, timers |
-| `backtest` | deterministic venue loop, matching, fees, slippage, latency |
-| `live` | live node wiring, retry, reconnect, shutdown, health |
-| `platform` | high-level node facade across data, execution, risk, and portfolio |
-| `testsuite` | reusable parity, adapter, runtime, benchmark, and release gates |
+func (s *Strategy) OnOrderBook(ctx context.Context, book model.OrderBook) error {
+    if len(book.Asks) == 0 {
+        return nil
+    }
+    order := s.runtime.OrderFactory(s.accountID).Limit(
+        book.InstrumentID,
+        model.OrderSideBuy,
+        decimal.RequireFromString("0.01"),
+        book.Asks[0].Price,
+    )
+    _, err := s.runtime.SubmitOrder(ctx, order)
+    return err
+}
+```
 
-## Nautilus Parity Contract
+Continue with [Strategy Authoring](./docs/guides/strategy-authoring.md),
+[Backtesting](./docs/guides/backtesting.md), and
+[Live Trading](./docs/guides/live-trading.md).
 
-NautilusTrader is the behavioral reference contract. The Go implementation is
-clean-room and idiomatic, but the workflows are expected to match the reference
-semantics for the supported scope.
+## NautilusTrader-Style Contract
 
-The core acceptance statement is:
+The target behavior is:
 
 > A strategy written once against the Go `strategy.Runtime` can run unchanged in
 > backtest and live modes; submit bracket, list, and advanced orders; receive
 > typed order, fill, position, account, and data callbacks; survive private
 > stream disconnects and startup gaps; reconcile missing fills, orders, and
 > positions without duplicate state; enforce risk before execution; compute
-> portfolio state and PnL consistently; and pass a reusable Nautilus parity
+> portfolio state and PnL consistently; and pass a reusable NautilusTrader-style
 > scorecard for every claimed adapter capability.
-
-The master scorecard is defined in `testsuite.NautilusMasterRequirements()` and
-is exercised by `scripts/verify_nautilus_parity.sh`.
 
 Golden scenarios:
 
@@ -123,164 +186,23 @@ Golden scenarios:
 | D | Risk and portfolio safety | risk rejects before adapter submission and prevents downstream mutation |
 | E | Adapter capability honesty | every true capability is test-backed; unsupported surfaces return `ErrNotSupported` |
 
-## Supported Venues
-
-The table below describes repository coverage. Capability truth is the
-adapter's `venue.DeclaredCapabilities` plus the adapter matrix, not this table.
-
-| Venue | Perp | Spot | Margin | Common quote currencies |
-| --- | --- | --- | --- | --- |
-| Binance | yes | yes | yes | USDT, USDC |
-| OKX | yes | yes | no | USDT, USDC |
-| Aster | yes | yes | no | USDT, USDC |
-| Nado | yes | yes | no | USDT |
-| Lighter | yes | yes | no | USDC |
-| Hyperliquid | yes | yes | no | USDC |
-| Backpack | yes | yes | no | USDC |
-| Bitget | yes | yes | no | USDT, USDC |
-| Bybit | yes | yes | no | USDT, USDC |
-| StandX | yes | no | no | DUSD |
-| GRVT | yes | no | no | USDT |
-| EdgeX | yes | no | no | USDC |
-
-Useful references:
-
-- [Adapter capabilities](./docs/guides/adapter-capabilities.md)
-- [Adapter capability policy](./docs/guides/adapter-capability-policy.md)
-- [Adapter live test policy](./docs/parity/adapter-live-test-policy.md)
-
-## Installation
-
-```bash
-go get github.com/QuantProcessing/exchanges
-```
-
-The module currently targets Go 1.26.
-
-## Usage
-
-### Adapter-level market data
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-
-    "github.com/QuantProcessing/exchanges/adapter/binance"
-)
-
-func main() {
-    ctx := context.Background()
-
-    adp, err := binance.NewAdapter(ctx, binance.Options{})
-    if err != nil {
-        panic(err)
-    }
-    defer adp.Close()
-
-    ticker, err := adp.FetchTicker(ctx, "BTC/USDT")
-    if err != nil {
-        panic(err)
-    }
-
-    fmt.Println(ticker.LastPrice)
-}
-```
-
-### Config-driven adapter bootstrap
-
-```yaml
-exchanges:
-  - name: BINANCE
-    market_type: perp
-    options:
-      api_key: ${BINANCE_API_KEY}
-      secret_key: ${BINANCE_SECRET_KEY}
-      quote_currency: USDT
-
-  - name: OKX
-    alias: okx-spot
-    market_type: spot
-    options:
-      api_key: ${OKX_API_KEY}
-      secret_key: ${OKX_API_SECRET}
-      passphrase: ${OKX_API_PASSPHRASE}
-      quote_currency: USDT
-```
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-
-    exconfig "github.com/QuantProcessing/exchanges/config"
-    _ "github.com/QuantProcessing/exchanges/config/all"
-)
-
-func main() {
-    ctx := context.Background()
-
-    mgr, err := exconfig.LoadManager(ctx, "exchanges.yaml")
-    if err != nil {
-        panic(err)
-    }
-    defer mgr.CloseAll()
-
-    adp, err := mgr.GetAdapter("BINANCE")
-    if err != nil {
-        panic(err)
-    }
-
-    ticker, err := adp.FetchTicker(ctx, "BTC/USDT")
-    if err != nil {
-        panic(err)
-    }
-
-    fmt.Println(ticker.LastPrice)
-}
-```
-
-### Nautilus-style runtime examples
-
-- [Nautilus-style bracket strategy](./examples/nautilus_style)
-- [Go vs Nautilus usage comparison](./examples/usage_comparison)
-- [Quant developer use cases](./docs/guides/quant-use-cases.md)
-- [Strategy authoring guide](./docs/guides/strategy-authoring.md)
-- [Backtesting guide](./docs/guides/backtesting.md)
-- [Live trading guide](./docs/guides/live-trading.md)
-- [Reconciliation guide](./docs/guides/reconciliation.md)
-- [Stream health guide](./docs/guides/stream-health.md)
-
 ## Verification
 
 Use the smallest gate that proves the claim being made.
 
-Targeted master scorecard:
-
 ```bash
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/...
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./strategy ./backtest ./live ./platform
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./testsuite ./adapter/... ./config/all -run 'Adapter|Capability|Contract|PrivateStream|Resubscribe'
 env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'TestNautilusMaster'
+git diff --check
 ```
 
-Full Nautilus parity gate:
+Full local gates:
 
 ```bash
 bash scripts/verify_nautilus_parity.sh
-```
-
-Benchmark and adapter-contract report:
-
-```bash
 bash scripts/generate_nautilus_benchmark_report.sh
-```
-
-Example-level smoke tests:
-
-```bash
-env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/...
 ```
 
 ## Live Test Policy
@@ -290,26 +212,15 @@ tests require credentials and should skip when credentials are absent. Live
 write tests must never execute by default; they require an exchange-specific
 enable flag plus credentials and should use `internal/testenv.RequireLiveWrite`.
 
-Unsupported behavior must return `model.ErrNotSupported` or a wrapped equivalent
-that works with `errors.Is`.
-
-## Development Rules
-
-- Keep SDK, adapter, and runtime boundaries explicit.
-- Prefer quote-aware or instrument-aware routing over base-symbol-only APIs.
-- Do not claim adapter lifecycle readiness without private stream and
-  reconciliation evidence.
-- Add tests before changing lifecycle, risk, portfolio, reconciliation, or
-  adapter capability behavior.
-- Update the parity scorecard, capability matrix, and runnable gates whenever a
-  capability claim changes.
+Unsupported behavior must return `model.ErrNotSupported` or a wrapped
+equivalent that works with `errors.Is`.
 
 ## Related Docs
 
 - [SDK README](./sdk/README.md)
-- [Project architecture](./docs/architecture.md)
-- [Quant developer use cases](./docs/guides/quant-use-cases.md)
-- [Adapter capabilities](./docs/guides/adapter-capabilities.md)
-- [Complete feature matrix](./docs/parity/nautilustrader-complete-feature-matrix.md)
-- [Adapter capability matrix](./docs/parity/adapter-capability-matrix.md)
-- [Side-by-side Nautilus and Go examples](./docs/guides/side-by-side-nautilus-go-examples.md)
+- [Documentation Index](./docs/README.md)
+- [Project Architecture](./docs/architecture.md)
+- [Module Guide](./docs/module-guide.md)
+- [Quant Developer Use Cases](./docs/guides/quant-use-cases.md)
+- [Adapter Capabilities](./docs/guides/adapter-capabilities.md)
+- [Platform Completion Plan](./docs/plans/platform-completion-plan.md)

@@ -1,46 +1,66 @@
-# Documentation Index
+# Documentation
 
-This directory is organized around the Go NautilusTrader replica program.
+This directory is the public documentation home for the Go trading platform.
+It is written for someone who has never seen the repository before and needs to
+understand what to install, which package to import, how the modules fit
+together, and how to build a reliable quantitative trading program.
 
-## Architecture
+## Start Here
 
-- [Project architecture](./architecture.md)
+- [Getting Started](./getting-started.md): install the module, fetch market
+  data through an adapter, run a strategy in a deterministic backtest, and
+  assemble a live node.
+- [Module Guide](./module-guide.md): detailed responsibilities for every major
+  package: `model`, `venue`, `adapter`, `sdk`, `cache`, `data`, `execution`,
+  `account`, `risk`, `portfolio`, `strategy`, `backtest`, `live`, `platform`,
+  `bus`, `kernel`, and `testsuite`.
+- [Runtime Flow](./runtime-flow.md): how market data, orders, fills,
+  portfolio updates, reconciliation, and strategy callbacks move through the
+  system.
+- [Project Architecture](./architecture.md): the architectural boundaries and
+  design rules that keep SDKs, adapters, and runtime code separated.
 
-## Guides
+## Build Trading Programs
 
-Human-facing guides and workflow notes live in `docs/guides/`.
+- [Strategy Authoring](./guides/strategy-authoring.md): write strategies with
+  typed callbacks and `strategy.Runtime`.
+- [Reliable Quant Program Guide](./guides/reliable-quant-program.md): the
+  practical checklist for strategy state, risk, portfolio, reconciliation,
+  testing, and production rollout.
+- [Backtesting](./guides/backtesting.md): run deterministic strategy research
+  and simulation workflows.
+- [Live Trading](./guides/live-trading.md): assemble and operate a live node.
+- [Live Node Configuration](./guides/live-node-configuration.md): builder
+  options, startup order, shutdown semantics, and health.
+- [Strategy Authoring With Brackets](./guides/strategy-authoring-bracket.md):
+  create entry, take-profit, and stop-loss order lists.
+- [Workflow Recipes](./guides/workflow-recipes.md): bracket orders, portfolio
+  queries, risk rejection, backtest runs, and live node assembly.
 
-- [Adapter capabilities](./guides/adapter-capabilities.md)
-- [Adapter capability policy](./guides/adapter-capability-policy.md)
-- [Backtesting](./guides/backtesting.md)
-- [Live node configuration](./guides/live-node-configuration.md)
-- [Live trading](./guides/live-trading.md)
-- [Master parity scorecard](./guides/master-parity-scorecard.md)
-- [Quant developer use cases](./guides/quant-use-cases.md)
-- [Reconciliation](./guides/reconciliation.md)
-- [Reconciliation states](./guides/reconciliation-states.md)
-- [Side-by-side Nautilus and Go examples](./guides/side-by-side-nautilus-go-examples.md)
-- [Strategy authoring](./guides/strategy-authoring.md)
-- [Strategy authoring with brackets](./guides/strategy-authoring-bracket.md)
-- [Stream health](./guides/stream-health.md)
+## Operate And Verify
 
-## Parity And Release Gates
+- [Adapter Capabilities](./guides/adapter-capabilities.md): understand what a
+  venue adapter currently claims to support.
+- [Adapter Capability Policy](./guides/adapter-capability-policy.md): rules for
+  adding or downgrading adapter capabilities.
+- [Adapter Live Test Policy](./parity/adapter-live-test-policy.md): credential
+  and live-write test boundaries.
+- [Reconciliation](./guides/reconciliation.md): repair local state after
+  startup gaps, stream disconnects, and venue discrepancies.
+- [Reconciliation States](./guides/reconciliation-states.md): result counters,
+  unresolved discrepancy states, and audit trail behavior.
+- [Stream Health](./guides/stream-health.md): how data and execution stream
+  health is surfaced.
+- [Master Scorecard](./guides/master-scorecard.md): how the repository proves
+  runtime, adapter, and documentation behavior with tests.
 
-Auditable scorecard, capability, and release-gate artifacts live in
-`docs/parity/`.
+## Internal Quality Evidence
 
-- [Adapter capability matrix](./parity/adapter-capability-matrix.md)
-- [Adapter live test policy](./parity/adapter-live-test-policy.md)
-- [Complete feature matrix](./parity/nautilustrader-complete-feature-matrix.md)
-- [Quality gate](./parity/nautilus-complete-quality-gate.json)
-- [Release notes template](./parity/nautilus-release-notes-template.md)
+These files are meant for maintainers and release reviewers. New users should
+start with the guides above.
 
-## Plans
-
-Only the current master plan is kept in `docs/plans/`.
-
-- [NautilusTrader complete replica plan](./plans/nautilustrader-complete-replica.md)
-
-Older 2026-06-13 planning and design drafts were removed because their actionable
-scope is now represented by the master plan, the feature matrix, the adapter
-capability matrix, and the testsuite scorecard.
+- [Complete Feature Matrix](./parity/complete-feature-matrix.md)
+- [Adapter Capability Matrix](./parity/adapter-capability-matrix.md)
+- [Complete Quality Gate](./parity/complete-quality-gate.json)
+- [Release Notes Template](./parity/release-notes-template.md)
+- [Platform Completion Plan](./plans/platform-completion-plan.md)
