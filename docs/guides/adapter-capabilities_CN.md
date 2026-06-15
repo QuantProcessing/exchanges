@@ -1,0 +1,80 @@
+# Adapter 能力
+
+Adapter capabilities 是产品承诺。它告诉应用代码哪些 venue 行为已经实现、测试过，
+可以安全依赖。
+
+能力真相来自两处：
+
+1. runtime 中的 `adapter.Capabilities()`；
+2. [Adapter 能力矩阵](../parity/adapter-capability-matrix_CN.md)。
+
+## Capability Families
+
+`venue.DeclaredCapabilities` 按 instruments、market data、execution 和 account 分组。
+
+Market data capabilities：
+
+- snapshots、ticker、order book；
+- ticker stream、order-book stream；
+- trade ticks、quote ticks、bars；
+- general stream support。
+
+Execution capabilities：
+
+- submit、cancel、modify、query；
+- order reports、fill reports、position reports；
+- private stream、resubscribe、mass status、order lists。
+
+Account capabilities：
+
+- account snapshot。
+
+## Runtime Check
+
+```go
+caps := adp.Capabilities()
+if !caps.MarketData.OrderBookStream {
+    return fmt.Errorf("%s does not support order-book streaming", adp.Venue())
+}
+if !caps.Execution.Submit || !caps.Execution.Cancel {
+    return fmt.Errorf("%s cannot run this strategy safely", adp.Venue())
+}
+```
+
+对 optional interfaces，同时检查 capability 与 type assertion：
+
+```go
+if caps.Execution.Query {
+    querier, ok := adp.Execution().(venue.OrderQuerier)
+    if !ok {
+        return fmt.Errorf("query claimed but interface missing")
+    }
+    _, err := querier.QueryOrder(ctx, query)
+    return err
+}
+```
+
+## Unsupported Behavior
+
+Unsupported behavior 必须返回 `model.ErrNotSupported` 或 wrapped equivalent：
+
+```go
+if errors.Is(err, model.ErrNotSupported) {
+    // 降级 workflow，或给 operator 一个清晰的 fail-fast 错误
+}
+```
+
+如果策略正确性依赖 modify、query、fill reports、position reports、mass status 或
+order-list support，不要把这些缺失能力当成 optional。
+
+## Policy And Matrix
+
+- [Adapter 能力策略](./adapter-capability-policy_CN.md)
+- [Adapter 能力矩阵](../parity/adapter-capability-matrix_CN.md)
+- [Adapter Live Test Policy](../parity/adapter-live-test-policy_CN.md)
+
+## Verification
+
+```bash
+env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./testsuite ./adapter/... ./config/all -run 'Adapter|Capability|Contract|PrivateStream|Resubscribe' -v
+```

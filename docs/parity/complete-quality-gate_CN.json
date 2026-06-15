@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "goalId": "go-trading-platform-complete",
+  "purpose": "防止部分完成的 trading runtime 或过度声明的 adapter capability 被发布为 complete。",
+  "requiredReviewApprovals": [
+    "code-reviewer:APPROVE",
+    "architect:CLEAR"
+  ],
+  "requiredVerification": [
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'Master|Score|Requirement|QualityGate|ReleaseNotes' -v",
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./model ./cache ./account ./execution ./risk ./portfolio ./platform ./strategy ./backtest ./live ./testsuite -v",
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./adapter/... ./config/all ./testsuite -run 'Adapter|Capability|Contract|PrivateStream|Resubscribe' -v",
+    "env GOCACHE=/private/tmp/go-build-exchanges go test -run '^$' -count=1 ./sdk/...",
+    "go vet ./...",
+    "git diff --check"
+  ],
+  "requiredEvidenceArtifacts": [
+    "docs/plans/platform-completion-plan_CN.md",
+    "docs/parity/complete-feature-matrix_CN.md",
+    "docs/parity/adapter-capability-matrix_CN.md",
+    "docs/parity/release-notes-template_CN.md"
+  ],
+  "requiredReleaseSections": [
+    "Completed Score",
+    "Verification Evidence",
+    "Benchmark Evidence",
+    "Known Unsupported Extension Adapters",
+    "Adapter Capability Changes",
+    "Residual Risks"
+  ],
+  "blockingResidualRiskTags": [
+    "critical",
+    "high"
+  ],
+  "approvalRules": {
+    "code-reviewer": "release 前不得有 unresolved correctness、safety、lifecycle、risk、portfolio、adapter capability 或 test-gate findings。",
+    "architect": "release 前不得有 unresolved architecture boundary violations across SDK、adapter、account、execution、risk、portfolio、backtest、live 或 strategy runtime layers。"
+  },
+  "releaseRules": {
+    "score": "声明 platform complete 前，mandatory scope 必须达到 1000/1000。",
+    "capabilities": "每个 claimed adapter capability 必须有 local fake-SDK、contract 或 live-gated evidence。不支持的能力必须是 explicit errors 或 documented unavailable extension providers。",
+    "reconciliation": "不得静默忽略 unresolved reconciliation discrepancy；release notes 必须列出剩余 discrepancy policy limitations。",
+    "reports": "release notes 必须链接 verification output 与 benchmark evidence。"
+  }
+}
