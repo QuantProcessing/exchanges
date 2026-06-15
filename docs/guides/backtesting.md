@@ -24,4 +24,4 @@ env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./backtest ./testsu
 
 The side-by-side workflow guide includes a Nautilus-style mapping:
 
-- [Side-By-Side Nautilus And Go Examples](./superpowers/guides/side-by-side-nautilus-go-examples.md)
+- [Side-By-Side Nautilus And Go Examples](./side-by-side-nautilus-go-examples.md)

@@ -10,7 +10,7 @@ history, and unresolved discrepancies.
 
 Operational guide:
 
-- [Reconciliation States](./superpowers/guides/reconciliation-states.md)
+- [Reconciliation States](./reconciliation-states.md)
 
 Verification:
 

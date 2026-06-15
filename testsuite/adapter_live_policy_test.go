@@ -8,7 +8,7 @@ import (
 )
 
 func TestAdapterLiveTestPolicyDocumentsReadAndWriteGates(t *testing.T) {
-	contentBytes, err := os.ReadFile("../docs/superpowers/gaps/adapter-live-test-policy.md")
+	contentBytes, err := os.ReadFile("../docs/parity/adapter-live-test-policy.md")
 	require.NoError(t, err)
 	content := string(contentBytes)
 

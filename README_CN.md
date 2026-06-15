@@ -4,7 +4,7 @@
 
 统一的 Go 加密货币交易所 SDK。
 
-同时提供**底层 SDK 客户端**（REST + WebSocket）和**高层适配器**（实现统一 `Exchange` 接口）—— Go 原生的 CCXT 替代方案。
+同时提供**底层 SDK 客户端**（REST + WebSocket）和**高层适配器**（实现统一 `Exchange` 接口）。
 
 ## 特性
 
@@ -39,7 +39,7 @@
 - `PlaceOrderWS`、`CancelOrderWS` 等 `*WS` 接口表示显式 WebSocket 写路径。`PlaceOrderWS` 只返回 `error`，并且要求设置 `OrderParams.ClientID`，方便后续通过订单流做关联。
 - Bitget 经典账户的 WebSocket 写能力仍然需要由 Bitget 为该 API key 额外开通经典交易 socket 权限。
 - Bybit 已支持现货与 linear perp 的显式交易 WebSocket 写路径。真实 WS 下单测试通过 `BYBIT_ENABLE_WS_ORDER_TESTS=1` 控制开启。
-- 使用 `exchanges.GetCapabilities(adp)` 或 `exchanges.LookupCapabilities(name, marketType)` 检查 `WatchFills`、`PlaceOrderWS`、`FetchOrders` 等可选能力；详见 [Adapter Capabilities](./docs/capabilities.md)。
+- 使用 `exchanges.GetCapabilities(adp)` 或 `exchanges.LookupCapabilities(name, marketType)` 检查 `WatchFills`、`PlaceOrderWS`、`FetchOrders` 等可选能力；详见 [Adapter Capabilities](./docs/guides/adapter-capabilities.md)。
 
 ## 安装
 
@@ -103,12 +103,12 @@ Go 版 NautilusTrader 目标：
 
 | 工作流 | 指南 | 可运行证据 |
 |--------|------|------------|
-| Master parity scorecard | [Master Parity Scorecard](./docs/superpowers/guides/master-parity-scorecard.md) | `bash scripts/verify_nautilus_parity.sh` |
-| 策略编写与 bracket 订单 | [Strategy Authoring With Brackets](./docs/superpowers/guides/strategy-authoring-bracket.md) | `go test ./examples/nautilus_style` |
-| Live node 组装 | [Live Node Configuration](./docs/superpowers/guides/live-node-configuration.md) | `go test ./live ./platform ./testsuite -run 'Live|Node|Runner'` |
-| Reconciliation 状态 | [Reconciliation States](./docs/superpowers/guides/reconciliation-states.md) | `go test ./execution ./account ./testsuite -run 'Reconciliation|Audit'` |
-| Adapter capability 声明 | [Adapter Capability Policy](./docs/superpowers/guides/adapter-capability-policy.md) | `go test ./venue ./testsuite ./adapter/... -run 'Adapter|Capability|Contract'` |
-| Nautilus 与 Go 对照示例 | [Side-By-Side Nautilus And Go Examples](./docs/superpowers/guides/side-by-side-nautilus-go-examples.md) | `go test ./examples/...` |
+| Master parity scorecard | [Master Parity Scorecard](./docs/guides/master-parity-scorecard.md) | `bash scripts/verify_nautilus_parity.sh` |
+| 策略编写与 bracket 订单 | [Strategy Authoring With Brackets](./docs/guides/strategy-authoring-bracket.md) | `go test ./examples/nautilus_style` |
+| Live node 组装 | [Live Node Configuration](./docs/guides/live-node-configuration.md) | `go test ./live ./platform ./testsuite -run 'Live|Node|Runner'` |
+| Reconciliation 状态 | [Reconciliation States](./docs/guides/reconciliation-states.md) | `go test ./execution ./account ./testsuite -run 'Reconciliation|Audit'` |
+| Adapter capability 声明 | [Adapter Capability Policy](./docs/guides/adapter-capability-policy.md) | `go test ./venue ./testsuite ./adapter/... -run 'Adapter|Capability|Contract'` |
+| Nautilus 与 Go 对照示例 | [Side-By-Side Nautilus And Go Examples](./docs/guides/side-by-side-nautilus-go-examples.md) | `go test ./examples/...` |
 
 ---
 
@@ -400,7 +400,7 @@ if latest, ok := tracker.Latest(); ok {
 
 如果某个 adapter 不支持成交报告，启动时会把 fills stream 标记为 unsupported，`OrderTracker.Fills()` 会保持为空。
 
-`TradingAccount.Health()` 会暴露 stream 就绪状态、不支持状态、事件计数和慢订阅者丢弃计数；详见 [Stream Health](./docs/stream-health.md)。
+`TradingAccount.Health()` 会暴露 stream 就绪状态、不支持状态、事件计数和慢订阅者丢弃计数；详见 [Stream Health](./docs/guides/stream-health.md)。
 
 cross-exchanges-arb 等下游消费者应基于已经包含 `TradingAccount + OrderTracker` 的发布版本迁移，并先重新跑自己的集成验证。
 

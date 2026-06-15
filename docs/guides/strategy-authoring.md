@@ -7,7 +7,7 @@ react to typed market and execution callbacks, create orders through
 
 The canonical bracket guide is:
 
-- [Strategy Authoring With Brackets](./superpowers/guides/strategy-authoring-bracket.md)
+- [Strategy Authoring With Brackets](./strategy-authoring-bracket.md)
 
 Runnable evidence:
 
@@ -17,4 +17,4 @@ env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/nautilus
 
 The side-by-side strategy comparison is:
 
-- [Side-By-Side Nautilus And Go Examples](./superpowers/guides/side-by-side-nautilus-go-examples.md)
+- [Side-By-Side Nautilus And Go Examples](./side-by-side-nautilus-go-examples.md)

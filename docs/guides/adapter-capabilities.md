@@ -6,11 +6,11 @@ must remain explicit and must not be hidden behind no-op success.
 
 Current matrix:
 
-- [Adapter Capability Matrix](./superpowers/gaps/adapter-capability-matrix.md)
+- [Adapter Capability Matrix](../parity/adapter-capability-matrix.md)
 
 Policy guide:
 
-- [Adapter Capability Policy](./superpowers/guides/adapter-capability-policy.md)
+- [Adapter Capability Policy](./adapter-capability-policy.md)
 
 Verification:
 

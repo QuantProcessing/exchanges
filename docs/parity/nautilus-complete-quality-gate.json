@@ -12,9 +12,9 @@
     "env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'TestNautilusMaster|TestNautilusQualityGate|TestNautilusReleaseNotes' -v"
   ],
   "requiredEvidenceArtifacts": [
-    "docs/superpowers/plans/2026-06-14-nautilustrader-complete-replica.md",
-    "docs/superpowers/gaps/nautilustrader-complete-feature-matrix.md",
-    "docs/superpowers/gaps/adapter-capability-matrix.md",
+    "docs/plans/nautilustrader-complete-replica.md",
+    "docs/parity/nautilustrader-complete-feature-matrix.md",
+    "docs/parity/adapter-capability-matrix.md",
     ".omx/reports/nautilus-benchmark-report.md"
   ],
   "requiredReleaseSections": [

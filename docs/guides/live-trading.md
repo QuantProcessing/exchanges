@@ -22,7 +22,7 @@ defer node.Stop(context.Background())
 
 Startup and shutdown details are documented in:
 
-- [Live Node Configuration](./superpowers/guides/live-node-configuration.md)
+- [Live Node Configuration](./live-node-configuration.md)
 
 Verification:
 

@@ -9,7 +9,7 @@ import (
 )
 
 func TestNautilusQualityGateDefinesReviewRequirements(t *testing.T) {
-	content, err := os.ReadFile("../docs/superpowers/gates/nautilus-complete-quality-gate.json")
+	content, err := os.ReadFile("../docs/parity/nautilus-complete-quality-gate.json")
 	require.NoError(t, err)
 
 	var gate struct {
@@ -33,7 +33,7 @@ func TestNautilusQualityGateDefinesReviewRequirements(t *testing.T) {
 }
 
 func TestNautilusReleaseNotesTemplateHasEvidenceSections(t *testing.T) {
-	contentBytes, err := os.ReadFile("../docs/superpowers/templates/nautilus-release-notes-template.md")
+	contentBytes, err := os.ReadFile("../docs/parity/nautilus-release-notes-template.md")
 	require.NoError(t, err)
 	content := string(contentBytes)
 

@@ -9,32 +9,32 @@ import (
 
 func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 	docs := map[string][]string{
-		"../docs/superpowers/guides/master-parity-scorecard.md": {
+		"../docs/guides/master-parity-scorecard.md": {
 			"# Master Parity Scorecard",
 			"scripts/verify_nautilus_parity.sh",
 			"NautilusMasterRequirements",
 		},
-		"../docs/superpowers/guides/strategy-authoring-bracket.md": {
+		"../docs/guides/strategy-authoring-bracket.md": {
 			"# Strategy Authoring With Brackets",
 			"examples/nautilus_style",
 			"SubmitOrderList",
 		},
-		"../docs/superpowers/guides/live-node-configuration.md": {
+		"../docs/guides/live-node-configuration.md": {
 			"# Live Node Configuration",
 			"NodeBuilder",
 			"shutdown",
 		},
-		"../docs/superpowers/guides/reconciliation-states.md": {
+		"../docs/guides/reconciliation-states.md": {
 			"# Reconciliation States",
 			"unresolved discrepancy",
 			"AuditTrail",
 		},
-		"../docs/superpowers/guides/adapter-capability-policy.md": {
+		"../docs/guides/adapter-capability-policy.md": {
 			"# Adapter Capability Policy",
 			"Resubscribe",
 			"live write",
 		},
-		"../docs/superpowers/guides/side-by-side-nautilus-go-examples.md": {
+		"../docs/guides/side-by-side-nautilus-go-examples.md": {
 			"# Side-By-Side Nautilus And Go Examples",
 			"Bracket Strategy",
 			"Portfolio Query",

@@ -40,17 +40,17 @@ This matrix is the owner map for the complete Go NautilusTrader replica program.
 | adapters/bybit | adapter/bybit,sdk/bybit | Partial | adapter/bybit/bybit_test.go; testsuite/contracts.go | 12 | Current declared capabilities are SDK-backed and private-stream/reconciliation claims remain gated. |
 | adapters/hyperliquid | adapter/hyperliquid,sdk/hyperliquid | Partial | adapter/hyperliquid/hyperliquid_test.go; testsuite/contracts.go | 12 | Spot and perp capabilities are SDK-backed, contract-tested, and capability-honest. |
 | adapters/okx | adapter/okx,sdk/okx | Partial | adapter/okx/okx_test.go; testsuite/contracts.go | 12 | Current declared capabilities are SDK-backed and optional execution reports are explicit. |
-| adapters/betfair | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
-| adapters/bitmex | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
-| adapters/databento | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | Data-provider shape must be supported architecturally before support can be claimed. |
-| adapters/deribit | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
-| adapters/dydx | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
-| adapters/interactive_brokers | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
-| adapters/interactive_brokers_pyo3 | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | The Go platform may expose an equivalent adapter later, but no Python bridge support is claimed here. |
-| adapters/kraken | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
-| adapters/polymarket | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/betfair | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/bitmex | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/databento | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | Data-provider shape must be supported architecturally before support can be claimed. |
+| adapters/deribit | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/dydx | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/interactive_brokers | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/interactive_brokers_pyo3 | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | The Go platform may expose an equivalent adapter later, but no Python bridge support is claimed here. |
+| adapters/kraken | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
+| adapters/polymarket | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | No support is claimed until an SDK module and adapter contract tests exist. |
 | adapters/sandbox | adapter extension | Planned | testsuite/backtest_tester.go; testsuite/live_node_tester.go | 10 | Sandbox semantics are covered by backtest/live fake clients before any venue claim. |
-| adapters/tardis | adapter extension | External extension | docs/superpowers/gaps/adapter-capability-matrix.md | 12 | Data-provider shape must be supported architecturally before support can be claimed. |
+| adapters/tardis | adapter extension | External extension | docs/parity/adapter-capability-matrix.md | 12 | Data-provider shape must be supported architecturally before support can be claimed. |
 
 ## Repository-Only Adapter Surfaces
 

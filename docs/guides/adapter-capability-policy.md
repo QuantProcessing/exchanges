@@ -7,7 +7,7 @@ or `Planned`, not as a no-op success path.
 
 ## Capability Matrix
 
-Use `docs/superpowers/gaps/adapter-capability-matrix.md` as the current support
+Use `docs/parity/adapter-capability-matrix.md` as the current support
 matrix. It separates:
 
 - data snapshots;
@@ -20,7 +20,7 @@ matrix. It separates:
 - mass status;
 - order lists.
 
-Use `docs/superpowers/gaps/adapter-live-test-policy.md` as the live-test gate
+Use `docs/parity/adapter-live-test-policy.md` as the live-test gate
 policy for public reads, private reads, and mutating live write tests.
 
 Private stream and Resubscribe are separate lifecycle claims. An adapter may

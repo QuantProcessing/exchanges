@@ -96,8 +96,8 @@ func TestNautilusMasterGatePassesWhenRequiredCasesPass(t *testing.T) {
 }
 
 func TestNautilusMasterDocsHaveMatrixOwners(t *testing.T) {
-	featureMatrix := mustReadMatrix(t, "../docs/superpowers/gaps/nautilustrader-complete-feature-matrix.md")
-	adapterMatrix := mustReadMatrix(t, "../docs/superpowers/gaps/adapter-capability-matrix.md")
+	featureMatrix := mustReadMatrix(t, "../docs/parity/nautilustrader-complete-feature-matrix.md")
+	adapterMatrix := mustReadMatrix(t, "../docs/parity/adapter-capability-matrix.md")
 
 	for _, content := range []string{featureMatrix, adapterMatrix} {
 		lower := strings.ToLower(content)

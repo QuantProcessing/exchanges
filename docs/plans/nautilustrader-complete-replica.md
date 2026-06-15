@@ -27,7 +27,7 @@ NautilusTrader includes adapters and data providers not currently backed by this
 
 ## Reference Evidence
 
-- Existing Go parity acceptance already defines P0 suites for data, execution, lifecycle, backtest, portfolio, risk, and adapter capability honesty in `docs/superpowers/specs/2026-06-13-nautilus-core-parity-design.md`.
+- Current Go parity acceptance defines P0 suites for data, execution, lifecycle, backtest, portfolio, risk, and adapter capability honesty through `testsuite` and the matrices in `docs/parity/`.
 - Existing clean-room architecture keeps `sdk/` as venue-native protocol code and rebuilds platform layers around `model`, `venue`, `bus`, `cache`, `account`, `strategy`, `platform`, `adapter`, and `testsuite`.
 - NautilusTrader reference shows `OrderList`, `SubmitOrderList`, execution mass status, order/fill/position report generation, live reconciliation, matching core, live risk engine queues, and event-driven portfolio updates.
 - Current Go project already has a first-pass implementation for `TradingAccount`, command metadata, bracket order lists, backtest matching, risk checks, portfolio accounting, and parity scoreboards. This plan extends that into full product parity.
@@ -141,8 +141,8 @@ Expected result:
 - Modify: `testsuite/contracts.go`
 - Create: `testsuite/nautilus_master_tester.go`
 - Create: `testsuite/nautilus_master_tester_test.go`
-- Create: `docs/superpowers/gaps/nautilustrader-complete-feature-matrix.md`
-- Create: `docs/superpowers/gaps/adapter-capability-matrix.md`
+- Create: `docs/parity/nautilustrader-complete-feature-matrix.md`
+- Create: `docs/parity/adapter-capability-matrix.md`
 
 **Tasks:**
 - [x] Define a `NautilusMasterRequirements()` matrix covering all scorecard domains and scenario IDs.
@@ -632,7 +632,7 @@ Expected result:
 - Create: `execution/reconciliation_test.go`
 - Create: `live/reconciliation.go`
 - Create: `testsuite/reconciliation_tester.go`
-- Create: `docs/reconciliation.md`
+- Create: `docs/guides/reconciliation.md`
 
 **Tasks:**
 - [x] Add mass-status reconciliation from order, fill, and position reports.
@@ -959,8 +959,8 @@ Expected result:
 - Modify: `adapter/*/*.go`
 - Modify: `adapter/*/*_test.go`
 - Modify: `config/all/all_test.go`
-- Modify: `docs/superpowers/gaps/adapter-capability-matrix.md`
-- Create or update: `docs/superpowers/gaps/<venue>-api-parity.md`
+- Modify: `docs/parity/adapter-capability-matrix.md`
+- Create or update: `docs/parity/<venue>-api-parity.md`
 
 **Tasks:**
 - [x] Define granular capability claims for instruments, data snapshots, streams, account snapshots, submit, cancel, modify, query, order reports, fill reports, position reports, mass status, private stream, resubscribe, and order lists.
@@ -979,8 +979,8 @@ Expected result:
 
 **Progress Evidence:**
 - 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./venue ./testsuite ./adapter/... -run 'TestAdapterCapability|Test.*ClientsPassVenueContractSuite|Test.*PrivateStream|Test.*Resubscribe' -v` first failed while new `Snapshots`, `Resubscribe`, `MassStatus`, and `OrderLists` capability fields were absent; it passed after `venue.DeclaredCapabilities` added the granular fields, shared contract checks rejected unsupported claims, and all repository adapters explicitly claimed `Snapshots` plus `Resubscribe` only where fake-SDK private-stream tests proved support.
-- 2026-06-15: `docs/superpowers/gaps/adapter-capability-matrix.md` maps every repository adapter/product row to data snapshots, streams, private stream, explicit resubscribe, planned mass-status/order-list support, and extension-only Nautilus adapters outside the current SDK universe.
-- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run '^TestAdapterLiveTestPolicyDocumentsReadAndWriteGates$' -v` first failed because the adapter live-test policy artifact was missing; it passed after `docs/superpowers/gaps/adapter-live-test-policy.md` documented safe-by-default public read tests, private read credential gates, live write gates, current adapter coverage, and venue-specific write flags.
+- 2026-06-15: `docs/parity/adapter-capability-matrix.md` maps every repository adapter/product row to data snapshots, streams, private stream, explicit resubscribe, planned mass-status/order-list support, and extension-only Nautilus adapters outside the current SDK universe.
+- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run '^TestAdapterLiveTestPolicyDocumentsReadAndWriteGates$' -v` first failed because the adapter live-test policy artifact was missing; it passed after `docs/parity/adapter-live-test-policy.md` documented safe-by-default public read tests, private read credential gates, live write gates, current adapter coverage, and venue-specific write flags.
 - 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./internal/testenv ./testsuite -run 'Test(RequireLive|AdapterLiveTestPolicy)' -v` passed, proving missing private-read credentials skip through `RequireLiveCredentials`, live writes skip unless their enable flag is set through `RequireLiveWrite`, and the policy document covers current adapter live-test gates.
 
 ## Epic 13: Documentation, Examples, And Migration
@@ -990,12 +990,12 @@ Expected result:
 **Files:**
 - Modify: `README.md`
 - Modify: `README_CN.md`
-- Modify: `docs/stream-health.md`
-- Create: `docs/reconciliation.md`
-- Create: `docs/strategy-authoring.md`
-- Create: `docs/backtesting.md`
-- Create: `docs/live-trading.md`
-- Create: `docs/adapter-capabilities.md`
+- Modify: `docs/guides/stream-health.md`
+- Create: `docs/guides/reconciliation.md`
+- Create: `docs/guides/strategy-authoring.md`
+- Create: `docs/guides/backtesting.md`
+- Create: `docs/guides/live-trading.md`
+- Create: `docs/guides/adapter-capabilities.md`
 - Create: `examples/nautilus_style/*`
 
 **Tasks:**
@@ -1011,8 +1011,8 @@ Expected result:
 - README links every core workflow to runnable code and contract tests.
 
 **Progress Evidence:**
-- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run '^TestNautilusDocumentationArtifactsCoverEpic13$' -v` first failed because `docs/superpowers/guides/master-parity-scorecard.md` and the related Epic 13 guide set did not exist; it passed after master parity, bracket authoring, live node, reconciliation, adapter capability, and side-by-side Nautilus/Go guides were added.
-- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/...` passed after the README workflow links, `docs/*.md` user-facing entries, and `docs/superpowers/guides/*.md` validation guides were added.
+- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run '^TestNautilusDocumentationArtifactsCoverEpic13$' -v` first failed because `docs/guides/master-parity-scorecard.md` and the related Epic 13 guide set did not exist; it passed after master parity, bracket authoring, live node, reconciliation, adapter capability, and side-by-side Nautilus/Go guides were added.
+- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/...` passed after the README workflow links, `docs/guides/*.md` user-facing entries, and validation guides were added.
 
 ## Epic 14: Release Gate And Quality Controls
 
@@ -1022,10 +1022,10 @@ Expected result:
 - Create: `testsuite/master_gate_test.go`
 - Create: `scripts/verify_nautilus_parity.sh`
 - Create: `scripts/generate_nautilus_benchmark_report.sh`
-- Create: `docs/superpowers/gates/nautilus-complete-quality-gate.json`
-- Create: `docs/superpowers/templates/nautilus-release-notes-template.md`
+- Create: `docs/parity/nautilus-complete-quality-gate.json`
+- Create: `docs/parity/nautilus-release-notes-template.md`
 - Create: `.omx/ultragoal/nautilus-complete-quality-gate.json`
-- Modify: `docs/superpowers/gaps/nautilustrader-complete-feature-matrix.md`
+- Modify: `docs/parity/nautilustrader-complete-feature-matrix.md`
 
 **Tasks:**
 - [x] Add master gate that fails if any required case is missing, failed, or skipped.
@@ -1054,7 +1054,7 @@ Expected result:
 - 2026-06-15: `bash scripts/verify_nautilus_parity.sh` passed locally, covering targeted master parity, full non-SDK tests, core race suites, SDK compile, `go vet ./...`, and `git diff --check`.
 - 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run '^TestNautilusBenchmarkReportScriptCoversRequiredBaselines$' -v` first failed because the benchmark report script did not exist; it passed after the script contract covered matching, event dispatch, reconciliation, adapter fake contract suites, `-benchmem`, report output, and required-output checks.
 - 2026-06-15: `bash scripts/generate_nautilus_benchmark_report.sh` passed and wrote `.omx/reports/nautilus-benchmark-report.md` with PASS sections for matching core, bus fanout, reconciler mass status, and adapter fake contract suites.
-- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'TestNautilus(QualityGate|ReleaseNotes)' -v` first failed because the review gate and release notes template did not exist; it passed after `docs/superpowers/gates/nautilus-complete-quality-gate.json` required code-reviewer APPROVE, architect CLEAR, parity/benchmark scripts, release sections, and blocking residual-risk tags, and the release template required score, verification, benchmark, unsupported adapter, capability, and residual-risk sections.
+- 2026-06-15: `env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./testsuite -run 'TestNautilus(QualityGate|ReleaseNotes)' -v` first failed because the review gate and release notes template did not exist; it passed after `docs/parity/nautilus-complete-quality-gate.json` required code-reviewer APPROVE, architect CLEAR, parity/benchmark scripts, release sections, and blocking residual-risk tags, and the release template required score, verification, benchmark, unsupported adapter, capability, and residual-risk sections.
 
 ## Execution Sequence
 

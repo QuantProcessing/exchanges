@@ -13,7 +13,7 @@ portfolio, backtest, live, adapter, and documentation suites.
   table remains complete and internally consistent.
 - `testsuite.NautilusMasterGate(...)` fails if any required case is missing,
   failed, or skipped.
-- `docs/superpowers/plans/2026-06-14-nautilustrader-complete-replica.md`
+- `docs/plans/nautilustrader-complete-replica.md`
   records implementation evidence and remaining work.
 
 The score is intentionally binary at the case level. A suite cannot receive
