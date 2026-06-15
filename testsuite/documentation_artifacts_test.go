@@ -9,10 +9,22 @@ import (
 
 func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 	docs := map[string][]string{
+		"../docs/architecture.md": {
+			"# Project Architecture",
+			"Strategy Order Flow",
+			"Reconciliation Flow",
+			"`platform.Node`",
+		},
 		"../docs/guides/master-parity-scorecard.md": {
 			"# Master Parity Scorecard",
 			"scripts/verify_nautilus_parity.sh",
 			"NautilusMasterRequirements",
+		},
+		"../docs/guides/quant-use-cases.md": {
+			"# Quant Developer Use Cases",
+			"Order Book Imbalance Strategy",
+			"Deterministic Backtest",
+			"Adapter Capability-Aware Live Setup",
 		},
 		"../docs/guides/strategy-authoring-bracket.md": {
 			"# Strategy Authoring With Brackets",

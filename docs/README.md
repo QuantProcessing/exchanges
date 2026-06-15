@@ -2,6 +2,10 @@
 
 This directory is organized around the Go NautilusTrader replica program.
 
+## Architecture
+
+- [Project architecture](./architecture.md)
+
 ## Guides
 
 Human-facing guides and workflow notes live in `docs/guides/`.
@@ -12,6 +16,7 @@ Human-facing guides and workflow notes live in `docs/guides/`.
 - [Live node configuration](./guides/live-node-configuration.md)
 - [Live trading](./guides/live-trading.md)
 - [Master parity scorecard](./guides/master-parity-scorecard.md)
+- [Quant developer use cases](./guides/quant-use-cases.md)
 - [Reconciliation](./guides/reconciliation.md)
 - [Reconciliation states](./guides/reconciliation-states.md)
 - [Side-by-side Nautilus and Go examples](./guides/side-by-side-nautilus-go-examples.md)

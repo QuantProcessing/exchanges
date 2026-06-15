@@ -24,6 +24,7 @@ unsupported lifecycle behavior.
 Primary target artifacts:
 
 - [Complete replica plan](./docs/plans/nautilustrader-complete-replica.md)
+- [Project architecture](./docs/architecture.md)
 - [Master parity scorecard guide](./docs/guides/master-parity-scorecard.md)
 - [Complete feature matrix](./docs/parity/nautilustrader-complete-feature-matrix.md)
 - [Adapter capability matrix](./docs/parity/adapter-capability-matrix.md)
@@ -247,6 +248,7 @@ func main() {
 
 - [Nautilus-style bracket strategy](./examples/nautilus_style)
 - [Go vs Nautilus usage comparison](./examples/usage_comparison)
+- [Quant developer use cases](./docs/guides/quant-use-cases.md)
 - [Strategy authoring guide](./docs/guides/strategy-authoring.md)
 - [Backtesting guide](./docs/guides/backtesting.md)
 - [Live trading guide](./docs/guides/live-trading.md)
@@ -305,6 +307,8 @@ that works with `errors.Is`.
 ## Related Docs
 
 - [SDK README](./sdk/README.md)
+- [Project architecture](./docs/architecture.md)
+- [Quant developer use cases](./docs/guides/quant-use-cases.md)
 - [Adapter capabilities](./docs/guides/adapter-capabilities.md)
 - [Complete feature matrix](./docs/parity/nautilustrader-complete-feature-matrix.md)
 - [Adapter capability matrix](./docs/parity/adapter-capability-matrix.md)
