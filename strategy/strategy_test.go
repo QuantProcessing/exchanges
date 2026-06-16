@@ -385,6 +385,12 @@ func (r *fakeRuntime) SubscribeQuoteTicks(ctx context.Context, instrumentID mode
 	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: instrumentID, Type: model.MarketDataTypeQuoteTick})
 }
 func (r *fakeRuntime) UnsubscribeQuoteTicks(context.Context, model.InstrumentID) error { return nil }
+func (r *fakeRuntime) SubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: instrumentID, Type: model.MarketDataTypeFundingRate})
+}
+func (r *fakeRuntime) UnsubscribeFundingRates(context.Context, model.InstrumentID) error {
+	return nil
+}
 func (r *fakeRuntime) SubscribeBars(ctx context.Context, barType model.BarType) error {
 	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: barType.InstrumentID, Type: model.MarketDataTypeBar, BarType: barType})
 }

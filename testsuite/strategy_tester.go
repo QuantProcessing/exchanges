@@ -435,6 +435,12 @@ func (r *strategyRuntimeProbe) SubscribeQuoteTicks(ctx context.Context, instrume
 func (r *strategyRuntimeProbe) UnsubscribeQuoteTicks(context.Context, model.InstrumentID) error {
 	return nil
 }
+func (r *strategyRuntimeProbe) SubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: instrumentID, Type: model.MarketDataTypeFundingRate})
+}
+func (r *strategyRuntimeProbe) UnsubscribeFundingRates(context.Context, model.InstrumentID) error {
+	return nil
+}
 func (r *strategyRuntimeProbe) SubscribeBars(ctx context.Context, barType model.BarType) error {
 	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: barType.InstrumentID, Type: model.MarketDataTypeBar, BarType: barType})
 }

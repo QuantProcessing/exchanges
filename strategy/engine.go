@@ -42,6 +42,8 @@ type Runtime interface {
 	UnsubscribeTradeTicks(context.Context, model.InstrumentID) error
 	SubscribeQuoteTicks(context.Context, model.InstrumentID) error
 	UnsubscribeQuoteTicks(context.Context, model.InstrumentID) error
+	SubscribeFundingRates(context.Context, model.InstrumentID) error
+	UnsubscribeFundingRates(context.Context, model.InstrumentID) error
 	SubscribeBars(context.Context, model.BarType) error
 	UnsubscribeBars(context.Context, model.BarType) error
 	SubscribeOrderBookDepth(context.Context, model.InstrumentID, int) error

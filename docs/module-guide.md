@@ -146,7 +146,8 @@ shutdown failures.
 `data.Engine` normalizes market data. It registers venue data clients, loads
 instruments into cache, manages subscriptions, forwards market events into
 cache and bus, supports bar aggregation, serves data requests, and reports
-health.
+health. Standard market events include tickers, books, trades, quotes, bars,
+funding rates for perpetual instruments, and custom extension data.
 
 `data.Catalog`, `ReplayCatalog`, and `MemoryCatalog` represent historical or
 replay data sources used by backtests and examples.

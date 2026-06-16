@@ -195,12 +195,22 @@ func TestCacheStoresLatestMarketEventsByInstrument(t *testing.T) {
 		Volume:    decimal.RequireFromString("12.5"),
 		Timestamp: testTime,
 	}
+	funding := model.FundingRate{
+		InstrumentID:    instID,
+		Rate:            decimal.RequireFromString("0.0001"),
+		MarkPrice:       decimal.RequireFromString("100.75"),
+		IndexPrice:      decimal.RequireFromString("100.70"),
+		NextFundingTime: testTime.Add(8 * time.Hour),
+		FundingInterval: 8 * time.Hour,
+		Timestamp:       testTime,
+	}
 
 	require.NoError(t, c.PutMarketEvent(model.MarketEvent{Ticker: &ticker}))
 	require.NoError(t, c.PutMarketEvent(model.MarketEvent{OrderBook: &book}))
 	require.NoError(t, c.PutMarketEvent(model.MarketEvent{Trade: &trade}))
 	require.NoError(t, c.PutMarketEvent(model.MarketEvent{Quote: &quote}))
 	require.NoError(t, c.PutMarketEvent(model.MarketEvent{Bar: &bar}))
+	require.NoError(t, c.PutMarketEvent(model.MarketEvent{FundingRate: &funding}))
 
 	gotTicker, ok := c.Ticker(instID)
 	require.True(t, ok)
@@ -220,6 +230,9 @@ func TestCacheStoresLatestMarketEventsByInstrument(t *testing.T) {
 	latestBar, ok := c.LatestBar(instID)
 	require.True(t, ok)
 	require.Equal(t, bar, latestBar)
+	gotFunding, ok := c.FundingRate(instID)
+	require.True(t, ok)
+	require.Equal(t, funding, gotFunding)
 }
 
 var testTime = time.Unix(100, 0)

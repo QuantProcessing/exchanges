@@ -33,6 +33,7 @@ type Cache struct {
 	quotes             map[model.InstrumentID]model.QuoteTick
 	bars               map[model.BarType]model.Bar
 	latestBars         map[model.InstrumentID]model.Bar
+	fundingRates       map[model.InstrumentID]model.FundingRate
 	customData         map[model.InstrumentID]map[string]model.CustomData
 }
 
@@ -63,6 +64,7 @@ func New() *Cache {
 		quotes:             make(map[model.InstrumentID]model.QuoteTick),
 		bars:               make(map[model.BarType]model.Bar),
 		latestBars:         make(map[model.InstrumentID]model.Bar),
+		fundingRates:       make(map[model.InstrumentID]model.FundingRate),
 		customData:         make(map[model.InstrumentID]map[string]model.CustomData),
 	}
 }

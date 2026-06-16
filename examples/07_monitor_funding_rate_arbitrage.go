@@ -13,23 +13,19 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type FundingRateSnapshot struct {
-	Venue           model.Venue
-	AccountID       model.AccountID
-	InstrumentID    model.InstrumentID
-	RawSymbol       string
-	Base            model.Currency
-	Quote           model.Currency
-	FundingRate     decimal.Decimal
-	MarkPrice       decimal.Decimal
-	TakerFeeRate    decimal.Decimal
-	NextFundingTime time.Time
-	Timestamp       time.Time
+type FundingVenueSnapshot struct {
+	Venue        model.Venue
+	AccountID    model.AccountID
+	RawSymbol    string
+	Base         model.Currency
+	Quote        model.Currency
+	Funding      model.FundingRate
+	TakerFeeRate decimal.Decimal
 }
 
 type FundingRateSource interface {
 	Name() string
-	Snapshots(context.Context) ([]FundingRateSnapshot, error)
+	Snapshots(context.Context) ([]FundingVenueSnapshot, error)
 }
 
 type FundingArbitrageConfig struct {
@@ -44,8 +40,8 @@ type FundingArbitrageConfig struct {
 type FundingArbitrageDecision struct {
 	ShouldTrade       bool
 	Reason            string
-	Long              FundingRateSnapshot
-	Short             FundingRateSnapshot
+	Long              FundingVenueSnapshot
+	Short             FundingVenueSnapshot
 	FundingSpread     decimal.Decimal
 	EstimatedCostRate decimal.Decimal
 	ExpectedNetRate   decimal.Decimal
@@ -65,43 +61,49 @@ type FundingArbitrageDecision struct {
 //  5. run risk checks before routing orders to execution clients by AccountID.
 func RunFundingRateArbitrageMonitor(ctx context.Context) (FundingArbitrageDecision, error) {
 	now := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
-	binance := FundingRateSnapshot{
-		Venue:           "BINANCE",
-		AccountID:       "binance-perp-main",
-		InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
-		RawSymbol:       "BTCUSDT",
-		Base:            "BTC",
-		Quote:           "USDT",
-		FundingRate:     decimal.RequireFromString("0.0012"),
-		MarkPrice:       decimal.RequireFromString("50000"),
-		TakerFeeRate:    decimal.RequireFromString("0.00012"),
-		NextFundingTime: now.Add(8 * time.Hour),
-		Timestamp:       now,
+	binance := FundingVenueSnapshot{
+		Venue:     "BINANCE",
+		AccountID: "binance-perp-main",
+		RawSymbol: "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Funding: model.FundingRate{
+			InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
+			Rate:            decimal.RequireFromString("0.0012"),
+			MarkPrice:       decimal.RequireFromString("50000"),
+			NextFundingTime: now.Add(8 * time.Hour),
+			FundingInterval: 8 * time.Hour,
+			Timestamp:       now,
+		},
+		TakerFeeRate: decimal.RequireFromString("0.00012"),
 	}
-	bybit := FundingRateSnapshot{
-		Venue:           "BYBIT",
-		AccountID:       "bybit-perp-main",
-		InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BYBIT"),
-		RawSymbol:       "BTCUSDT",
-		Base:            "BTC",
-		Quote:           "USDT",
-		FundingRate:     decimal.RequireFromString("-0.0001"),
-		MarkPrice:       decimal.RequireFromString("50000"),
-		TakerFeeRate:    decimal.RequireFromString("0.00010"),
-		NextFundingTime: now.Add(8 * time.Hour),
-		Timestamp:       now,
+	bybit := FundingVenueSnapshot{
+		Venue:     "BYBIT",
+		AccountID: "bybit-perp-main",
+		RawSymbol: "BTCUSDT",
+		Base:      "BTC",
+		Quote:     "USDT",
+		Funding: model.FundingRate{
+			InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BYBIT"),
+			Rate:            decimal.RequireFromString("-0.0001"),
+			MarkPrice:       decimal.RequireFromString("50000"),
+			NextFundingTime: now.Add(8 * time.Hour),
+			FundingInterval: 8 * time.Hour,
+			Timestamp:       now,
+		},
+		TakerFeeRate: decimal.RequireFromString("0.00010"),
 	}
 
 	riskCache := cache.New()
-	for _, snapshot := range []FundingRateSnapshot{binance, bybit} {
+	for _, snapshot := range []FundingVenueSnapshot{binance, bybit} {
 		if err := putFundingInstrumentAndMark(riskCache, snapshot); err != nil {
 			return FundingArbitrageDecision{}, err
 		}
 	}
 
 	router := newFundingExecutionRouter(
-		newFundingExecutionClient(binance.AccountID, binance.InstrumentID),
-		newFundingExecutionClient(bybit.AccountID, bybit.InstrumentID),
+		newFundingExecutionClient(binance.AccountID, binance.Funding.InstrumentID),
+		newFundingExecutionClient(bybit.AccountID, bybit.Funding.InstrumentID),
 	)
 	monitor := NewFundingArbitrageMonitor(
 		FundingArbitrageConfig{
@@ -113,8 +115,8 @@ func RunFundingRateArbitrageMonitor(ctx context.Context) (FundingArbitrageDecisi
 			MaxOrderNotional:   decimal.RequireFromString("1500"),
 		},
 		[]FundingRateSource{
-			staticFundingRateSource{name: "binance-funding", snapshots: []FundingRateSnapshot{binance}},
-			staticFundingRateSource{name: "bybit-funding", snapshots: []FundingRateSnapshot{bybit}},
+			staticFundingRateSource{name: "binance-funding", snapshots: []FundingVenueSnapshot{binance}},
+			staticFundingRateSource{name: "bybit-funding", snapshots: []FundingVenueSnapshot{bybit}},
 		},
 		risk.NewEngine(riskCache, risk.Config{
 			MaxOrderNotional: decimal.RequireFromString("1500"),
@@ -146,10 +148,10 @@ func (m *FundingArbitrageMonitor) EvaluateOnce(ctx context.Context) (FundingArbi
 		return FundingArbitrageDecision{Reason: "need at least two funding snapshots for the symbol"}, nil
 	}
 
-	spread := short.FundingRate.Sub(long.FundingRate)
+	spread := short.Funding.Rate.Sub(long.Funding.Rate)
 	costRate := short.TakerFeeRate.Add(long.TakerFeeRate).Add(m.cfg.SlippageBufferRate)
 	netRate := spread.Sub(costRate)
-	notional := m.cfg.Quantity.Mul(short.MarkPrice.Add(long.MarkPrice).Div(decimal.NewFromInt(2)))
+	notional := m.cfg.Quantity.Mul(short.Funding.MarkPrice.Add(long.Funding.MarkPrice).Div(decimal.NewFromInt(2)))
 	decision := FundingArbitrageDecision{
 		Long:              long,
 		Short:             short,
@@ -185,8 +187,8 @@ func (m *FundingArbitrageMonitor) EvaluateOnce(ctx context.Context) (FundingArbi
 	return decision, nil
 }
 
-func (m *FundingArbitrageMonitor) collect(ctx context.Context) ([]FundingRateSnapshot, error) {
-	var snapshots []FundingRateSnapshot
+func (m *FundingArbitrageMonitor) collect(ctx context.Context) ([]FundingVenueSnapshot, error) {
+	var snapshots []FundingVenueSnapshot
 	for _, source := range m.sources {
 		sourceSnapshots, err := source.Snapshots(ctx)
 		if err != nil {
@@ -197,23 +199,23 @@ func (m *FundingArbitrageMonitor) collect(ctx context.Context) ([]FundingRateSna
 	return snapshots, nil
 }
 
-func bestFundingPair(symbol string, snapshots []FundingRateSnapshot) (long FundingRateSnapshot, short FundingRateSnapshot, ok bool) {
-	var candidates []FundingRateSnapshot
+func bestFundingPair(symbol string, snapshots []FundingVenueSnapshot) (long FundingVenueSnapshot, short FundingVenueSnapshot, ok bool) {
+	var candidates []FundingVenueSnapshot
 	for _, snapshot := range snapshots {
-		if snapshot.InstrumentID.Symbol == symbol {
+		if snapshot.Funding.InstrumentID.Symbol == symbol {
 			candidates = append(candidates, snapshot)
 		}
 	}
 	if len(candidates) < 2 {
-		return FundingRateSnapshot{}, FundingRateSnapshot{}, false
+		return FundingVenueSnapshot{}, FundingVenueSnapshot{}, false
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return candidates[i].FundingRate.LessThan(candidates[j].FundingRate)
+		return candidates[i].Funding.Rate.LessThan(candidates[j].Funding.Rate)
 	})
 	return candidates[0], candidates[len(candidates)-1], true
 }
 
-func fundingArbitrageOrders(cfg FundingArbitrageConfig, long FundingRateSnapshot, short FundingRateSnapshot) []model.SubmitOrder {
+func fundingArbitrageOrders(cfg FundingArbitrageConfig, long FundingVenueSnapshot, short FundingVenueSnapshot) []model.SubmitOrder {
 	metadata := model.CommandMetadata{
 		TraderID:      "funding-arb-trader",
 		StrategyID:    "funding-rate-arbitrage",
@@ -228,14 +230,14 @@ func fundingArbitrageOrders(cfg FundingArbitrageConfig, long FundingRateSnapshot
 	shortFactory := model.NewOrderFactory(short.AccountID, model.WithClientOrderIDPrefix("funding-short"), model.WithOrderMetadata(metadata))
 	longFactory := model.NewOrderFactory(long.AccountID, model.WithClientOrderIDPrefix("funding-long"), model.WithOrderMetadata(metadata))
 	return []model.SubmitOrder{
-		shortFactory.Market(short.InstrumentID, model.OrderSideSell, cfg.Quantity),
-		longFactory.Market(long.InstrumentID, model.OrderSideBuy, cfg.Quantity),
+		shortFactory.Market(short.Funding.InstrumentID, model.OrderSideSell, cfg.Quantity),
+		longFactory.Market(long.Funding.InstrumentID, model.OrderSideBuy, cfg.Quantity),
 	}
 }
 
-func putFundingInstrumentAndMark(c *cache.Cache, snapshot FundingRateSnapshot) error {
+func putFundingInstrumentAndMark(c *cache.Cache, snapshot FundingVenueSnapshot) error {
 	if err := c.PutInstrument(model.Instrument{
-		ID:          snapshot.InstrumentID,
+		ID:          snapshot.Funding.InstrumentID,
 		RawSymbol:   snapshot.RawSymbol,
 		Type:        model.InstrumentTypePerp,
 		Base:        snapshot.Base,
@@ -250,23 +252,27 @@ func putFundingInstrumentAndMark(c *cache.Cache, snapshot FundingRateSnapshot) e
 	}); err != nil {
 		return err
 	}
-	return c.PutMarketEvent(model.MarketEvent{Ticker: &model.Ticker{
-		InstrumentID: snapshot.InstrumentID,
-		Bid:          snapshot.MarkPrice.Sub(decimal.RequireFromString("1")),
-		Ask:          snapshot.MarkPrice.Add(decimal.RequireFromString("1")),
-		Last:         snapshot.MarkPrice,
-		Timestamp:    snapshot.Timestamp,
-	}})
+	if err := c.PutMarketEvent(model.MarketEvent{Ticker: &model.Ticker{
+		InstrumentID: snapshot.Funding.InstrumentID,
+		Bid:          snapshot.Funding.MarkPrice.Sub(decimal.RequireFromString("1")),
+		Ask:          snapshot.Funding.MarkPrice.Add(decimal.RequireFromString("1")),
+		Last:         snapshot.Funding.MarkPrice,
+		Timestamp:    snapshot.Funding.Timestamp,
+	}}); err != nil {
+		return err
+	}
+	funding := snapshot.Funding
+	return c.PutMarketEvent(model.MarketEvent{FundingRate: &funding})
 }
 
 type staticFundingRateSource struct {
 	name      string
-	snapshots []FundingRateSnapshot
+	snapshots []FundingVenueSnapshot
 }
 
 func (s staticFundingRateSource) Name() string { return s.name }
-func (s staticFundingRateSource) Snapshots(context.Context) ([]FundingRateSnapshot, error) {
-	return append([]FundingRateSnapshot(nil), s.snapshots...), nil
+func (s staticFundingRateSource) Snapshots(context.Context) ([]FundingVenueSnapshot, error) {
+	return append([]FundingVenueSnapshot(nil), s.snapshots...), nil
 }
 
 type fundingExecutionRouter struct {

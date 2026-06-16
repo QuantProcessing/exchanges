@@ -137,6 +137,13 @@ func (s *TypedStrategy) dispatchMarket(ctx context.Context, event model.MarketEv
 			dispatchErr = errors.Join(dispatchErr, h.OnBar(ctx, *event.Bar))
 		}
 	}
+	if event.FundingRate != nil {
+		if h, ok := s.handler.(interface {
+			OnFundingRate(context.Context, model.FundingRate) error
+		}); ok {
+			dispatchErr = errors.Join(dispatchErr, h.OnFundingRate(ctx, *event.FundingRate))
+		}
+	}
 	if event.Custom != nil {
 		if h, ok := s.handler.(interface {
 			OnCustomData(context.Context, model.CustomData) error

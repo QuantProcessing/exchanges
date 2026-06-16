@@ -147,10 +147,15 @@ discrepancies。不要在 private stream readiness 缺失时继续依赖 live li
 目标：监控多交易所永续资金费率，short 资金费率最高的一侧，long 资金费率最低的一侧，
 并在执行前对两条 hedge legs 做风控校验。
 
-这个示例把 funding rate 保持为 source-specific feed，因为当前仓库还没有统一的
-funding-rate runtime interface。交易路径仍然使用规范化 runtime primitives：
-`model.Venue`、`model.InstrumentID`、`model.AccountID`、`model.OrderFactory`、
-`risk.Engine` 和 `venue.ExecutionClient`。
+Funding rate 已经作为永续合约的 `model.FundingRate` 标准 market data。策略可以通过
+`strategy.Runtime.SubscribeFundingRates` 订阅，通过 `OnFundingRate` 接收回调，通过
+`model.MarketDataTypeFundingRate` 请求历史或 catalog 数据，并在回测中 replay
+`model.MarketEvent{FundingRate: ...}`。示例只在标准 funding payload 外层增加 account
+和 fee metadata，用于把两条 execution legs 路由到 `model.AccountID`、
+`model.OrderFactory`、`risk.Engine` 和 `venue.ExecutionClient`。
+
+live funding 仍然必须先检查 adapter capability truth：snapshot 看
+`caps.MarketData.FundingRates`，stream 看 `caps.MarketData.FundingRateStream`。
 
 可运行参考：
 [07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go)。

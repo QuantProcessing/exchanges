@@ -61,6 +61,15 @@ func TestDataRequestValidatesHistoricalBarsTicksBooksAndCustomData(t *testing.T)
 			Start:        windowStart,
 			End:          windowEnd,
 		},
+		{
+			Metadata:     CommandMetadata{CommandID: "request-funding"},
+			RequestID:    "funding-001",
+			InstrumentID: instID,
+			Type:         MarketDataTypeFundingRate,
+			Start:        windowStart,
+			End:          windowEnd,
+			Limit:        24,
+		},
 	}
 
 	for _, request := range requests {
@@ -113,6 +122,33 @@ func TestDataResponseValidatesPayloadsAgainstRequestShape(t *testing.T) {
 		Size:          decimal.RequireFromString("1"),
 		AggressorSide: AggressorSideBuyer,
 		TradeID:       "trade-001",
+	}}
+	require.ErrorIs(t, response.Validate(), ErrInvalidMarketData)
+}
+
+func TestFundingRateDataResponseValidatesStandardPayload(t *testing.T) {
+	instID := MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	funding := FundingRate{
+		InstrumentID:    instID,
+		Rate:            decimal.RequireFromString("-0.0001"),
+		MarkPrice:       decimal.RequireFromString("43125.50"),
+		IndexPrice:      decimal.RequireFromString("43120.00"),
+		NextFundingTime: time.Unix(800, 0),
+		FundingInterval: 8 * time.Hour,
+		Timestamp:       time.Unix(700, 0),
+	}
+	response := DataResponse{
+		RequestID:    "funding-001",
+		InstrumentID: instID,
+		Type:         MarketDataTypeFundingRate,
+		Events:       []MarketEvent{{FundingRate: &funding}},
+		IsFinal:      true,
+	}
+	require.NoError(t, response.Validate())
+
+	response.Events[0] = MarketEvent{Ticker: &Ticker{
+		InstrumentID: instID,
+		Last:         decimal.RequireFromString("43125.50"),
 	}}
 	require.ErrorIs(t, response.Validate(), ErrInvalidMarketData)
 }

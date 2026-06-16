@@ -150,6 +150,31 @@ func TestTypedStrategyDispatchesBarCallbacks(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestTypedStrategyDispatchesFundingRateCallbacks(t *testing.T) {
+	b := bus.New()
+	impl := &fundingRateCallbackStrategy{}
+	engine := NewEngine(b, WithRuntime(newTypedRuntime()))
+	require.NoError(t, engine.Add(NewTyped("funding-rates", impl)))
+	require.NoError(t, engine.Start(context.Background()))
+	defer engine.Stop(context.Background())
+
+	funding := model.FundingRate{
+		InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
+		Rate:            decimal.RequireFromString("0.0002"),
+		MarkPrice:       decimal.RequireFromString("43125.50"),
+		IndexPrice:      decimal.RequireFromString("43120.00"),
+		NextFundingTime: time.Unix(800, 0),
+		FundingInterval: 8 * time.Hour,
+		Timestamp:       time.Unix(700, 0),
+	}
+	require.NoError(t, b.Publish(context.Background(), TopicMarketData, model.MarketEvent{FundingRate: &funding}))
+
+	require.Eventually(t, func() bool {
+		got, ok := impl.last()
+		return ok && got == funding
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestTypedStrategyDispatchesCustomDataCallbacks(t *testing.T) {
 	b := bus.New()
 	impl := &customDataCallbackStrategy{}
@@ -542,6 +567,26 @@ func (s *barCallbackStrategy) last() (model.Bar, bool) {
 	return s.bar, s.seen
 }
 
+type fundingRateCallbackStrategy struct {
+	mu      sync.Mutex
+	funding model.FundingRate
+	seen    bool
+}
+
+func (s *fundingRateCallbackStrategy) OnFundingRate(_ context.Context, funding model.FundingRate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.funding = funding
+	s.seen = true
+	return nil
+}
+
+func (s *fundingRateCallbackStrategy) last() (model.FundingRate, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.funding, s.seen
+}
+
 type customDataCallbackStrategy struct {
 	mu     sync.Mutex
 	custom model.CustomData
@@ -665,6 +710,12 @@ func (r *typedRuntime) SubscribeQuoteTicks(ctx context.Context, instrumentID mod
 	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: instrumentID, Type: model.MarketDataTypeQuoteTick})
 }
 func (r *typedRuntime) UnsubscribeQuoteTicks(context.Context, model.InstrumentID) error { return nil }
+func (r *typedRuntime) SubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: instrumentID, Type: model.MarketDataTypeFundingRate})
+}
+func (r *typedRuntime) UnsubscribeFundingRates(context.Context, model.InstrumentID) error {
+	return nil
+}
 func (r *typedRuntime) SubscribeBars(ctx context.Context, barType model.BarType) error {
 	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{InstrumentID: barType.InstrumentID, Type: model.MarketDataTypeBar, BarType: barType})
 }

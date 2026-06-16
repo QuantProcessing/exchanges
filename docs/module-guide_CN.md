@@ -85,6 +85,8 @@ health snapshots 和 message-bus primitives。
 
 `data.Engine` 注册 data clients、加载 instruments、管理 subscriptions、把 market
 events 写入 cache/bus、支持 bar aggregation、data requests 和 health reporting。
+标准 market events 包括 tickers、books、trades、quotes、bars、永续合约 funding rates
+以及 custom extension data。
 `data.Catalog`、`ReplayCatalog`、`MemoryCatalog` 用于历史或 replay 数据。
 
 ## `execution`

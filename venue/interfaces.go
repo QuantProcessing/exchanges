@@ -39,6 +39,10 @@ type StreamingDataClient interface {
 	Events() <-chan model.MarketEvent
 }
 
+type FundingRateProvider interface {
+	FetchFundingRate(context.Context, model.InstrumentID) (model.FundingRate, error)
+}
+
 type DataHealth struct {
 	Connected       bool
 	InstrumentReady bool

@@ -372,6 +372,13 @@ func (n *Node) SubscribeQuoteTicks(ctx context.Context, instrumentID model.Instr
 	})
 }
 
+func (n *Node) SubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return n.SubscribeMarketData(ctx, model.SubscribeMarketData{
+		InstrumentID: instrumentID,
+		Type:         model.MarketDataTypeFundingRate,
+	})
+}
+
 func (n *Node) SubscribeBars(ctx context.Context, barType model.BarType) error {
 	barType = barType.Canonical()
 	return n.SubscribeMarketData(ctx, model.SubscribeMarketData{
@@ -425,6 +432,13 @@ func (n *Node) UnsubscribeQuoteTicks(ctx context.Context, instrumentID model.Ins
 	return n.UnsubscribeMarketData(ctx, model.SubscribeMarketData{
 		InstrumentID: instrumentID,
 		Type:         model.MarketDataTypeQuoteTick,
+	})
+}
+
+func (n *Node) UnsubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return n.UnsubscribeMarketData(ctx, model.SubscribeMarketData{
+		InstrumentID: instrumentID,
+		Type:         model.MarketDataTypeFundingRate,
 	})
 }
 

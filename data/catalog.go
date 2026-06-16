@@ -132,6 +132,8 @@ func marketEventMatchesRequestType(request model.DataRequest, event model.Market
 		return event.Quote != nil
 	case model.MarketDataTypeBar:
 		return event.Bar != nil
+	case model.MarketDataTypeFundingRate:
+		return event.FundingRate != nil
 	case model.MarketDataTypeCustom:
 		return event.Custom != nil
 	default:
@@ -151,6 +153,8 @@ func marketEventTime(event model.MarketEvent) time.Time {
 		return event.Quote.Timestamp
 	case event.Bar != nil:
 		return event.Bar.Timestamp
+	case event.FundingRate != nil:
+		return event.FundingRate.Timestamp
 	case event.Custom != nil:
 		return event.Custom.Timestamp
 	default:

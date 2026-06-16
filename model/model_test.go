@@ -556,6 +556,31 @@ func TestBarValidatesNautilusStyleOHLCVAndMarketEventIdentity(t *testing.T) {
 	require.ErrorIs(t, bar.Validate(), ErrInvalidMarketData)
 }
 
+func TestFundingRateCanTravelAsMarketEvent(t *testing.T) {
+	funding := FundingRate{
+		InstrumentID:    MustInstrumentID("BTC-USDT-PERP.BINANCE"),
+		Rate:            decimal.RequireFromString("0.0001"),
+		MarkPrice:       decimal.RequireFromString("100.25"),
+		IndexPrice:      decimal.RequireFromString("100.20"),
+		NextFundingTime: testNow.Add(8 * time.Hour),
+		FundingInterval: 8 * time.Hour,
+		Timestamp:       testNow,
+		InitTime:        testNow.Add(time.Millisecond),
+	}
+	require.NoError(t, funding.Validate())
+
+	event := MarketEvent{FundingRate: &funding}
+	require.NoError(t, event.Validate())
+	require.Equal(t, funding.InstrumentID, event.InstrumentID())
+
+	funding.MarkPrice = decimal.RequireFromString("-1")
+	require.ErrorIs(t, funding.Validate(), ErrInvalidMarketData)
+
+	funding.MarkPrice = decimal.RequireFromString("100.25")
+	funding.FundingInterval = -time.Hour
+	require.ErrorIs(t, funding.Validate(), ErrInvalidMarketData)
+}
+
 func TestSubscribeMarketDataValidatesTypeAndDepth(t *testing.T) {
 	sub := SubscribeMarketData{
 		InstrumentID: MustInstrumentID("BTC-USDT-SPOT.BINANCE"),
@@ -583,6 +608,12 @@ func TestSubscribeMarketDataValidatesTypeAndDepth(t *testing.T) {
 
 	sub.BarType.InstrumentID = MustInstrumentID("ETH-USDT-SPOT.BINANCE")
 	require.ErrorIs(t, sub.Validate(), ErrInvalidMarketData)
+
+	sub = SubscribeMarketData{
+		InstrumentID: MustInstrumentID("BTC-USDT-PERP.BINANCE"),
+		Type:         MarketDataTypeFundingRate,
+	}
+	require.NoError(t, sub.Validate())
 
 	sub.Type = MarketDataType("funding")
 	require.ErrorIs(t, sub.Validate(), ErrInvalidMarketData)

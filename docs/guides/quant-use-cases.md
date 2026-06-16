@@ -341,11 +341,17 @@ Goal: monitor perpetual funding rates across venues, short the venue paying the
 highest funding to shorts, long the venue with the lowest funding cost, and
 validate both hedge legs before execution.
 
-The example keeps funding as a source-specific feed because this repository
-does not yet expose a unified funding-rate runtime interface. The trading path
-still uses normalized runtime primitives: `model.Venue`, `model.InstrumentID`,
-`model.AccountID`, `model.OrderFactory`, `risk.Engine`, and
+Funding rates are standardized as `model.FundingRate` market data for perpetual
+instruments. Strategies can subscribe with `strategy.Runtime.SubscribeFundingRates`,
+receive `OnFundingRate`, request `model.MarketDataTypeFundingRate`, and replay
+`model.MarketEvent{FundingRate: ...}` in backtests. The example wraps each
+standard funding payload with account and fee metadata so the execution legs can
+still route through `model.AccountID`, `model.OrderFactory`, `risk.Engine`, and
 `venue.ExecutionClient`.
+
+Live funding use must still check adapter capability truth first:
+`caps.MarketData.FundingRates` for snapshots and
+`caps.MarketData.FundingRateStream` for streaming.
 
 Runnable reference:
 [07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go).

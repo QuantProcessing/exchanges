@@ -116,6 +116,8 @@ func marketEventMatchesType(event MarketEvent, typ MarketDataType) bool {
 		return event.Quote != nil
 	case MarketDataTypeBar:
 		return event.Bar != nil
+	case MarketDataTypeFundingRate:
+		return event.FundingRate != nil
 	case MarketDataTypeCustom:
 		return event.Custom != nil
 	default:

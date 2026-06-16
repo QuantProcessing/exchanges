@@ -27,6 +27,8 @@ Market data capabilities:
 - trade ticks;
 - quote ticks;
 - bars;
+- funding-rate snapshots;
+- funding-rate stream;
 - general stream support.
 
 Execution capabilities:
@@ -54,6 +56,9 @@ caps := adp.Capabilities()
 if !caps.MarketData.OrderBookStream {
     return fmt.Errorf("%s does not support order-book streaming", adp.Venue())
 }
+if !caps.MarketData.FundingRates {
+    return fmt.Errorf("%s does not expose normalized funding-rate snapshots", adp.Venue())
+}
 if !caps.Execution.Submit || !caps.Execution.Cancel {
     return fmt.Errorf("%s cannot run this strategy safely", adp.Venue())
 }
@@ -62,6 +67,16 @@ if !caps.Execution.Submit || !caps.Execution.Cancel {
 For optional interfaces, check capabilities and type assertions together:
 
 ```go
+if caps.MarketData.FundingRates {
+    provider, ok := adp.Data().(venue.FundingRateProvider)
+    if !ok {
+        return fmt.Errorf("funding-rate snapshot claimed but interface missing")
+    }
+    funding, err := provider.FetchFundingRate(ctx, instrumentID)
+    _ = funding
+    return err
+}
+
 if caps.Execution.Query {
     querier, ok := adp.Execution().(venue.OrderQuerier)
     if !ok {

@@ -527,6 +527,16 @@ func (e *Engine) requestLive(ctx context.Context, client venue.DataClient, reque
 			return model.DataResponse{}, err
 		}
 		event.OrderBook = &book
+	case model.MarketDataTypeFundingRate:
+		provider, ok := client.(venue.FundingRateProvider)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: funding rate requests are not supported by venue.DataClient", model.ErrNotSupported)
+		}
+		funding, err := provider.FetchFundingRate(ctx, request.InstrumentID)
+		if err != nil {
+			return model.DataResponse{}, err
+		}
+		event.FundingRate = &funding
 	default:
 		return model.DataResponse{}, fmt.Errorf("%w: request type %s is not supported by venue.DataClient", model.ErrNotSupported, request.Type)
 	}

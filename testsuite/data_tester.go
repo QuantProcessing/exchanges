@@ -158,6 +158,40 @@ func (d *DataTester) Run(ctx context.Context, t *testing.T) ContractReport {
 			}
 			return d.unsubscribeMarketData(ctx, streaming, sub)
 		}},
+		{id: "TC-D16", name: "Fetch funding rate", run: func() error {
+			provider, ok := d.cfg.Data.(venue.FundingRateProvider)
+			if !ok {
+				return skipCase("data client does not implement FundingRateProvider")
+			}
+			funding, err := provider.FetchFundingRate(ctx, d.cfg.InstrumentID)
+			if err != nil {
+				if errors.Is(err, model.ErrNotSupported) {
+					return skipCase(err.Error())
+				}
+				return err
+			}
+			if funding.InstrumentID != d.cfg.InstrumentID {
+				return fmt.Errorf("funding instrument mismatch: %s", funding.InstrumentID)
+			}
+			return funding.Validate()
+		}},
+		{id: "TC-D17", name: "Subscribe funding rates", run: func() error {
+			streaming, ok := d.cfg.Data.(venue.StreamingDataClient)
+			if !ok {
+				return skipCase("data client does not implement StreamingDataClient")
+			}
+			sub := model.SubscribeMarketData{
+				InstrumentID: d.cfg.InstrumentID,
+				Type:         model.MarketDataTypeFundingRate,
+			}
+			if err := d.subscribeMarketData(ctx, streaming, sub); err != nil {
+				if errors.Is(err, model.ErrNotSupported) {
+					return skipCase(err.Error())
+				}
+				return err
+			}
+			return d.unsubscribeMarketData(ctx, streaming, sub)
+		}},
 	})
 }
 

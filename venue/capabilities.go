@@ -11,15 +11,17 @@ type DeclaredCapabilities struct {
 }
 
 type MarketDataCapabilities struct {
-	Snapshots       bool
-	Ticker          bool
-	OrderBook       bool
-	TickerStream    bool
-	OrderBookStream bool
-	TradeTicks      bool
-	QuoteTicks      bool
-	Bars            bool
-	Streams         bool
+	Snapshots         bool
+	Ticker            bool
+	OrderBook         bool
+	TickerStream      bool
+	OrderBookStream   bool
+	TradeTicks        bool
+	QuoteTicks        bool
+	Bars              bool
+	FundingRates      bool
+	FundingRateStream bool
+	Streams           bool
 }
 
 type ExecutionCapabilities struct {

@@ -86,6 +86,7 @@ Market data callbacks：
 - `OnTradeTick(context.Context, model.TradeTick) error`
 - `OnQuoteTick(context.Context, model.QuoteTick) error`
 - `OnBar(context.Context, model.Bar) error`
+- `OnFundingRate(context.Context, model.FundingRate) error`
 - `OnCustomData(context.Context, model.CustomData) error`
 
 Execution callbacks：
@@ -114,11 +115,35 @@ Runtime callbacks：
 - `Cache()` 与 `Portfolio()` 状态查询；
 - `Clock()` runtime time；
 - `SetTimer` 与 `CancelTimer`；
-- market-data subscriptions；
+- market-data subscriptions，包括永续合约资金费率的 `SubscribeFundingRates`；
 - historical/catalog-backed data requests；
 - `OrderFactory(accountID)`；
 - submit、modify、cancel、batch-cancel、cancel-all、query commands；
 - account queries。
+
+Funding rate 已经是永续合约的标准 market data：
+
+```go
+func (s *FundingStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+    s.runtime = rt
+    return rt.SubscribeFundingRates(ctx, s.instrumentID)
+}
+
+func (s *FundingStrategy) OnFundingRate(ctx context.Context, funding model.FundingRate) error {
+    response, err := s.runtime.RequestData(ctx, model.DataRequest{
+        RequestID:    "last-funding",
+        InstrumentID: funding.InstrumentID,
+        Type:         model.MarketDataTypeFundingRate,
+        Limit:        1,
+    })
+    _ = response
+    return err
+}
+```
+
+回测可以直接 replay `model.MarketEvent{FundingRate: ...}`，策略会走同一套 callback
+和 request path。live 使用仍然取决于 adapter 是否声明
+`caps.MarketData.FundingRates` 或 `caps.MarketData.FundingRateStream`。
 
 ## 策略状态规则
 

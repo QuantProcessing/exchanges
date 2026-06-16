@@ -11,6 +11,7 @@ behavior 或 `Planned`，不能用 no-op success 隐藏。
 
 - data snapshots；
 - data streams；
+- funding-rate snapshots 和 streams；
 - account snapshots；
 - submit、cancel、modify、query；
 - order、fill、position reports；
@@ -29,7 +30,7 @@ execution events，但尚未证明 restart resubscription；也可以支持 resu
 ## Contract Rule
 
 `testsuite.AdapterCapabilitySuite` 校验 `venue.DeclaredCapabilities` 与 optional
-interfaces 的映射，例如 `venue.ExecutionResubscriber`、
+interfaces 的映射，例如 `venue.FundingRateProvider`、`venue.ExecutionResubscriber`、
 `venue.ExecutionMassStatusGenerator` 和 `venue.OrderListSubmitter`。
 
 ```bash

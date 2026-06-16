@@ -31,6 +31,13 @@ func TestAdapterCapabilityReportRejectsClaimedResubscribeWithoutInterface(t *tes
 	requireCaseFailed(t, report, "TC-A07", "resubscribe capability requires venue.ExecutionResubscriber")
 }
 
+func TestAdapterCapabilityReportRejectsClaimedFundingRatesWithoutInterface(t *testing.T) {
+	report := AdapterCapabilityReport(t, fakeClaimedFundingAdapter{})
+
+	require.False(t, report.AllPassed(), "claimed funding snapshots without FundingRateProvider must fail: %#v", report)
+	requireCaseFailed(t, report, "TC-A03", "funding-rate snapshot capability requires venue.FundingRateProvider")
+}
+
 type fakeCapabilityAdapter struct{}
 
 func (fakeCapabilityAdapter) Venue() model.Venue { return "FAKE" }
@@ -97,6 +104,20 @@ func (fakeClaimedResubscribeAdapter) Capabilities() venue.DeclaredCapabilities {
 	}
 }
 func (fakeClaimedResubscribeAdapter) Close(context.Context) error { return nil }
+
+type fakeClaimedFundingAdapter struct{}
+
+func (fakeClaimedFundingAdapter) Venue() model.Venue                    { return "FAKE" }
+func (fakeClaimedFundingAdapter) Instruments() venue.InstrumentProvider { return nil }
+func (fakeClaimedFundingAdapter) Data() venue.DataClient                { return fakeData{} }
+func (fakeClaimedFundingAdapter) Execution() venue.ExecutionClient      { return nil }
+func (fakeClaimedFundingAdapter) Capabilities() venue.DeclaredCapabilities {
+	return venue.DeclaredCapabilities{
+		Venue:      "FAKE",
+		MarketData: venue.MarketDataCapabilities{FundingRates: true},
+	}
+}
+func (fakeClaimedFundingAdapter) Close(context.Context) error { return nil }
 
 type fakeProvider struct{}
 
@@ -220,6 +241,20 @@ func TestDataTesterReportsNautilusStyleCaseResults(t *testing.T) {
 	requireCasePassed(t, report, "TC-D13", "Subscribe trade ticks")
 	requireCasePassed(t, report, "TC-D14", "Subscribe bars")
 	requireCasePassed(t, report, "TC-D15", "Subscribe quote ticks")
+	requireCasePassed(t, report, "TC-D17", "Subscribe funding rates")
+}
+
+func TestDataTesterReportsFundingRateCase(t *testing.T) {
+	tester := NewDataTester(DataTesterConfig{
+		Provider:     fakeProviderWithInstrument{},
+		Data:         fakeFundingData{fakeDataWithEvents: fakeDataWithEvents{events: make(chan model.MarketEvent, 1)}},
+		InstrumentID: model.MustInstrumentID("BTC-USDT-SPOT.FAKE"),
+	})
+
+	report := tester.Run(context.Background(), t)
+
+	require.True(t, report.Passed(), "funding data case should pass: %#v", report.Cases)
+	requireCasePassed(t, report, "TC-D16", "Fetch funding rate")
 }
 
 func TestDataTesterRetriesTransientSubscribeEOF(t *testing.T) {
@@ -425,6 +460,19 @@ func (fakeDataWithEvents) UnsubscribeMarketData(context.Context, model.Subscribe
 	return nil
 }
 func (f fakeDataWithEvents) Events() <-chan model.MarketEvent { return f.events }
+
+type fakeFundingData struct {
+	fakeDataWithEvents
+}
+
+func (f fakeFundingData) FetchFundingRate(_ context.Context, instrumentID model.InstrumentID) (model.FundingRate, error) {
+	return model.FundingRate{
+		InstrumentID: instrumentID,
+		Rate:         dec("0.0001"),
+		MarkPrice:    dec("100.5"),
+		IndexPrice:   dec("100.4"),
+	}, nil
+}
 
 type flakySubscribeData struct {
 	fakeDataWithEvents

@@ -29,6 +29,9 @@ func (c *Cache) PutMarketEvent(event model.MarketEvent) error {
 			c.latestBars[bar.BarType.InstrumentID] = bar
 		}
 	}
+	if event.FundingRate != nil {
+		c.fundingRates[event.FundingRate.InstrumentID] = *event.FundingRate
+	}
 	if event.Custom != nil {
 		custom := *event.Custom
 		if c.customData[custom.InstrumentID] == nil {
@@ -79,6 +82,13 @@ func (c *Cache) LatestBar(instrumentID model.InstrumentID) (model.Bar, bool) {
 	defer c.mu.RUnlock()
 	bar, ok := c.latestBars[instrumentID]
 	return bar, ok
+}
+
+func (c *Cache) FundingRate(instrumentID model.InstrumentID) (model.FundingRate, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	funding, ok := c.fundingRates[instrumentID]
+	return funding, ok
 }
 
 func (c *Cache) CustomData(instrumentID model.InstrumentID, typ string) (model.CustomData, bool) {

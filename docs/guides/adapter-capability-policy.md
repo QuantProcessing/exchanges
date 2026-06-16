@@ -12,6 +12,7 @@ It separates:
 
 - data snapshots;
 - data streams;
+- funding-rate snapshots and streams;
 - account snapshots;
 - submit, cancel, modify, and query;
 - order, fill, and position reports;
@@ -31,8 +32,8 @@ support resubscription without claiming mass-status recovery.
 
 `testsuite.AdapterCapabilitySuite` enforces the mapping between
 `venue.DeclaredCapabilities` and optional interfaces such as
-`venue.ExecutionResubscriber`, `venue.ExecutionMassStatusGenerator`, and
-`venue.OrderListSubmitter`.
+`venue.FundingRateProvider`, `venue.ExecutionResubscriber`,
+`venue.ExecutionMassStatusGenerator`, and `venue.OrderListSubmitter`.
 
 Run:
 

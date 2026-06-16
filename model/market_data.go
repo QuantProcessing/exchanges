@@ -10,17 +10,18 @@ import (
 type MarketDataType string
 
 const (
-	MarketDataTypeTicker    MarketDataType = "ticker"
-	MarketDataTypeOrderBook MarketDataType = "order_book"
-	MarketDataTypeTradeTick MarketDataType = "trade_tick"
-	MarketDataTypeQuoteTick MarketDataType = "quote_tick"
-	MarketDataTypeBar       MarketDataType = "bar"
-	MarketDataTypeCustom    MarketDataType = "custom"
+	MarketDataTypeTicker      MarketDataType = "ticker"
+	MarketDataTypeOrderBook   MarketDataType = "order_book"
+	MarketDataTypeTradeTick   MarketDataType = "trade_tick"
+	MarketDataTypeQuoteTick   MarketDataType = "quote_tick"
+	MarketDataTypeBar         MarketDataType = "bar"
+	MarketDataTypeFundingRate MarketDataType = "funding_rate"
+	MarketDataTypeCustom      MarketDataType = "custom"
 )
 
 func (t MarketDataType) Validate() error {
 	switch t {
-	case MarketDataTypeTicker, MarketDataTypeOrderBook, MarketDataTypeTradeTick, MarketDataTypeQuoteTick, MarketDataTypeBar, MarketDataTypeCustom:
+	case MarketDataTypeTicker, MarketDataTypeOrderBook, MarketDataTypeTradeTick, MarketDataTypeQuoteTick, MarketDataTypeBar, MarketDataTypeFundingRate, MarketDataTypeCustom:
 		return nil
 	default:
 		return fmt.Errorf("%w: invalid market data type %q", ErrInvalidMarketData, t)
@@ -288,6 +289,30 @@ func (b OrderBook) Validate() error {
 	return nil
 }
 
+type FundingRate struct {
+	InstrumentID    InstrumentID
+	Rate            decimal.Decimal
+	MarkPrice       decimal.Decimal
+	IndexPrice      decimal.Decimal
+	NextFundingTime time.Time
+	FundingInterval time.Duration
+	Timestamp       time.Time
+	InitTime        time.Time
+}
+
+func (f FundingRate) Validate() error {
+	if err := f.InstrumentID.Validate(); err != nil {
+		return err
+	}
+	if f.MarkPrice.IsNegative() || f.IndexPrice.IsNegative() {
+		return fmt.Errorf("%w: negative funding reference price", ErrInvalidMarketData)
+	}
+	if f.FundingInterval < 0 {
+		return fmt.Errorf("%w: funding interval cannot be negative", ErrInvalidMarketData)
+	}
+	return nil
+}
+
 type CustomData struct {
 	InstrumentID InstrumentID
 	Type         string
@@ -307,12 +332,13 @@ func (d CustomData) Validate() error {
 }
 
 type MarketEvent struct {
-	Ticker    *Ticker
-	OrderBook *OrderBook
-	Trade     *TradeTick
-	Quote     *QuoteTick
-	Bar       *Bar
-	Custom    *CustomData
+	Ticker      *Ticker
+	OrderBook   *OrderBook
+	Trade       *TradeTick
+	Quote       *QuoteTick
+	Bar         *Bar
+	FundingRate *FundingRate
+	Custom      *CustomData
 }
 
 func (e MarketEvent) InstrumentID() InstrumentID {
@@ -327,6 +353,8 @@ func (e MarketEvent) InstrumentID() InstrumentID {
 		return e.Quote.InstrumentID
 	case e.Bar != nil:
 		return e.Bar.BarType.Canonical().InstrumentID
+	case e.FundingRate != nil:
+		return e.FundingRate.InstrumentID
 	case e.Custom != nil:
 		return e.Custom.InstrumentID
 	default:
@@ -363,6 +391,12 @@ func (e MarketEvent) Validate() error {
 	if e.Bar != nil {
 		count++
 		if err := e.Bar.Validate(); err != nil {
+			return err
+		}
+	}
+	if e.FundingRate != nil {
+		count++
+		if err := e.FundingRate.Validate(); err != nil {
 			return err
 		}
 	}

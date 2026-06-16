@@ -78,6 +78,12 @@ func requiredDataCaseIDs(caps venue.DeclaredCapabilities) []string {
 	if caps.MarketData.Streams && caps.MarketData.QuoteTicks {
 		ids = append(ids, "TC-D15")
 	}
+	if caps.MarketData.FundingRates {
+		ids = append(ids, "TC-D16")
+	}
+	if caps.MarketData.Streams && caps.MarketData.FundingRateStream {
+		ids = append(ids, "TC-D17")
+	}
 	return ids
 }
 
@@ -188,6 +194,11 @@ func AdapterCapabilityReport(t *testing.T, adapter venue.Adapter) ContractReport
 			if data.Venue() != adapter.Venue() {
 				return fmt.Errorf("market-data venue mismatch: %s", data.Venue())
 			}
+			if caps.MarketData.FundingRates {
+				if _, ok := data.(venue.FundingRateProvider); !ok {
+					return fmt.Errorf("funding-rate snapshot capability requires venue.FundingRateProvider")
+				}
+			}
 			return nil
 		}},
 		{id: "TC-A04", name: "Streaming market data capability", run: func() error {
@@ -295,12 +306,12 @@ func AdapterCapabilityReport(t *testing.T, adapter venue.Adapter) ContractReport
 
 func declaresMarketData(caps venue.MarketDataCapabilities) bool {
 	return caps.Snapshots || caps.Ticker || caps.OrderBook || caps.TickerStream || caps.OrderBookStream ||
-		caps.TradeTicks || caps.QuoteTicks || caps.Bars || caps.Streams
+		caps.TradeTicks || caps.QuoteTicks || caps.Bars || caps.FundingRates || caps.FundingRateStream || caps.Streams
 }
 
 func declaresStreamingMarketData(caps venue.MarketDataCapabilities) bool {
 	return caps.Streams || caps.TickerStream || caps.OrderBookStream ||
-		caps.TradeTicks || caps.QuoteTicks || caps.Bars
+		caps.TradeTicks || caps.QuoteTicks || caps.Bars || caps.FundingRateStream
 }
 
 func declaresExecution(caps venue.ExecutionCapabilities, account venue.AccountCapabilities) bool {

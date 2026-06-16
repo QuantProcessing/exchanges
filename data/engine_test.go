@@ -113,6 +113,34 @@ func TestEngineRequestUsesCatalogAndCorrelationID(t *testing.T) {
 	require.Equal(t, int64(1), engine.Health().Requests)
 }
 
+func TestEngineRequestUsesCatalogForFundingRates(t *testing.T) {
+	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	funding := model.FundingRate{
+		InstrumentID:    instID,
+		Rate:            decimal.RequireFromString("0.0003"),
+		MarkPrice:       decimal.RequireFromString("43000"),
+		IndexPrice:      decimal.RequireFromString("42995"),
+		NextFundingTime: time.Unix(800, 0),
+		FundingInterval: 8 * time.Hour,
+		Timestamp:       time.Unix(700, 0),
+	}
+	engine := NewEngine(Config{Catalog: NewMemoryCatalog(model.MarketEvent{FundingRate: &funding})})
+
+	response, err := engine.Request(context.Background(), model.DataRequest{
+		Metadata:     model.CommandMetadata{CommandID: "request-funding"},
+		RequestID:    "funding-1",
+		InstrumentID: instID,
+		Type:         model.MarketDataTypeFundingRate,
+		Start:        time.Unix(600, 0),
+		End:          time.Unix(900, 0),
+		Limit:        1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.MarketDataTypeFundingRate, response.Type)
+	require.Len(t, response.Events, 1)
+	require.Equal(t, funding, *response.Events[0].FundingRate)
+}
+
 func TestEngineHealthTracksClientsSubscriptionsAndLastError(t *testing.T) {
 	client := newEngineFakeDataClient(engineTestInstrumentID())
 	engine := NewEngine(Config{Cache: cache.New()})

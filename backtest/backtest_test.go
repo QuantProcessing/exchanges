@@ -1476,6 +1476,38 @@ func TestBacktestRequestDataReturnsCachedMarketDataToStrategy(t *testing.T) {
 	require.Equal(t, model.StrategyID("request-data"), impl.strategyID)
 }
 
+func TestBacktestReplaysFundingRatesIntoStrategiesAndDataRequests(t *testing.T) {
+	engine := NewEngine(EngineConfig{})
+	instID := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+	impl := &fundingRateBacktestStrategy{instrumentID: instID}
+	engine.AddStrategy(strategy.NewTyped("funding-backtest", impl))
+	funding := model.FundingRate{
+		InstrumentID:    instID,
+		Rate:            decimal.RequireFromString("0.0002"),
+		MarkPrice:       decimal.RequireFromString("43125.50"),
+		IndexPrice:      decimal.RequireFromString("43120.00"),
+		NextFundingTime: time.Unix(800, 0),
+		FundingInterval: 8 * time.Hour,
+		Timestamp:       time.Unix(700, 0),
+	}
+	engine.AddData(Event{
+		At:      funding.Timestamp,
+		Topic:   strategy.TopicMarketData,
+		Message: model.MarketEvent{FundingRate: &funding},
+	})
+
+	result, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.True(t, impl.subscribed)
+	require.True(t, impl.requested)
+	require.Equal(t, funding, impl.last)
+	require.Equal(t, model.CommandID("funding-request-command"), impl.commandID)
+	require.Equal(t, model.StrategyID("funding-backtest"), impl.strategyID)
+	cached, ok := result.Cache.FundingRate(instID)
+	require.True(t, ok)
+	require.Equal(t, funding, cached)
+}
+
 func TestBacktestRoutesOrderCommandsThroughExecutionEngine(t *testing.T) {
 	engine := NewEngine(EngineConfig{})
 	impl := &executionEngineBacktestStrategy{instrumentID: model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")}
@@ -2233,6 +2265,16 @@ type requestDataBacktestStrategy struct {
 	strategyID   model.StrategyID
 }
 
+type fundingRateBacktestStrategy struct {
+	instrumentID model.InstrumentID
+	runtime      strategy.Runtime
+	subscribed   bool
+	requested    bool
+	last         model.FundingRate
+	commandID    model.CommandID
+	strategyID   model.StrategyID
+}
+
 type tradeSubmittingStrategy struct {
 	accountID    model.AccountID
 	instrumentID model.InstrumentID
@@ -2515,6 +2557,38 @@ func (s *requestDataBacktestStrategy) OnTicker(ctx context.Context, tick model.T
 	}
 	s.requested = true
 	s.last = response.Events[0].Ticker.Last
+	s.commandID = response.Metadata.CommandID
+	s.strategyID = response.Metadata.StrategyID
+	return nil
+}
+
+func (s *fundingRateBacktestStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+	s.runtime = rt
+	if err := rt.SubscribeFundingRates(ctx, s.instrumentID); err != nil {
+		return err
+	}
+	s.subscribed = true
+	return nil
+}
+
+func (s *fundingRateBacktestStrategy) OnFundingRate(ctx context.Context, funding model.FundingRate) error {
+	if s.requested {
+		return nil
+	}
+	response, err := s.runtime.RequestData(ctx, model.DataRequest{
+		Metadata:     model.CommandMetadata{CommandID: "funding-request-command"},
+		RequestID:    "funding-request-1",
+		InstrumentID: funding.InstrumentID,
+		Type:         model.MarketDataTypeFundingRate,
+	})
+	if err != nil {
+		return err
+	}
+	if len(response.Events) != 1 || response.Events[0].FundingRate == nil {
+		return fmt.Errorf("expected one funding response, got %#v", response.Events)
+	}
+	s.requested = true
+	s.last = *response.Events[0].FundingRate
 	s.commandID = response.Metadata.CommandID
 	s.strategyID = response.Metadata.StrategyID
 	return nil

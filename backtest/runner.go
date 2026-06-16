@@ -149,6 +149,7 @@ type runtime struct {
 	lastTrades        map[model.InstrumentID]model.TradeTick
 	lastQuotes        map[model.InstrumentID]model.QuoteTick
 	lastBars          map[model.InstrumentID]model.Bar
+	lastFundingRates  map[model.InstrumentID]model.FundingRate
 	consumed          map[model.InstrumentID]map[string]decimal.Decimal
 	trailing          map[string]decimal.Decimal
 	trailingTriggers  map[string]decimal.Decimal
@@ -205,6 +206,7 @@ func newRuntime(b *bus.Bus, c *cache.Cache, pf *portfolio.Portfolio, dataCatalog
 		lastTrades:        make(map[model.InstrumentID]model.TradeTick),
 		lastQuotes:        make(map[model.InstrumentID]model.QuoteTick),
 		lastBars:          make(map[model.InstrumentID]model.Bar),
+		lastFundingRates:  make(map[model.InstrumentID]model.FundingRate),
 		consumed:          make(map[model.InstrumentID]map[string]decimal.Decimal),
 		trailing:          make(map[string]decimal.Decimal),
 		trailingTriggers:  make(map[string]decimal.Decimal),
@@ -375,6 +377,20 @@ func (r *runtime) UnsubscribeQuoteTicks(ctx context.Context, instrumentID model.
 	})
 }
 
+func (r *runtime) SubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{
+		InstrumentID: instrumentID,
+		Type:         model.MarketDataTypeFundingRate,
+	})
+}
+
+func (r *runtime) UnsubscribeFundingRates(ctx context.Context, instrumentID model.InstrumentID) error {
+	return r.UnsubscribeMarketData(ctx, model.SubscribeMarketData{
+		InstrumentID: instrumentID,
+		Type:         model.MarketDataTypeFundingRate,
+	})
+}
+
 func (r *runtime) SubscribeBars(ctx context.Context, barType model.BarType) error {
 	barType = barType.Canonical()
 	return r.SubscribeMarketData(ctx, model.SubscribeMarketData{
@@ -462,6 +478,12 @@ func (r *runtime) RequestData(ctx context.Context, request model.DataRequest) (m
 			return model.DataResponse{}, fmt.Errorf("%w: bar not found for %s", model.ErrInvalidMarketData, request.BarType.Canonical())
 		}
 		event.Bar = &bar
+	case model.MarketDataTypeFundingRate:
+		funding, ok := r.cache.FundingRate(request.InstrumentID)
+		if !ok {
+			return model.DataResponse{}, fmt.Errorf("%w: funding rate not found for %s", model.ErrInvalidMarketData, request.InstrumentID)
+		}
+		event.FundingRate = &funding
 	case model.MarketDataTypeCustom:
 		custom, ok := r.cache.CustomData(request.InstrumentID, request.CustomType)
 		if !ok {
@@ -507,6 +529,9 @@ func (r *runtime) RecordMarket(message any) {
 		instrumentID := event.Bar.BarType.Canonical().InstrumentID
 		r.lastBars[instrumentID] = *event.Bar
 		r.consumed[instrumentID] = make(map[string]decimal.Decimal)
+	}
+	if event.FundingRate != nil {
+		r.lastFundingRates[event.FundingRate.InstrumentID] = *event.FundingRate
 	}
 }
 

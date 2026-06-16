@@ -89,6 +89,7 @@ Market data callbacks:
 - `OnTradeTick(context.Context, model.TradeTick) error`
 - `OnQuoteTick(context.Context, model.QuoteTick) error`
 - `OnBar(context.Context, model.Bar) error`
+- `OnFundingRate(context.Context, model.FundingRate) error`
 - `OnCustomData(context.Context, model.CustomData) error`
 
 Execution callbacks:
@@ -117,11 +118,36 @@ Use `strategy.Runtime` for:
 - `Cache()` and `Portfolio()` state queries;
 - `Clock()` for runtime time;
 - `SetTimer` and `CancelTimer`;
-- market-data subscriptions;
+- market-data subscriptions, including `SubscribeFundingRates` for perpetual
+  funding data;
 - historical or catalog-backed data requests;
 - `OrderFactory(accountID)`;
 - submit, modify, cancel, batch-cancel, cancel-all, and query commands;
 - account queries.
+
+Funding rates are standardized as market data for perpetual instruments:
+
+```go
+func (s *FundingStrategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
+    s.runtime = rt
+    return rt.SubscribeFundingRates(ctx, s.instrumentID)
+}
+
+func (s *FundingStrategy) OnFundingRate(ctx context.Context, funding model.FundingRate) error {
+    response, err := s.runtime.RequestData(ctx, model.DataRequest{
+        RequestID:    "last-funding",
+        InstrumentID: funding.InstrumentID,
+        Type:         model.MarketDataTypeFundingRate,
+        Limit:        1,
+    })
+    _ = response
+    return err
+}
+```
+
+Backtests can replay `model.MarketEvent{FundingRate: ...}` through the same
+callback and request path. Live usage still depends on the adapter declaring
+`caps.MarketData.FundingRates` or `caps.MarketData.FundingRateStream`.
 
 ## Strategy State Rules
 
