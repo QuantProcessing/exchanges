@@ -74,6 +74,26 @@ func TestRunLiveNodeWithInMemoryVenue(t *testing.T) {
 	require.Contains(t, result.EventLog, "execution:order:filled")
 }
 
+func TestRunFundingRateArbitrageMonitor(t *testing.T) {
+	decision, err := RunFundingRateArbitrageMonitor(context.Background())
+	require.NoError(t, err)
+	require.True(t, decision.ShouldTrade)
+	require.Equal(t, model.Venue("BYBIT"), decision.Long.Venue)
+	require.Equal(t, model.Venue("BINANCE"), decision.Short.Venue)
+	require.True(t, decision.FundingSpread.Equal(decimal.RequireFromString("0.0013")))
+	require.True(t, decision.EstimatedCostRate.Equal(decimal.RequireFromString("0.00027")))
+	require.True(t, decision.ExpectedNetRate.Equal(decimal.RequireFromString("0.00103")))
+	require.True(t, decision.ExpectedNetUSDT.Equal(decimal.RequireFromString("1.03")))
+	require.Len(t, decision.Orders, 2)
+	require.Equal(t, model.OrderSideSell, decision.Orders[0].Side)
+	require.Equal(t, model.AccountID("binance-perp-main"), decision.Orders[0].AccountID)
+	require.Equal(t, model.OrderSideBuy, decision.Orders[1].Side)
+	require.Equal(t, model.AccountID("bybit-perp-main"), decision.Orders[1].AccountID)
+	require.Len(t, decision.Reports, 2)
+	require.Equal(t, model.OrderStatusAccepted, decision.Reports[0].Status)
+	require.Equal(t, model.OrderStatusAccepted, decision.Reports[1].Status)
+}
+
 type tickerExampleClient struct {
 	provider *memoryInstrumentProvider
 	ticker   model.Ticker

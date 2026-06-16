@@ -142,6 +142,19 @@ if !caps.Execution.PrivateStream {
 检查 node health、execution health、fill/position report capabilities 和 unresolved
 discrepancies。不要在 private stream readiness 缺失时继续依赖 live lifecycle。
 
+## Use Case 7: Funding Rate Arbitrage Across Venues
+
+目标：监控多交易所永续资金费率，short 资金费率最高的一侧，long 资金费率最低的一侧，
+并在执行前对两条 hedge legs 做风控校验。
+
+这个示例把 funding rate 保持为 source-specific feed，因为当前仓库还没有统一的
+funding-rate runtime interface。交易路径仍然使用规范化 runtime primitives：
+`model.Venue`、`model.InstrumentID`、`model.AccountID`、`model.OrderFactory`、
+`risk.Engine` 和 `venue.ExecutionClient`。
+
+可运行参考：
+[07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go)。
+
 ## Choosing A Development Path
 
 | Goal | Start with | Why |

@@ -55,6 +55,7 @@ func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 			"Order Book Imbalance Strategy",
 			"Deterministic Backtest",
 			"Adapter Capability-Aware Live Setup",
+			"07_monitor_funding_rate_arbitrage.go",
 		},
 		"../docs/guides/reliable-quant-program.md": {
 			"# Reliable Quant Program Guide",
@@ -148,6 +149,7 @@ func TestChineseDocumentationArtifactsCoverEpic13(t *testing.T) {
 			"Use Case 1: Order Book Imbalance Strategy",
 			"Use Case 3: Deterministic Backtest",
 			"Use Case 5: Adapter Capability-Aware Live Setup",
+			"07_monitor_funding_rate_arbitrage.go",
 		},
 		"../docs/guides/reliable-quant-program_CN.md": {
 			"# 可靠量化程序指南",

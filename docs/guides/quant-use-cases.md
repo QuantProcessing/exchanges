@@ -335,6 +335,21 @@ Best-practice notes:
 - Keep command IDs and client order IDs stable so repairs can deduplicate
   reports.
 
+## Use Case 7: Funding Rate Arbitrage Across Venues
+
+Goal: monitor perpetual funding rates across venues, short the venue paying the
+highest funding to shorts, long the venue with the lowest funding cost, and
+validate both hedge legs before execution.
+
+The example keeps funding as a source-specific feed because this repository
+does not yet expose a unified funding-rate runtime interface. The trading path
+still uses normalized runtime primitives: `model.Venue`, `model.InstrumentID`,
+`model.AccountID`, `model.OrderFactory`, `risk.Engine`, and
+`venue.ExecutionClient`.
+
+Runnable reference:
+[07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go).
+
 ## Choosing A Development Path
 
 | Goal | Start with | Why |
