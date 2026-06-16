@@ -2,6 +2,7 @@ package perp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 )
@@ -242,8 +243,8 @@ func (c *Client) GetFundingIntervalHours(ctx context.Context, symbol string) (in
 	return 8, nil
 }
 
-// GetFundingRate retrieves the funding rate for a specific symbol
-// Returns per-hour funding rate (converted from the settlement interval rate)
+// GetFundingRate retrieves the funding rate for a specific symbol.
+// LastFundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetFundingRate(ctx context.Context, symbol string) (*FundingRateData, error) {
 	// Get funding info to find the interval
 	fundingInfos, err := c.GetFundingInfo(ctx)
@@ -279,14 +280,14 @@ func (c *Client) GetFundingRate(ctx context.Context, symbol string) (*FundingRat
 	// Calculate funding time from next funding time - interval
 	fundingTime := res.NextFundingTime - (fundingIntervalHours * 3600 * 1000)
 
-	res.LastFundingRate = hourlyRate
+	res.HourlyFundingRate = hourlyRate
 	res.FundingIntervalHours = fundingIntervalHours
 	res.FundingTime = fundingTime
 	return &res, nil
 }
 
-// GetAllFundingRates retrieves funding rates for all symbols
-// Returns per-hour funding rates (converted from settlement interval rates)
+// GetAllFundingRates retrieves funding rates for all symbols.
+// LastFundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
 	// Get funding info first
 	fundingInfos, err := c.GetFundingInfo(ctx)
@@ -308,6 +309,7 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 	}
 
 	// Convert all rates to hourly
+	var joinedErr error
 	for i := range res {
 		intervalHours := int64(8) // default
 		if interval, ok := intervalMap[res[i].Symbol]; ok {
@@ -316,18 +318,20 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 
 		hourlyRate, err := convertToHourlyRate(res[i].LastFundingRate, intervalHours)
 		if err != nil {
+			res[i].FundingIntervalHours = intervalHours
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", res[i].Symbol, err))
 			continue
 		}
 
 		// Calculate funding time
 		fundingTime := res[i].NextFundingTime - (intervalHours * 3600 * 1000)
 
-		res[i].LastFundingRate = hourlyRate
+		res[i].HourlyFundingRate = hourlyRate
 		res[i].FundingIntervalHours = intervalHours
 		res[i].FundingTime = fundingTime
 	}
 
-	return res, nil
+	return res, joinedErr
 }
 
 // OpenInterestResponse matches /fapi/v1/openInterest.

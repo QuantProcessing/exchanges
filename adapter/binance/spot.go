@@ -171,7 +171,7 @@ func (c *spotDataClient) FetchTicker(ctx context.Context, id model.InstrumentID)
 		Bid:          decimal.RequireFromString(defaultString(t.BidPrice, "0")),
 		Ask:          decimal.RequireFromString(defaultString(t.AskPrice, "0")),
 		Last:         decimal.RequireFromString(defaultString(t.LastPrice, "0")),
-		Timestamp:    time.Now(),
+		Timestamp:    binanceEventTime(t.CloseTime),
 	}, nil
 }
 

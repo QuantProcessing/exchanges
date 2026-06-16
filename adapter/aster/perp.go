@@ -131,7 +131,7 @@ func (c *perpDataClient) FetchTicker(ctx context.Context, id model.InstrumentID)
 	if err != nil {
 		return model.Ticker{}, err
 	}
-	return model.Ticker{InstrumentID: id, Last: decimal.RequireFromString(defaultString(t.LastPrice, "0")), Timestamp: time.Now()}, nil
+	return model.Ticker{InstrumentID: id, Last: decimal.RequireFromString(defaultString(t.LastPrice, "0")), Timestamp: parseAsterTime(t.CloseTime)}, nil
 }
 func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, limit int) (model.OrderBook, error) {
 	if err := c.provider.ensureLoaded(ctx); err != nil {
@@ -145,7 +145,7 @@ func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.Instrument
 	if err != nil {
 		return model.OrderBook{}, err
 	}
-	book := model.OrderBook{InstrumentID: id, Timestamp: time.Now()}
+	book := model.OrderBook{InstrumentID: id, Timestamp: parseAsterTime(firstPositiveInt64(depth.E, depth.T))}
 	for _, level := range depth.Bids {
 		book.Bids = append(book.Bids, parseBookLevel(level))
 	}

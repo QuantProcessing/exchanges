@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestConvertEdgexFundingRatePreservesIntervalRate(t *testing.T) {
+	got, err := convertEdgexFundingRateToHourly(&FundingRateData{
+		ContractId:             "10000001",
+		FundingRate:            "0.00080000",
+		FundingRateIntervalMin: "480",
+		FundingTimestamp:       "1000",
+	})
+	if err != nil {
+		t.Fatalf("convertEdgexFundingRateToHourly: %v", err)
+	}
+	if got.FundingRate != "0.00080000" {
+		t.Fatalf("expected settlement-interval rate, got %q", got.FundingRate)
+	}
+	if got.HourlyFundingRate != "0.0001000000" {
+		t.Fatalf("unexpected hourly funding rate: %q", got.HourlyFundingRate)
+	}
+	if got.NextFundingTime != "28801000" {
+		t.Fatalf("unexpected next funding time: %q", got.NextFundingTime)
+	}
+}
+
 // TestGetFundingRate tests retrieving funding rate for a specific contract
 func TestGetFundingRate(t *testing.T) {
 	if testing.Short() {

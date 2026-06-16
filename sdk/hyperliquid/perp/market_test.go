@@ -2,6 +2,8 @@ package perp
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -28,6 +30,25 @@ func TestClient_GetFundingRate(t *testing.T) {
 	require.Equal(t, hyperliquidPerpCoin, fundingRate.Coin)
 	require.NotZero(t, fundingRate.FundingTime)
 	require.NotZero(t, fundingRate.NextFundingTime)
+}
+
+func TestClient_GetFundingRateIncludesReferencePrices(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/info", r.URL.Path)
+		_, _ = w.Write([]byte(`[{"universe":[{"name":"BTC"}]},[{"funding":"0.0001","markPx":"43000.10","oraclePx":"42990.20","premium":"0.0002","openInterest":"10"}]]`))
+	}))
+	defer srv.Close()
+
+	base := hyperliquid.NewClient()
+	base.BaseURL = srv.URL
+	client := NewClient(base)
+	fundingRate, err := client.GetFundingRate(context.Background(), hyperliquidPerpCoin)
+	require.NoError(t, err)
+	require.Equal(t, "0.0001", fundingRate.FundingRate)
+	require.Equal(t, "43000.10", fundingRate.MarkPrice)
+	require.Equal(t, "42990.20", fundingRate.IndexPrice)
+	require.Equal(t, "0.0002", fundingRate.Premium)
 }
 
 func TestClient_GetFundingRate_InvalidCoin(t *testing.T) {

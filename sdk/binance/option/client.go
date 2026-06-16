@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -27,7 +28,7 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	httpClient := &http.Client{}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 	logger := zap.NewNop().Sugar().Named("binance-option")
 
 	if proxyURL := os.Getenv("PROXY"); proxyURL != "" {
@@ -46,6 +47,11 @@ func NewClient() *Client {
 func (c *Client) WithCredentials(apiKey, secretKey string) *Client {
 	c.APIKey = apiKey
 	c.SecretKey = secretKey
+	return c
+}
+
+func (c *Client) WithHTTPClient(httpClient *http.Client) *Client {
+	c.HTTPClient = httpClient
 	return c
 }
 

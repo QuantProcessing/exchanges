@@ -479,7 +479,8 @@ type GetPositionsResponse struct {
 // FundingRateData contains real-time funding rate information from ticker endpoint
 type FundingRateData struct {
 	Instrument           string `json:"instrument"`
-	FundingRate          string `json:"fundingRate"`          // Per-hour funding rate (standardized)
+	FundingRate          string `json:"fundingRate"`          // Rate for the instrument funding interval returned by the venue.
+	HourlyFundingRate    string `json:"hourlyFundingRate"`    // Derived FundingRate / FundingIntervalHours.
 	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Actual settlement interval in hours
 	FundingTime          string `json:"fundingTime"`          // Current funding time (calculated)
 	NextFundingTime      string `json:"nextFundingTime"`

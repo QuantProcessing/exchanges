@@ -57,6 +57,18 @@ func TestSpotDataClientMapsTickerAndBook(t *testing.T) {
 	require.Equal(t, decimal.RequireFromString("101"), book.Asks[0].Price)
 }
 
+func TestSpotDataClientRestTickerUsesVenueTimestamp(t *testing.T) {
+	sdk := &fakeSpotSDK{}
+	provider := newSpotProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newSpotDataClient("binance-spot-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-SPOT.BINANCE")
+
+	ticker, err := client.FetchTicker(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(1000), ticker.Timestamp)
+}
+
 func TestSpotDataClientStreamsTickerAndOrderBook(t *testing.T) {
 	sdk := &fakeSpotSDK{}
 	provider := newSpotProvider(sdk)
@@ -267,7 +279,7 @@ func (f *fakeSpotSDK) ExchangeInfo(context.Context) (*spot.ExchangeInfoResponse,
 }
 
 func (f *fakeSpotSDK) Ticker(context.Context, string) (*spot.TickerResponse, error) {
-	return &spot.TickerResponse{Symbol: "BTCUSDT", LastPrice: "100", BidPrice: "99", AskPrice: "101"}, nil
+	return &spot.TickerResponse{Symbol: "BTCUSDT", LastPrice: "100", BidPrice: "99", AskPrice: "101", CloseTime: 1000}, nil
 }
 
 func (f *fakeSpotSDK) Depth(context.Context, string, int) (*spot.DepthResponse, error) {

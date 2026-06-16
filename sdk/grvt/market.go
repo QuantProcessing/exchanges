@@ -3,6 +3,7 @@ package grvt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 )
@@ -134,7 +135,7 @@ func (c *Client) GetHistoricalFundingRate(ctx context.Context, instrument string
 }
 
 // GetFundingRate retrieves the current real-time funding rate for a specific instrument
-// Returns per-hour funding rate (converted from the settlement interval rate)
+// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetFundingRate(ctx context.Context, instrument string) (*FundingRateData, error) {
 	// First, get instrument info to find funding interval
 	instruments, err := c.GetInstruments(ctx)
@@ -183,7 +184,8 @@ func (c *Client) GetFundingRate(ctx context.Context, instrument string) (*Fundin
 
 	return &FundingRateData{
 		Instrument:           ticker.Result.Instrument,
-		FundingRate:          hourlyRate,
+		FundingRate:          ticker.Result.FundingRate,
+		HourlyFundingRate:    hourlyRate,
 		FundingIntervalHours: fundingIntervalHours,
 		FundingTime:          fundingTime,
 		NextFundingTime:      ticker.Result.NextFundingTime,
@@ -191,7 +193,7 @@ func (c *Client) GetFundingRate(ctx context.Context, instrument string) (*Fundin
 }
 
 // GetAllFundingRates retrieves real-time funding rates for all instruments
-// Returns per-hour funding rates (converted from settlement interval rates)
+// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
 	instruments, err := c.GetInstruments(ctx)
 	if err != nil {
@@ -199,23 +201,23 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 	}
 
 	var result []FundingRateData
+	var joinedErr error
 	for _, inst := range instruments {
 		// Only query perpetual futures (which have funding rates)
 		if inst.Kind != "PERPETUAL" {
 			continue
 		}
 
-		// Get funding rate data for this instrument (already converted to hourly)
 		fundingData, err := c.GetFundingRate(ctx, inst.Instrument)
 		if err != nil {
-			// Continue with other instruments if one fails
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", inst.Instrument, err))
 			continue
 		}
 
 		result = append(result, *fundingData)
 	}
 
-	return result, nil
+	return result, joinedErr
 }
 
 // convertToHourlyRate converts a period funding rate to per-hour rate

@@ -166,6 +166,18 @@ func TestSpotDataClientStreamsTickerAndOrderBook(t *testing.T) {
 	require.Equal(t, "BTCUSDT", ws.unsubDepthSymbol)
 }
 
+func TestSpotDataClientRestTickerUsesVenueTimestamp(t *testing.T) {
+	sdk := &fakeSpotSDK{}
+	provider := newSpotProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newSpotDataClient("aster-spot-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-SPOT.ASTER")
+
+	ticker, err := client.FetchTicker(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(1000), ticker.Timestamp)
+}
+
 func TestSpotExecutionClientPrivateStreamMapsOrdersFillsAndBalances(t *testing.T) {
 	sdk := &fakeSpotSDK{}
 	provider := newSpotProvider(sdk)
@@ -315,6 +327,22 @@ func TestPerpDataClientStreamsTickerAndOrderBook(t *testing.T) {
 	require.Equal(t, "btcusdt", ws.unsubTradeSymbol)
 	require.Equal(t, "btcusdt", ws.unsubKlineSymbol)
 	require.Equal(t, "btcusdt", ws.unsubDepthSymbol)
+}
+
+func TestPerpDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
+	sdk := &fakePerpSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newPerpDataClient("aster-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.ASTER")
+
+	ticker, err := client.FetchTicker(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(1000), ticker.Timestamp)
+
+	book, err := client.FetchOrderBook(context.Background(), id, 20)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
 }
 
 func TestPerpExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
@@ -468,7 +496,7 @@ func (f *fakeSpotSDK) ExchangeInfo(context.Context) (*asterspot.ExchangeInfoResp
 }
 
 func (f *fakeSpotSDK) Ticker(context.Context, string) (*asterspot.TickerResponse, error) {
-	return &asterspot.TickerResponse{Symbol: "BTCUSDT", LastPrice: "10", BidPrice: "9", AskPrice: "11"}, nil
+	return &asterspot.TickerResponse{Symbol: "BTCUSDT", LastPrice: "10", BidPrice: "9", AskPrice: "11", CloseTime: 1000}, nil
 }
 
 func (f *fakeSpotSDK) Depth(context.Context, string, int) (*asterspot.DepthResponse, error) {
@@ -515,11 +543,11 @@ func (f *fakePerpSDK) ExchangeInfo(context.Context) (*asterperp.ExchangeInfoResp
 }
 
 func (f *fakePerpSDK) Ticker(context.Context, string) (*asterperp.TickerResponse, error) {
-	return &asterperp.TickerResponse{Symbol: "BTCUSDT", LastPrice: "20"}, nil
+	return &asterperp.TickerResponse{Symbol: "BTCUSDT", LastPrice: "20", CloseTime: 1000}, nil
 }
 
 func (f *fakePerpSDK) Depth(context.Context, string, int) (*asterperp.DepthResponse, error) {
-	return &asterperp.DepthResponse{Bids: [][]string{{"19", "1"}}, Asks: [][]string{{"21", "1"}}}, nil
+	return &asterperp.DepthResponse{E: 2000, T: 1900, Bids: [][]string{{"19", "1"}}, Asks: [][]string{{"21", "1"}}}, nil
 }
 
 func (f *fakePerpSDK) GetAccount(context.Context) (*asterperp.AccountResponse, error) {

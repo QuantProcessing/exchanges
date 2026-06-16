@@ -76,7 +76,7 @@ func (c *Client) GetExchangeLongShortRatio(ctx context.Context, rang, filterCont
 }
 
 // GetFundingRate retrieves the latest funding rate for a specific contract.
-// Returns per-hour funding rate (converted from the settlement interval rate)
+// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetFundingRate(ctx context.Context, contractId string) (*FundingRateData, error) {
 	params := make(map[string]interface{})
 	if contractId != "" {
@@ -103,7 +103,7 @@ func (c *Client) GetFundingRate(ctx context.Context, contractId string) (*Fundin
 }
 
 // GetAllFundingRates retrieves the latest funding rates for all contracts.
-// Returns per-hour funding rates (converted from settlement interval rates)
+// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
 	// First, get all contract information to retrieve contract IDs
 	exchangeInfo, err := c.GetExchangeInfo(ctx)
@@ -134,21 +134,22 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 		return nil, err
 	}
 
-	// Convert all funding rates to per-hour rates
+	// Add derived hourly rates without replacing the venue interval rate.
 	var result []FundingRateData
+	var joinedErr error
 	for i := range data {
 		converted, err := convertEdgexFundingRateToHourly(&data[i])
 		if err != nil {
-			// Skip rates that can't be converted
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", data[i].ContractId, err))
 			continue
 		}
 		result = append(result, *converted)
 	}
 
-	return result, nil
+	return result, joinedErr
 }
 
-// convertEdgexFundingRateToHourly converts EdgeX funding rate to per-hour rate
+// convertEdgexFundingRateToHourly preserves EdgeX's interval rate and adds a per-hour derivative.
 func convertEdgexFundingRateToHourly(data *FundingRateData) (*FundingRateData, error) {
 	// Parse funding interval in minutes
 	intervalMin, err := strconv.ParseFloat(data.FundingRateIntervalMin, 64)
@@ -177,8 +178,7 @@ func convertEdgexFundingRateToHourly(data *FundingRateData) (*FundingRateData, e
 		data.NextFundingTime = strconv.FormatInt(nextFundingTimestamp, 10)
 	}
 
-	// Create new data with converted rate
 	result := *data
-	result.FundingRate = fmt.Sprintf("%.10f", hourlyRate)
+	result.HourlyFundingRate = fmt.Sprintf("%.10f", hourlyRate)
 	return &result, nil
 }

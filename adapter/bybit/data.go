@@ -82,7 +82,7 @@ func (c *dataClient) FetchTicker(ctx context.Context, id model.InstrumentID) (mo
 		Bid:          decimalOrFallback(ticker.Bid1Price, "0"),
 		Ask:          decimalOrFallback(ticker.Ask1Price, "0"),
 		Last:         decimalOrFallback(ticker.LastPrice, "0"),
-		Timestamp:    time.Now(),
+		Timestamp:    parseUnixMillis(defaultString(ticker.Time, ticker.TS)),
 	}, nil
 }
 
@@ -95,7 +95,7 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 	if err != nil {
 		return model.OrderBook{}, err
 	}
-	book := model.OrderBook{InstrumentID: id, Timestamp: time.Now()}
+	book := model.OrderBook{InstrumentID: id, Timestamp: parseUnixMillisInt(depth.TS)}
 	for _, level := range depth.Bids {
 		book.Bids = append(book.Bids, parseBookLevel(level))
 	}

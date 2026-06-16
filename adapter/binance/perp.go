@@ -18,6 +18,7 @@ type perpSDK interface {
 	ExchangeInfo(context.Context) (*perp.ExchangeInfoResponse, error)
 	Ticker(context.Context, string) (*perp.TickerResponse, error)
 	Depth(context.Context, string, int) (*perp.DepthResponse, error)
+	GetFundingRate(context.Context, string) (*perp.FundingRateData, error)
 	GetAccount(context.Context) (*perp.AccountResponse, error)
 	PlaceOrder(context.Context, perp.PlaceOrderParams) (*perp.OrderResponse, error)
 	CancelOrder(context.Context, perp.CancelOrderParams) (*perp.OrderResponse, error)
@@ -147,7 +148,7 @@ func (c *perpDataClient) FetchTicker(ctx context.Context, id model.InstrumentID)
 	if err != nil {
 		return model.Ticker{}, err
 	}
-	return model.Ticker{InstrumentID: id, Last: decimal.RequireFromString(defaultString(t.LastPrice, "0")), Timestamp: time.Now()}, nil
+	return model.Ticker{InstrumentID: id, Last: decimal.RequireFromString(defaultString(t.LastPrice, "0")), Timestamp: binanceEventTime(t.CloseTime)}, nil
 }
 func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, limit int) (model.OrderBook, error) {
 	raw, err := c.provider.rawSymbol(id)
@@ -158,7 +159,7 @@ func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.Instrument
 	if err != nil {
 		return model.OrderBook{}, err
 	}
-	book := model.OrderBook{InstrumentID: id, Timestamp: time.Now()}
+	book := model.OrderBook{InstrumentID: id, Timestamp: binanceEventTime(defaultInt64(depth.E, depth.T))}
 	for _, level := range depth.Bids {
 		book.Bids = append(book.Bids, parseBookLevel(level))
 	}
@@ -166,6 +167,33 @@ func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.Instrument
 		book.Asks = append(book.Asks, parseBookLevel(level))
 	}
 	return book, book.Validate()
+}
+
+func (c *perpDataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+
+	now := time.Now()
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            decimal.RequireFromString(defaultString(resp.LastFundingRate, "0")),
+		MarkPrice:       decimal.RequireFromString(defaultString(resp.MarkPrice, "0")),
+		IndexPrice:      decimal.RequireFromString(defaultString(resp.IndexPrice, "0")),
+		NextFundingTime: binanceEventTime(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       now,
+		InitTime:        now,
+	}
+	if resp.Time > 0 {
+		funding.Timestamp = binanceEventTime(resp.Time)
+	}
+	return funding, funding.Validate()
 }
 
 func (c *perpDataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {

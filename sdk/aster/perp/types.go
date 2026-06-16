@@ -139,13 +139,19 @@ type FundingInfo struct {
 	FundingIntervalHours     int64  `json:"fundingIntervalHours"`
 }
 
-// FundingRateData contains funding rate information from premiumIndex endpoint
+// FundingRateData contains funding rate information from premiumIndex endpoint.
 type FundingRateData struct {
 	Symbol               string `json:"symbol"`
-	LastFundingRate      string `json:"lastFundingRate"`      // Per-hour funding rate (standardized)
-	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Actual settlement interval in hours
-	FundingTime          int64  `json:"fundingTime"`          // Current funding time (calculated)
-	NextFundingTime      int64  `json:"nextFundingTime"`
+	MarkPrice            string `json:"markPrice"`
+	IndexPrice           string `json:"indexPrice"`
+	EstimatedSettlePrice string `json:"estimatedSettlePrice"`
+	LastFundingRate      string `json:"lastFundingRate"`      // Rate for the settlement interval returned by the venue.
+	InterestRate         string `json:"interestRate"`         // Venue interest-rate component when provided.
+	NextFundingTime      int64  `json:"nextFundingTime"`      // Venue timestamp in milliseconds.
+	Time                 int64  `json:"time"`                 // Venue response timestamp in milliseconds.
+	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Actual settlement interval in hours.
+	FundingTime          int64  `json:"fundingTime"`          // Current funding interval start in milliseconds.
+	HourlyFundingRate    string `json:"hourlyFundingRate"`    // Derived LastFundingRate / FundingIntervalHours.
 }
 
 type TimeInForce string

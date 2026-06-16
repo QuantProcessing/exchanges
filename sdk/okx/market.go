@@ -2,6 +2,7 @@ package okx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -99,8 +100,8 @@ func (c *Client) GetTrades(ctx context.Context, instId string, limit *int) ([]Pu
 	return Request[PublicTrade](c, ctx, MethodGet, path, nil, false)
 }
 
-// GetFundingRate retrieves the current funding rate for a specific instrument
-// Returns per-hour funding rate (standardized)
+// GetFundingRate retrieves the current funding rate for a specific instrument.
+// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetFundingRate(ctx context.Context, instId string) (*FundingRateData, error) {
 	params := url.Values{}
 	params.Add("instId", instId)
@@ -115,12 +116,11 @@ func (c *Client) GetFundingRate(ctx context.Context, instId string) (*FundingRat
 		return nil, fmt.Errorf("no funding rate data found for %s", instId)
 	}
 
-	// Convert to standardized format with hourly rate
 	return convertOKXFundingToStandardized(&resp[0])
 }
 
-// GetAllFundingRates retrieves funding rates for all instruments
-// Returns per-hour funding rates (standardized)
+// GetAllFundingRates retrieves funding rates for all instruments.
+// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
 	params := url.Values{}
 	params.Add("instId", "ANY")
@@ -131,16 +131,17 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 	}
 
 	var result []FundingRateData
+	var joinedErr error
 	for i := range resp {
 		converted, err := convertOKXFundingToStandardized(&resp[i])
 		if err != nil {
-			// Skip items that can't be converted
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", resp[i].InstrumentID, err))
 			continue
 		}
 		result = append(result, *converted)
 	}
 
-	return result, nil
+	return result, joinedErr
 }
 
 // OpenInterest matches one element of /api/v5/public/open-interest's data array.
@@ -233,7 +234,7 @@ func (c *Client) GetHistoryTrades(ctx context.Context, instId string, typ int, b
 	return Request[HistoryTrade](c, ctx, MethodGet, path, nil, false)
 }
 
-// convertOKXFundingToStandardized converts OKX funding rate to standardized hourly format
+// convertOKXFundingToStandardized preserves the venue interval rate and adds an hourly derivative.
 func convertOKXFundingToStandardized(funding *FundingRate) (*FundingRateData, error) {
 	// Calculate interval from time difference (in milliseconds)
 	fundingTime, err := strconv.ParseInt(funding.FundingTime, 10, 64)
@@ -263,7 +264,8 @@ func convertOKXFundingToStandardized(funding *FundingRate) (*FundingRateData, er
 
 	return &FundingRateData{
 		Symbol:               funding.InstrumentID,
-		FundingRate:          fmt.Sprintf("%.10f", hourlyRate),
+		FundingRate:          funding.FundingRate,
+		HourlyFundingRate:    fmt.Sprintf("%.10f", hourlyRate),
 		FundingIntervalHours: intervalHours,
 		FundingTime:          funding.FundingTime,
 		NextFundingTime:      funding.NextFundingTime,

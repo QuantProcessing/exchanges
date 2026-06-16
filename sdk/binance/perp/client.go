@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -31,7 +32,7 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	httpClient := &http.Client{}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	// proxy
 	proxyURL := os.Getenv("PROXY")
@@ -64,6 +65,11 @@ func (c *Client) WithCredentials(apiKey, secretKey string) *Client {
 
 func (c *Client) WithBaseURL(url string) *Client {
 	c.BaseURL = url
+	return c
+}
+
+func (c *Client) WithHTTPClient(httpClient *http.Client) *Client {
+	c.HTTPClient = httpClient
 	return c
 }
 

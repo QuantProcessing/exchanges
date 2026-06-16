@@ -64,6 +64,40 @@ func TestPerpDataAndExecutionClients(t *testing.T) {
 	require.Equal(t, "BTCUSDT", sdk.placed.Symbol)
 }
 
+func TestPerpDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
+	sdk := &fakePerpSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	data := newPerpDataClient("binance-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+
+	ticker, err := data.FetchTicker(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(1000), ticker.Timestamp)
+
+	book, err := data.FetchOrderBook(context.Background(), id, 5)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
+}
+
+func TestPerpDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakePerpSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	data := newPerpDataClient("binance-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.BINANCE")
+
+	funding, err := data.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0008").Equal(funding.Rate))
+	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
+	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
+	require.Equal(t, 8*time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+}
+
 func TestPerpDataClientStreamsTickerAndOrderBook(t *testing.T) {
 	sdk := &fakePerpSDK{}
 	provider := newPerpProvider(sdk)
@@ -273,13 +307,29 @@ func (f *fakePerpSDK) ExchangeInfo(context.Context) (*perp.ExchangeInfoResponse,
 }
 
 func (f *fakePerpSDK) Ticker(context.Context, string) (*perp.TickerResponse, error) {
-	return &perp.TickerResponse{Symbol: "BTCUSDT", LastPrice: "200"}, nil
+	return &perp.TickerResponse{Symbol: "BTCUSDT", LastPrice: "200", CloseTime: 1000}, nil
 }
 
 func (f *fakePerpSDK) Depth(context.Context, string, int) (*perp.DepthResponse, error) {
 	return &perp.DepthResponse{
+		E:    2000,
+		T:    1900,
 		Bids: [][]string{{"199", "1"}},
 		Asks: [][]string{{"201", "2"}},
+	}, nil
+}
+
+func (f *fakePerpSDK) GetFundingRate(context.Context, string) (*perp.FundingRateData, error) {
+	return &perp.FundingRateData{
+		Symbol:               "BTCUSDT",
+		MarkPrice:            "200",
+		IndexPrice:           "199",
+		LastFundingRate:      "0.0008",
+		HourlyFundingRate:    "0.0001000000",
+		NextFundingTime:      28800000,
+		Time:                 1000,
+		FundingIntervalHours: 8,
+		FundingTime:          0,
 	}, nil
 }
 

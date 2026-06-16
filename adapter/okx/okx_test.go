@@ -131,6 +131,22 @@ func TestDataClientStreamsTickerAndOrderBook(t *testing.T) {
 	require.Equal(t, okxsdk.WsSubscribeArgs{Channel: "books", InstId: "BTC-USDT-SWAP"}, ws.unsubArg)
 }
 
+func TestDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newSwapProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("okx-swap-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.OKX")
+
+	ticker, err := client.FetchTicker(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(1000), ticker.Timestamp)
+
+	book, err := client.FetchOrderBook(context.Background(), id, 400)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
+}
+
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
 	sdk := &fakeSDK{}
 	provider := newSwapProvider(sdk)
@@ -274,11 +290,11 @@ func (f *fakeSDK) GetInstruments(_ context.Context, instType string) ([]okxsdk.I
 }
 
 func (f *fakeSDK) GetTicker(_ context.Context, instID string) ([]okxsdk.Ticker, error) {
-	return []okxsdk.Ticker{{InstId: instID, Last: "10", BidPx: "9", AskPx: "11"}}, nil
+	return []okxsdk.Ticker{{InstId: instID, Last: "10", BidPx: "9", AskPx: "11", Ts: "1000"}}, nil
 }
 
 func (f *fakeSDK) GetOrderBook(_ context.Context, instID string, _ *int) ([]okxsdk.OrderBook, error) {
-	return []okxsdk.OrderBook{{Bids: [][]string{{"9", "1", "0", "1"}}, Asks: [][]string{{"11", "1", "0", "1"}}}}, nil
+	return []okxsdk.OrderBook{{Bids: [][]string{{"9", "1", "0", "1"}}, Asks: [][]string{{"11", "1", "0", "1"}}, Ts: "2000"}}, nil
 }
 
 func (f *fakeSDK) GetAccountBalance(context.Context, *string) ([]okxsdk.Balance, error) {

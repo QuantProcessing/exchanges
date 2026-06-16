@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	sdkcore "github.com/QuantProcessing/exchanges/sdk"
 )
@@ -32,7 +33,7 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	httpClient := &http.Client{}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 	proxyEnv := os.Getenv("PROXY")
 	if proxyEnv != "" {
 		proxyURL, err := url.Parse(proxyEnv)
@@ -56,6 +57,11 @@ func (c *Client) WithCredentials(apiKey, secretKey, passphrase string) *Client {
 	c.SecretKey = secretKey
 	c.Passphrase = passphrase
 	c.Signer = NewSigner(secretKey)
+	return c
+}
+
+func (c *Client) WithHTTPClient(httpClient *http.Client) *Client {
+	c.HTTPClient = httpClient
 	return c
 }
 

@@ -2,6 +2,8 @@ package perp
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -118,6 +120,60 @@ func TestClient_GetFundingRate(t *testing.T) {
 	}
 	if got.Symbol != binancePerpTestSymbol || got.LastFundingRate == "" {
 		t.Fatalf("unexpected funding rate response: %+v", got)
+	}
+}
+
+func TestClient_GetFundingRatePreservesIntervalRateAndReferences(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/fapi/v1/fundingInfo", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","fundingIntervalHours":8}]`))
+	})
+	mux.HandleFunc("/fapi/v1/premiumIndex", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("symbol") != "BTCUSDT" {
+			t.Fatalf("unexpected symbol query: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"symbol":"BTCUSDT","markPrice":"43000.10","indexPrice":"42990.20","estimatedSettlePrice":"42995.00","lastFundingRate":"0.00080000","interestRate":"0.00010000","nextFundingTime":28800000,"time":123456789}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewClient().WithBaseURL(server.URL)
+	got, err := client.GetFundingRate(context.Background(), "BTCUSDT")
+	if err != nil {
+		t.Fatalf("GetFundingRate: %v", err)
+	}
+	if got.LastFundingRate != "0.00080000" {
+		t.Fatalf("expected settlement-interval rate to be preserved, got %q", got.LastFundingRate)
+	}
+	if got.HourlyFundingRate != "0.0001000000" {
+		t.Fatalf("unexpected hourly funding rate: %q", got.HourlyFundingRate)
+	}
+	if got.MarkPrice != "43000.10" || got.IndexPrice != "42990.20" {
+		t.Fatalf("expected mark/index prices, got %+v", got)
+	}
+	if got.InterestRate != "0.00010000" || got.Time != 123456789 {
+		t.Fatalf("expected official reference fields, got %+v", got)
+	}
+	if got.FundingIntervalHours != 8 || got.FundingTime != 0 {
+		t.Fatalf("unexpected funding interval/timing: %+v", got)
+	}
+}
+
+func TestClient_GetAllFundingRatesReportsConversionErrors(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/fapi/v1/fundingInfo", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","fundingIntervalHours":8}]`))
+	})
+	mux.HandleFunc("/fapi/v1/premiumIndex", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","lastFundingRate":"not-a-number","nextFundingTime":28800000}]`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewClient().WithBaseURL(server.URL)
+	_, err := client.GetAllFundingRates(context.Background())
+	if err == nil {
+		t.Fatal("expected conversion error")
 	}
 }
 

@@ -161,6 +161,22 @@ func TestDataClientStreamsTickerAndOrderBook(t *testing.T) {
 	require.Equal(t, bitgetsdk.WSArg{InstType: "SPOT", Channel: "books5", InstID: "BTCUSDT"}, ws.unsubArg)
 }
 
+func TestDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newSpotProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("bitget-spot-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-SPOT.BITGET")
+
+	ticker, err := client.FetchTicker(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(1000), ticker.Timestamp)
+
+	book, err := client.FetchOrderBook(context.Background(), id, 5)
+	require.NoError(t, err)
+	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
+}
+
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
 	sdk := &fakeSDK{}
 	provider := newSpotProvider(sdk)
@@ -338,13 +354,14 @@ func (f *fakeSDK) GetInstruments(_ context.Context, category, _ string) ([]bitge
 }
 
 func (f *fakeSDK) GetTicker(context.Context, string, string) (*bitgetsdk.Ticker, error) {
-	return &bitgetsdk.Ticker{LastPrice: "10", Bid1Price: "9", Ask1Price: "11"}, nil
+	return &bitgetsdk.Ticker{LastPrice: "10", Bid1Price: "9", Ask1Price: "11", Timestamp: "1000"}, nil
 }
 
 func (f *fakeSDK) GetOrderBook(context.Context, string, string, int) (*bitgetsdk.OrderBook, error) {
 	return &bitgetsdk.OrderBook{
 		Bids: [][]bitgetsdk.NumberString{{"9", "1"}},
 		Asks: [][]bitgetsdk.NumberString{{"11", "1"}},
+		TS:   "2000",
 	}, nil
 }
 

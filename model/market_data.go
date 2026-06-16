@@ -290,7 +290,10 @@ func (b OrderBook) Validate() error {
 }
 
 type FundingRate struct {
-	InstrumentID    InstrumentID
+	InstrumentID InstrumentID
+	// Rate is the venue's settlement-interval funding rate. FundingInterval
+	// declares that interval when the venue exposes it; callers that need an
+	// hourly rate should derive it explicitly from these fields.
 	Rate            decimal.Decimal
 	MarkPrice       decimal.Decimal
 	IndexPrice      decimal.Decimal

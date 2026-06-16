@@ -89,6 +89,27 @@ func TestClient_GetFundingRate(t *testing.T) {
 	}
 }
 
+func TestConvertOKXFundingPreservesIntervalRate(t *testing.T) {
+	got, err := convertOKXFundingToStandardized(&FundingRate{
+		InstrumentID:    okxSwapInstID,
+		FundingRate:     "0.00040000",
+		FundingTime:     "1000",
+		NextFundingTime: "14401000",
+	})
+	if err != nil {
+		t.Fatalf("convertOKXFundingToStandardized: %v", err)
+	}
+	if got.FundingRate != "0.00040000" {
+		t.Fatalf("expected settlement-interval rate, got %q", got.FundingRate)
+	}
+	if got.HourlyFundingRate != "0.0001000000" {
+		t.Fatalf("unexpected hourly funding rate: %q", got.HourlyFundingRate)
+	}
+	if got.FundingIntervalHours != 4 {
+		t.Fatalf("unexpected funding interval: %+v", got)
+	}
+}
+
 func TestClient_GetAllFundingRates(t *testing.T) {
 	got, err := newLiveClient().GetAllFundingRates(context.Background())
 	if err != nil {
