@@ -39,6 +39,9 @@ together, and how to build a reliable quantitative trading program.
   create entry, take-profit, and stop-loss order lists.
 - [Workflow Recipes](./guides/workflow-recipes.md): bracket orders, portfolio
   queries, risk rejection, backtest runs, and live node assembly.
+- [Quant Use Cases](./guides/quant-use-cases.md): practical strategy shapes
+  including market making, portfolio monitoring, reconciliation-aware live
+  trading, and cross-venue funding-rate arbitrage.
 
 ## Operate And Verify
 

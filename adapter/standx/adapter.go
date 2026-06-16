@@ -19,6 +19,7 @@ type sdkClient interface {
 	QuerySymbolInfo(context.Context, string) ([]standxsdk.SymbolInfo, error)
 	QuerySymbolMarket(context.Context, string) (standxsdk.SymbolMarket, error)
 	QueryDepthBook(context.Context, string, int) (standxsdk.DepthBook, error)
+	QueryFundingRates(context.Context, string, int64, int64) ([]standxsdk.FundingRate, error)
 	QueryBalances(context.Context) (*standxsdk.Balance, error)
 	QueryUserAllOpenOrders(context.Context, string) ([]standxsdk.Order, error)
 	QueryPositions(context.Context, string) ([]standxsdk.Position, error)
@@ -216,6 +217,48 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 		book.Asks = append(book.Asks, model.OrderBookLevel{Price: decimal.RequireFromString(ask[0]), Size: decimal.RequireFromString(ask[1])})
 	}
 	return book, book.Validate()
+}
+
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	end := time.Now().UnixMilli()
+	start := end - int64(24*time.Hour/time.Millisecond)
+	rates, err := c.sdk.QueryFundingRates(ctx, raw, start, end)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	if len(rates) == 0 {
+		return model.FundingRate{}, fmt.Errorf("%w: empty StandX funding history for %s", model.ErrInstrumentNotFound, id.String())
+	}
+	row := latestStandXFundingRate(rates)
+	rate, err := decimalFromString(row.FundingRate, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	mark, err := decimalFromString(row.MarkPrice, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	index, err := decimalFromString(row.IndexPrice, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := parseStandXTime(firstNonEmpty(row.Time, row.UpdatedAt, row.CreatedAt))
+	funding := model.FundingRate{
+		InstrumentID: id,
+		Rate:         rate,
+		MarkPrice:    mark,
+		IndexPrice:   index,
+		Timestamp:    timestamp,
+		InitTime:     time.Now(),
+	}
+	return funding, funding.Validate()
 }
 
 func (c *dataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
@@ -728,7 +771,20 @@ func (a *Adapter) Close(ctx context.Context) error {
 	return a.exec.Disconnect(ctx)
 }
 func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
-	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, FundingRates: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+}
+
+func latestStandXFundingRate(rows []standxsdk.FundingRate) standxsdk.FundingRate {
+	latest := rows[0]
+	latestTime := parseStandXTime(firstNonEmpty(latest.Time, latest.UpdatedAt, latest.CreatedAt))
+	for _, row := range rows[1:] {
+		rowTime := parseStandXTime(firstNonEmpty(row.Time, row.UpdatedAt, row.CreatedAt))
+		if rowTime.After(latestTime) {
+			latest = row
+			latestTime = rowTime
+		}
+	}
+	return latest
 }
 
 type marketWS interface {

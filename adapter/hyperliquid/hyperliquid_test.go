@@ -293,6 +293,24 @@ func TestPerpSubmitMapsAssetAndOrderFields(t *testing.T) {
 	require.Equal(t, hlsdk.TifIoc, sdk.placed.OrderType.Limit.Tif)
 }
 
+func TestPerpDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakePerpSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newPerpDataClient("hyperliquid-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USD-PERP.HYPERLIQUID")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0001").Equal(funding.Rate))
+	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
+	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
+	require.Equal(t, time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(3600000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(7200000), funding.NextFundingTime)
+}
+
 func TestPerpDataClientStreamsBboAndOrderBook(t *testing.T) {
 	sdk := &fakePerpSDK{}
 	provider := newPerpProvider(sdk)
@@ -725,6 +743,18 @@ func (f *fakePerpSDK) AllMids(context.Context) (map[string]string, error) {
 
 func (f *fakePerpSDK) L2Book(context.Context, string) (*hlperp.L2BookResponse, error) {
 	return &hlperp.L2BookResponse{Levels: [][]hlperp.L2Level{{{Px: "9", Sz: "1"}}, {{Px: "11", Sz: "1"}}}}, nil
+}
+
+func (f *fakePerpSDK) GetFundingRate(context.Context, string) (*hlperp.FundingRate, error) {
+	return &hlperp.FundingRate{
+		Coin:                 "BTC",
+		FundingRate:          "0.0001",
+		MarkPrice:            "200",
+		IndexPrice:           "199",
+		FundingIntervalHours: 1,
+		FundingTime:          3600000,
+		NextFundingTime:      7200000,
+	}, nil
 }
 
 func (f *fakePerpSDK) GetBalance(context.Context) (*hlperp.PerpPosition, error) {

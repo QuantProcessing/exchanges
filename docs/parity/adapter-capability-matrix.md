@@ -20,18 +20,37 @@ before an adapter can be treated as supporting a workflow.
 | Binance Spot | sdk/binance | adapter/binance | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/binance/spot_test.go; testsuite/contracts.go |
 | Binance Perp | sdk/binance | adapter/binance | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/binance/perp_test.go; testsuite/contracts.go |
 | Aster Spot | sdk/aster | adapter/aster | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/aster/aster_test.go; testsuite/contracts.go |
-| Aster Perp | sdk/aster | adapter/aster | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/aster/aster_test.go; testsuite/contracts.go |
-| OKX | sdk/okx | adapter/okx | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/okx/okx_test.go; testsuite/contracts.go |
-| Bybit | sdk/bybit | adapter/bybit | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/bybit/bybit_test.go; testsuite/contracts.go |
-| Bitget | sdk/bitget | adapter/bitget | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/bitget/bitget_test.go; testsuite/contracts.go |
+| Aster Perp | sdk/aster | adapter/aster | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/aster/aster_test.go; testsuite/contracts.go |
+| OKX Spot | sdk/okx | adapter/okx | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/okx/okx_test.go; testsuite/contracts.go |
+| OKX Swap | sdk/okx | adapter/okx | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/okx/okx_test.go; testsuite/contracts.go |
+| Bybit Spot | sdk/bybit | adapter/bybit | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/bybit/bybit_test.go; testsuite/contracts.go |
+| Bybit Linear | sdk/bybit | adapter/bybit | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/bybit/bybit_test.go; testsuite/contracts.go |
+| Bitget Spot | sdk/bitget | adapter/bitget | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/bitget/bitget_test.go; testsuite/contracts.go |
+| Bitget Perp | sdk/bitget | adapter/bitget | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/bitget/bitget_test.go; testsuite/contracts.go |
 | Hyperliquid Spot | sdk/hyperliquid | adapter/hyperliquid | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/hyperliquid/hyperliquid_test.go; testsuite/contracts.go |
-| Hyperliquid Perp | sdk/hyperliquid | adapter/hyperliquid | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/hyperliquid/hyperliquid_test.go; testsuite/contracts.go |
-| Lighter | sdk/lighter | adapter/lighter | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/lighter/lighter_test.go; testsuite/contracts.go |
-| Nado | sdk/nado | adapter/nado | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/nado/nado_test.go; testsuite/contracts.go |
-| EdgeX | sdk/edgex | adapter/edgex | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/edgex/edgex_test.go; testsuite/contracts.go |
-| GRVT | sdk/grvt | adapter/grvt | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/grvt/grvt_test.go; testsuite/contracts.go |
-| StandX | sdk/standx | adapter/standx | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/standx/standx_test.go; testsuite/contracts.go |
-| Backpack | sdk/backpack | adapter/backpack | Yes | Yes | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/backpack/backpack_test.go; testsuite/contracts.go |
+| Hyperliquid Perp | sdk/hyperliquid | adapter/hyperliquid | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/hyperliquid/hyperliquid_test.go; testsuite/contracts.go |
+| Lighter | sdk/lighter | adapter/lighter | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/lighter/lighter_test.go; testsuite/contracts.go |
+| Nado | sdk/nado | adapter/nado | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/nado/nado_test.go; testsuite/contracts.go |
+| EdgeX | sdk/edgex | adapter/edgex | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/edgex/edgex_test.go; testsuite/contracts.go |
+| GRVT | sdk/grvt | adapter/grvt | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/grvt/grvt_test.go; testsuite/contracts.go |
+| StandX | sdk/standx | adapter/standx | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/standx/standx_test.go; testsuite/contracts.go |
+| Backpack | sdk/backpack | adapter/backpack | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Planned | Planned | adapter/backpack/backpack_test.go; testsuite/contracts.go |
+
+## Funding Snapshot Semantics
+
+`Funding snapshots = Yes` means the adapter data client implements
+`venue.FundingRateProvider` and `FetchFundingRate` returns a normalized
+`model.FundingRate` for perpetual instruments. It does not imply streaming
+funding updates; `Funding stream` remains `No` until a stream-backed
+implementation and tests exist.
+
+Current snapshot-backed providers: Binance Perp, Aster Perp, OKX Swap,
+Hyperliquid Perp, Lighter, Nado, EdgeX, GRVT, and Backpack.
+
+Latest-known history-backed providers: Bybit Linear, Bitget Perp, and StandX.
+These adapters query the venue funding-history API and return the newest row as
+a normalized snapshot. Missing venue fields such as mark price, index price, or
+funding interval remain zero values instead of being invented.
 
 ## Extension Targets Outside Current SDK Scope
 

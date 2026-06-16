@@ -3,6 +3,7 @@ package edgex
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ type sdkClient interface {
 	GetExchangeInfo(context.Context) (*edgexperp.ExchangeInfo, error)
 	GetTicker(context.Context, string) (*edgexperp.Ticker, error)
 	GetOrderBook(context.Context, string, int) (*edgexperp.OrderBook, error)
+	GetFundingRate(context.Context, string) (*edgexperp.FundingRateData, error)
 	GetAccountAsset(context.Context) (*edgexperp.AccountAsset, error)
 	GetOpenOrders(context.Context, *string) ([]edgexperp.Order, error)
 	PlaceOrder(context.Context, edgexperp.PlaceOrderParams, *edgexperp.Contract, *edgexperp.Coin) (*edgexperp.CreateOrderData, error)
@@ -276,6 +278,45 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 		book.Asks = append(book.Asks, model.OrderBookLevel{Price: decimal.RequireFromString(ask.Price), Size: decimal.RequireFromString(ask.Size)})
 	}
 	return book, book.Validate()
+}
+
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	contractID, err := c.provider.contractID(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, contractID)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	rate, err := decimalFromString(resp.FundingRate, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	mark, err := decimalFromString(resp.OraclePrice, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	index, err := decimalFromString(resp.IndexPrice, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	intervalMinutes, _ := strconv.ParseInt(resp.FundingRateIntervalMin, 10, 64)
+	timestamp := parseEdgeXTime(firstNonEmpty(resp.FundingTimestamp, resp.FundingTime))
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            rate,
+		MarkPrice:       mark,
+		IndexPrice:      index,
+		NextFundingTime: parseEdgeXTime(resp.NextFundingTime),
+		FundingInterval: time.Duration(intervalMinutes) * time.Minute,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
 }
 
 func (c *dataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
@@ -848,7 +889,7 @@ func (a *Adapter) Close(ctx context.Context) error {
 	return a.exec.Disconnect(ctx)
 }
 func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
-	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, FundingRates: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
 }
 
 type marketWS interface {

@@ -86,6 +86,8 @@ EdgeX、GRVT、StandX 和 Backpack 的 SDK/adapter。
 
 能力真相不是这句话，而是 adapter 的 `venue.DeclaredCapabilities` 与
 [Adapter 能力矩阵](./docs/parity/adapter-capability-matrix_CN.md)。
+永续合约 funding-rate snapshot 支持也按产品族记录在矩阵里：spot adapter 不声明该能力，
+`FundingRateStream` 仍是单独且尚未声明的 capability。
 
 ## 安装
 

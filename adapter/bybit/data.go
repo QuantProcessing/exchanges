@@ -108,6 +108,28 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 	return book, nil
 }
 
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	history, err := c.sdk.GetFundingHistory(ctx, c.provider.category, raw, 0, 0, 1)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	if len(history) == 0 {
+		return model.FundingRate{}, fmt.Errorf("%w: empty Bybit funding history for %s", model.ErrInstrumentNotFound, id.String())
+	}
+	row := history[0]
+	funding := model.FundingRate{
+		InstrumentID: id,
+		Rate:         decimalOrFallback(row.FundingRate, "0"),
+		Timestamp:    parseUnixMillis(row.FundingRateTimestamp),
+		InitTime:     time.Now(),
+	}
+	return funding, funding.Validate()
+}
+
 func parseBookLevel(raw []bybitsdk.NumberString) model.OrderBookLevel {
 	return model.OrderBookLevel{
 		Price: decimal.RequireFromString(string(raw[0])),

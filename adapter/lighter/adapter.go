@@ -17,6 +17,7 @@ import (
 type sdkClient interface {
 	GetOrderBookDetails(context.Context, *int, *string) (*lightersdk.OrderBookDetailsResponse, error)
 	GetOrderBookOrders(context.Context, int, int64) (*lightersdk.OrderBookOrdersResponse, error)
+	GetFundingRate(context.Context, int) (*lightersdk.FundingRateData, error)
 	GetAccount(context.Context) (*lightersdk.AccountResponse, error)
 	GetAccountActiveOrders(context.Context, int) (*lightersdk.AccountActiveOrdersResponse, error)
 	PlaceOrder(context.Context, lightersdk.CreateOrderRequest) (*lightersdk.CreateOrderResponse, error)
@@ -176,6 +177,32 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 		book.Asks = append(book.Asks, model.OrderBookLevel{Price: decimalOrFallback(ask.Price, "0"), Size: decimalOrFallback(ask.RemainingBaseAmount, "0")})
 	}
 	return book, book.Validate()
+}
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	marketID, err := c.provider.marketID(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, marketID)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := time.Now()
+	if resp.FundingTime > 0 {
+		timestamp = parseLighterUnix(resp.FundingTime)
+	}
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            decimalOrFallback(resp.FundingRate, "0"),
+		NextFundingTime: parseLighterUnix(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
 }
 func (c *dataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
 	if err := sub.Validate(); err != nil {
@@ -755,7 +782,7 @@ func (a *Adapter) Close(ctx context.Context) error {
 	return a.exec.Disconnect(ctx)
 }
 func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
-	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, FundingRates: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
 }
 
 func accountIndexFromConfig(raw string) int64 {

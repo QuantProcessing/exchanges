@@ -17,6 +17,7 @@ type perpSDK interface {
 	GetPrepMeta(context.Context) (*hlperp.PrepMeta, error)
 	AllMids(context.Context) (map[string]string, error)
 	L2Book(context.Context, string) (*hlperp.L2BookResponse, error)
+	GetFundingRate(context.Context, string) (*hlperp.FundingRate, error)
 	GetBalance(context.Context) (*hlperp.PerpPosition, error)
 	UserOpenOrders(context.Context, string) ([]hlperp.Order, error)
 	PlaceOrder(context.Context, hlperp.PlaceOrderRequest) (*hlperp.OrderStatus, error)
@@ -173,6 +174,34 @@ func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.Instrument
 		}
 	}
 	return book, book.Validate()
+}
+func (c *perpDataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := time.Now()
+	if resp.FundingTime > 0 {
+		timestamp = parseHLTime(resp.FundingTime)
+	}
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            decimalOrFallback(resp.FundingRate, "0"),
+		MarkPrice:       decimalOrFallback(resp.MarkPrice, "0"),
+		IndexPrice:      decimalOrFallback(resp.IndexPrice, "0"),
+		NextFundingTime: parseHLTime(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
 }
 func (c *perpDataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
 	if err := sub.Validate(); err != nil {

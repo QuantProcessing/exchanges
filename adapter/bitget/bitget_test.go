@@ -39,10 +39,15 @@ func TestPerpClientsPassVenueContractSuite(t *testing.T) {
 		Data:             data,
 		Execution:        newExecutionClient("perp-acct", provider, sdk, "USDT-FUTURES"),
 		InstrumentID:     model.MustInstrumentID("BTC-USDT-PERP.BITGET"),
-		Capabilities:     (&Adapter{}).Capabilities(),
+		Capabilities:     (&Adapter{fundingRates: true}).Capabilities(),
 		ExpectedMakerFee: decimal.RequireFromString("0.0002"),
 		ExpectedTakerFee: decimal.RequireFromString("0.0006"),
 	})
+}
+
+func TestPerpAdapterCapabilitiesDeclareFundingRatesOnlyForPerp(t *testing.T) {
+	require.False(t, (&Adapter{}).Capabilities().MarketData.FundingRates)
+	require.True(t, (&Adapter{fundingRates: true}).Capabilities().MarketData.FundingRates)
 }
 
 func TestInstrumentProviderNormalizesFeeMetadata(t *testing.T) {
@@ -175,6 +180,22 @@ func TestDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
 	book, err := client.FetchOrderBook(context.Background(), id, 5)
 	require.NoError(t, err)
 	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
+}
+
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("bitget-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.BITGET")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0009").Equal(funding.Rate))
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.True(t, funding.MarkPrice.IsZero())
+	require.True(t, funding.IndexPrice.IsZero())
 }
 
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
@@ -363,6 +384,14 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, string, int) (*bitgetsdk
 		Asks: [][]bitgetsdk.NumberString{{"11", "1"}},
 		TS:   "2000",
 	}, nil
+}
+
+func (f *fakeSDK) GetHistoryFundRate(context.Context, string, string, int, int) ([]bitgetsdk.HistoryFundRateEntry, error) {
+	return []bitgetsdk.HistoryFundRateEntry{{
+		Symbol:      "BTCUSDT",
+		FundingRate: "0.0009",
+		FundingTime: "1000",
+	}}, nil
 }
 
 func (f *fakeSDK) GetAccountAssets(context.Context) (*bitgetsdk.AccountAssets, error) {

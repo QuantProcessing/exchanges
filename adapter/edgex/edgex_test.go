@@ -45,6 +45,24 @@ func TestInstrumentProviderNormalizesFeeAndMarginMetadata(t *testing.T) {
 	require.Equal(t, "0.025", inst.MarginMaint.String())
 }
 
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("edgex-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.EDGEX")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0004").Equal(funding.Rate))
+	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
+	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
+	require.Equal(t, 8*time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+}
+
 func TestSubmitMapsOrderRequest(t *testing.T) {
 	sdk := &fakeSDK{}
 	provider := newPerpProvider(sdk)
@@ -277,6 +295,18 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*edgexperp.OrderBo
 		ContractId: "100",
 		Bids:       []edgexperp.Level{{Price: "9", Size: "1"}},
 		Asks:       []edgexperp.Level{{Price: "11", Size: "1"}},
+	}, nil
+}
+
+func (f *fakeSDK) GetFundingRate(context.Context, string) (*edgexperp.FundingRateData, error) {
+	return &edgexperp.FundingRateData{
+		ContractId:             "100",
+		FundingRate:            "0.0004",
+		OraclePrice:            "200",
+		IndexPrice:             "199",
+		FundingTimestamp:       "1000",
+		NextFundingTime:        "28800000",
+		FundingRateIntervalMin: "480",
 	}, nil
 }
 

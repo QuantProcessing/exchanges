@@ -42,6 +42,22 @@ func TestInstrumentProviderNormalizesFeeAndMarginMetadata(t *testing.T) {
 	require.Equal(t, "0.05", inst.MarginMaint.String())
 }
 
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("nado-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDC-PERP.NADO")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0001").Equal(funding.Rate))
+	require.Equal(t, time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(3600000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(7200000), funding.NextFundingTime)
+}
+
 func TestSubmitMapsOrderRequest(t *testing.T) {
 	sdk := &fakeSDK{}
 	provider := newPerpProvider(sdk)
@@ -243,6 +259,17 @@ func (f *fakeSDK) GetSymbols(context.Context, *string) (*nadosdk.SymbolsInfo, er
 
 func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*nadosdk.OrderBookV2, error) {
 	return &nadosdk.OrderBookV2{Bids: [][2]float64{{9, 1}}, Asks: [][2]float64{{11, 1}}}, nil
+}
+
+func (f *fakeSDK) GetFundingRate(context.Context, int64) (*nadosdk.FundingRateData, error) {
+	return &nadosdk.FundingRateData{
+		ProductID:            9,
+		Symbol:               "BTC-USDC",
+		FundingRate:          "0.0001",
+		FundingIntervalHours: 1,
+		FundingTime:          3600000,
+		NextFundingTime:      7200000,
+	}, nil
 }
 
 func (f *fakeSDK) GetAccount(context.Context) (*nadosdk.AccountInfo, error) {

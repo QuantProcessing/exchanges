@@ -32,6 +32,8 @@
   take-profit 和 stop-loss order list。
 - [工作流示例](./guides/workflow-recipes_CN.md)：bracket orders、portfolio 查询、
   risk rejection、backtest run 和 live node assembly。
+- [量化用例](./guides/quant-use-cases_CN.md)：market making、portfolio monitoring、
+  reconciliation-aware live trading、多交易所资金费率套利等实战策略形态。
 
 ## 运行与验证
 

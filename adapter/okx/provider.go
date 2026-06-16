@@ -14,6 +14,7 @@ type sdkClient interface {
 	GetInstruments(context.Context, string) ([]okxsdk.Instrument, error)
 	GetTicker(context.Context, string) ([]okxsdk.Ticker, error)
 	GetOrderBook(context.Context, string, *int) ([]okxsdk.OrderBook, error)
+	GetFundingRate(context.Context, string) (*okxsdk.FundingRateData, error)
 	GetAccountBalance(context.Context, *string) ([]okxsdk.Balance, error)
 	GetPositions(context.Context, *string, *string) ([]okxsdk.Position, error)
 	PlaceOrder(context.Context, *okxsdk.OrderRequest) ([]okxsdk.OrderId, error)

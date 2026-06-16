@@ -27,6 +27,22 @@ func TestPerpClientsPassVenueContractSuite(t *testing.T) {
 	})
 }
 
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("grvt-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.GRVT")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0003").Equal(funding.Rate))
+	require.Equal(t, 8*time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+}
+
 func TestSubmitMapsOrderRequest(t *testing.T) {
 	sdk := &fakeSDK{}
 	provider := newPerpProvider(sdk)
@@ -315,6 +331,16 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*grvtsdk.GetOrderB
 		Bids:       []grvtsdk.OrderBookLevel{{Price: "9", Size: "1"}},
 		Asks:       []grvtsdk.OrderBookLevel{{Price: "11", Size: "1"}},
 	}}, nil
+}
+
+func (f *fakeSDK) GetFundingRate(context.Context, string) (*grvtsdk.FundingRateData, error) {
+	return &grvtsdk.FundingRateData{
+		Instrument:           "BTC_USDT_Perp",
+		FundingRate:          "0.0003",
+		FundingIntervalHours: 8,
+		FundingTime:          "1000",
+		NextFundingTime:      "28800000",
+	}, nil
 }
 
 func (f *fakeSDK) GetAccountSummary(context.Context) (*grvtsdk.GetAccountSummaryResponse, error) {

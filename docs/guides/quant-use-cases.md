@@ -353,6 +353,12 @@ Live funding use must still check adapter capability truth first:
 `caps.MarketData.FundingRates` for snapshots and
 `caps.MarketData.FundingRateStream` for streaming.
 
+Current funding snapshot providers are Binance Perp, Aster Perp, OKX Swap,
+Hyperliquid Perp, Lighter, Nado, EdgeX, GRVT, and Backpack. Bybit Linear,
+Bitget Perp, and StandX expose latest-known snapshots backed by venue funding
+history. Strategies should validate non-zero mark/index prices and funding
+intervals before using those fields in sizing or execution decisions.
+
 Runnable reference:
 [07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go).
 

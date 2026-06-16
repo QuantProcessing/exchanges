@@ -37,8 +37,13 @@ func TestLinearClientsPassVenueContractSuite(t *testing.T) {
 		Data:         data,
 		Execution:    newExecutionClient("linear-acct", provider, sdk, "linear"),
 		InstrumentID: model.MustInstrumentID("BTC-USDT-PERP.BYBIT"),
-		Capabilities: (&Adapter{}).Capabilities(),
+		Capabilities: (&Adapter{fundingRates: true}).Capabilities(),
 	})
+}
+
+func TestLinearAdapterCapabilitiesDeclareFundingRatesOnlyForPerp(t *testing.T) {
+	require.False(t, (&Adapter{}).Capabilities().MarketData.FundingRates)
+	require.True(t, (&Adapter{fundingRates: true}).Capabilities().MarketData.FundingRates)
 }
 
 func TestSpotSubmitMapsOrderRequest(t *testing.T) {
@@ -153,6 +158,22 @@ func TestDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
 	book, err := client.FetchOrderBook(context.Background(), id, 50)
 	require.NoError(t, err)
 	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
+}
+
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newLinearProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("bybit-linear-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.BYBIT")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0007").Equal(funding.Rate))
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.True(t, funding.MarkPrice.IsZero())
+	require.True(t, funding.IndexPrice.IsZero())
 }
 
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
@@ -381,6 +402,14 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, string, int) (*bybitsdk.
 		Asks: [][]bybitsdk.NumberString{{"11", "1"}},
 		TS:   2000,
 	}, nil
+}
+
+func (f *fakeSDK) GetFundingHistory(context.Context, string, string, int64, int64, int) ([]bybitsdk.FundingHistoryEntry, error) {
+	return []bybitsdk.FundingHistoryEntry{{
+		Symbol:               "BTCUSDT",
+		FundingRate:          "0.0007",
+		FundingRateTimestamp: "1000",
+	}}, nil
 }
 
 func (f *fakeSDK) GetWalletBalance(context.Context, string, string) (*bybitsdk.WalletBalanceResult, error) {

@@ -3,6 +3,7 @@ package standx
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/QuantProcessing/exchanges/model"
 	standxsdk "github.com/QuantProcessing/exchanges/sdk/standx"
@@ -104,6 +105,22 @@ func TestDataClientStreamsTickerAndOrderBook(t *testing.T) {
 		InstrumentID: model.MustInstrumentID("BTC-USDT-PERP.STANDX"),
 		Type:         model.MarketDataTypeTicker,
 	}))
+}
+
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("standx-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.STANDX")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0006").Equal(funding.Rate))
+	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
+	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
 }
 
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
@@ -234,6 +251,16 @@ func (f *fakeSDK) QuerySymbolMarket(context.Context, string) (standxsdk.SymbolMa
 
 func (f *fakeSDK) QueryDepthBook(context.Context, string, int) (standxsdk.DepthBook, error) {
 	return standxsdk.DepthBook{Symbol: "BTC-USDT", Bids: [][]string{{"9", "1"}}, Asks: [][]string{{"11", "1"}}}, nil
+}
+
+func (f *fakeSDK) QueryFundingRates(context.Context, string, int64, int64) ([]standxsdk.FundingRate, error) {
+	return []standxsdk.FundingRate{{
+		Symbol:      "BTC-USDT",
+		FundingRate: "0.0006",
+		MarkPrice:   "200",
+		IndexPrice:  "199",
+		Time:        "1000",
+	}}, nil
 }
 
 func (f *fakeSDK) QueryBalances(context.Context) (*standxsdk.Balance, error) {

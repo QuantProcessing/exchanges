@@ -93,6 +93,9 @@ Bybit, Bitget, Hyperliquid, Lighter, Nado, EdgeX, GRVT, StandX, and Backpack.
 Capability truth is not this overview table; it is the adapter's
 `venue.DeclaredCapabilities` plus the
 [Adapter Capability Matrix](./docs/parity/adapter-capability-matrix.md).
+Perpetual funding-rate snapshot support is tracked there per product family:
+spot adapters do not claim it, and `FundingRateStream` is still a separate
+unclaimed capability.
 
 ## Installation
 

@@ -19,6 +19,7 @@ type sdkClient interface {
 	GetMarkets(context.Context) ([]backpacksdk.Market, error)
 	GetTicker(context.Context, string) (*backpacksdk.Ticker, error)
 	GetOrderBook(context.Context, string, int) (*backpacksdk.Depth, error)
+	GetFundingRates(context.Context) ([]backpacksdk.FundingRate, error)
 	GetBalances(context.Context) (map[string]backpacksdk.CapitalBalance, error)
 	GetOpenOrders(context.Context, string, string) ([]backpacksdk.Order, error)
 	GetOpenPositions(context.Context, string) ([]backpacksdk.Position, error)
@@ -203,6 +204,40 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 		book.Asks = append(book.Asks, model.OrderBookLevel{Price: decimal.RequireFromString(ask[0]), Size: decimal.RequireFromString(ask[1])})
 	}
 	return book, book.Validate()
+}
+
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	rates, err := c.sdk.GetFundingRates(ctx)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	for _, row := range rates {
+		if !strings.EqualFold(row.Symbol, raw) {
+			continue
+		}
+		var nextFunding time.Time
+		if row.NextFundingTimestamp > 0 {
+			nextFunding = time.UnixMilli(row.NextFundingTimestamp)
+		}
+		funding := model.FundingRate{
+			InstrumentID:    id,
+			Rate:            decimal.RequireFromString(firstNonEmpty(row.FundingRate, "0")),
+			MarkPrice:       decimal.RequireFromString(firstNonEmpty(row.MarkPrice, "0")),
+			IndexPrice:      decimal.RequireFromString(firstNonEmpty(row.IndexPrice, "0")),
+			NextFundingTime: nextFunding,
+			Timestamp:       time.Now(),
+			InitTime:        time.Now(),
+		}
+		return funding, funding.Validate()
+	}
+	return model.FundingRate{}, fmt.Errorf("%w: missing Backpack funding rate for %s", model.ErrInstrumentNotFound, id.String())
 }
 
 func (c *dataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
@@ -780,7 +815,7 @@ func (a *Adapter) Close(ctx context.Context) error {
 	return a.exec.Disconnect(ctx)
 }
 func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
-	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, FundingRates: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
 }
 
 type streamWS interface {

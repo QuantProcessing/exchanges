@@ -88,6 +88,25 @@ if caps.Execution.Query {
 }
 ```
 
+## Funding-Rate Providers
+
+Adapters which currently declare `caps.MarketData.FundingRates` and implement
+`venue.FundingRateProvider`:
+
+- current venue snapshot: Binance Perp, Aster Perp, OKX Swap, Hyperliquid Perp,
+  Lighter, Nado, EdgeX, GRVT, and Backpack;
+- latest-known venue history row: Bybit Linear, Bitget Perp, and StandX.
+
+The normalized payload is always `model.FundingRate`. Do not infer missing
+fields: if a venue endpoint does not expose mark price, index price, funding
+interval, or next funding time, the adapter leaves that field as its zero value.
+Strategies which require those fields should validate them before placing
+orders. A funding snapshot claim does not imply `FundingRateStream`; stream
+support has a separate capability flag.
+
+The live arbitrage shape is shown in
+[07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go).
+
 ## Unsupported Behavior
 
 Unsupported behavior must return `model.ErrNotSupported` or a wrapped

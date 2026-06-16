@@ -9,9 +9,10 @@ import (
 )
 
 type Adapter struct {
-	provider *productProvider
-	data     venue.DataClient
-	exec     venue.ExecutionClient
+	provider     *productProvider
+	data         venue.DataClient
+	exec         venue.ExecutionClient
+	fundingRates bool
 }
 
 func NewSpotAdapter(_ context.Context, opts Options) (*Adapter, error) {
@@ -23,7 +24,7 @@ func NewSpotAdapter(_ context.Context, opts Options) (*Adapter, error) {
 func NewLinearAdapter(_ context.Context, opts Options) (*Adapter, error) {
 	client := bybitsdk.NewClient().WithCredentials(opts.APIKey, opts.SecretKey)
 	provider := newLinearProvider(client)
-	return &Adapter{provider: provider, data: newDataClient("bybit-linear-data", provider, client), exec: newExecutionClient(opts.AccountID, provider, client, "linear", opts.APIKey, opts.SecretKey)}, nil
+	return &Adapter{provider: provider, data: newDataClient("bybit-linear-data", provider, client), exec: newExecutionClient(opts.AccountID, provider, client, "linear", opts.APIKey, opts.SecretKey), fundingRates: true}, nil
 }
 
 func (a *Adapter) Venue() model.Venue                    { return Venue }
@@ -40,7 +41,7 @@ func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
 	return venue.DeclaredCapabilities{
 		Venue:       Venue,
 		Instruments: true,
-		MarketData:  venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, Streams: true},
+		MarketData:  venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, FundingRates: a.fundingRates, Streams: true},
 		Execution:   venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true},
 		Account:     venue.AccountCapabilities{Snapshot: true},
 	}

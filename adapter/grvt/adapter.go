@@ -17,6 +17,7 @@ type sdkClient interface {
 	GetInstruments(context.Context) ([]grvtsdk.Instrument, error)
 	GetTicker(context.Context, string) (*grvtsdk.GetTickerResponse, error)
 	GetOrderBook(context.Context, string, int) (*grvtsdk.GetOrderBookResponse, error)
+	GetFundingRate(context.Context, string) (*grvtsdk.FundingRateData, error)
 	GetAccountSummary(context.Context) (*grvtsdk.GetAccountSummaryResponse, error)
 	GetOpenOrders(context.Context, string) ([]grvtsdk.Order, error)
 	CreateOrder(context.Context, *grvtsdk.CreateOrderRequest, map[string]grvtsdk.Instrument) (*grvtsdk.CreateOrderResponse, error)
@@ -224,6 +225,37 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 		book.Asks = append(book.Asks, model.OrderBookLevel{Price: decimal.RequireFromString(ask.Price), Size: decimal.RequireFromString(ask.Size)})
 	}
 	return book, book.Validate()
+}
+
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	rate, err := decimalFromString(resp.FundingRate, "0")
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := time.Now()
+	if resp.FundingTime != "" {
+		timestamp = parseGRVTTime(resp.FundingTime)
+	}
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            rate,
+		NextFundingTime: parseGRVTTime(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
 }
 
 func (c *dataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
@@ -786,7 +818,7 @@ func (a *Adapter) Close(ctx context.Context) error {
 	return a.exec.Disconnect(ctx)
 }
 func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
-	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, FundingRates: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
 }
 
 type marketWS interface {

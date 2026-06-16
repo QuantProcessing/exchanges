@@ -345,6 +345,24 @@ func TestPerpDataClientRestSnapshotsUseVenueTimestamps(t *testing.T) {
 	require.Equal(t, time.UnixMilli(2000), book.Timestamp)
 }
 
+func TestPerpDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakePerpSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newPerpDataClient("aster-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.ASTER")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0008").Equal(funding.Rate))
+	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
+	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
+	require.Equal(t, 8*time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+}
+
 func TestPerpExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
 	sdk := &fakePerpSDK{}
 	provider := newPerpProvider(sdk)
@@ -548,6 +566,18 @@ func (f *fakePerpSDK) Ticker(context.Context, string) (*asterperp.TickerResponse
 
 func (f *fakePerpSDK) Depth(context.Context, string, int) (*asterperp.DepthResponse, error) {
 	return &asterperp.DepthResponse{E: 2000, T: 1900, Bids: [][]string{{"19", "1"}}, Asks: [][]string{{"21", "1"}}}, nil
+}
+
+func (f *fakePerpSDK) GetFundingRate(context.Context, string) (*asterperp.FundingRateData, error) {
+	return &asterperp.FundingRateData{
+		Symbol:               "BTCUSDT",
+		LastFundingRate:      "0.0008",
+		MarkPrice:            "200",
+		IndexPrice:           "199",
+		NextFundingTime:      28800000,
+		Time:                 1000,
+		FundingIntervalHours: 8,
+	}, nil
 }
 
 func (f *fakePerpSDK) GetAccount(context.Context) (*asterperp.AccountResponse, error) {

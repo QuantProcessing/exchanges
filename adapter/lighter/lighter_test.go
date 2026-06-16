@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/QuantProcessing/exchanges/model"
 	lightersdk "github.com/QuantProcessing/exchanges/sdk/lighter"
@@ -41,6 +42,22 @@ func TestInstrumentProviderNormalizesFeeAndMarginMetadata(t *testing.T) {
 	require.Equal(t, "0.0005", inst.TakerFee.String())
 	require.Equal(t, "0.05", inst.MarginInit.String())
 	require.Equal(t, "0.025", inst.MarginMaint.String())
+}
+
+func TestDataClientFetchFundingRate(t *testing.T) {
+	sdk := &fakeSDK{}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("lighter-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDC-PERP.LIGHTER")
+
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, id, funding.InstrumentID)
+	require.True(t, decimal.RequireFromString("0.0002").Equal(funding.Rate))
+	require.Equal(t, time.Hour, funding.FundingInterval)
+	require.Equal(t, time.UnixMilli(3600000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(7200000), funding.NextFundingTime)
 }
 
 func TestSubmitMapsDecimalsToLighterIntegerUnits(t *testing.T) {
@@ -244,6 +261,17 @@ func (f *fakeSDK) GetOrderBookDetails(context.Context, *int, *string) (*lighters
 
 func (f *fakeSDK) GetOrderBookOrders(context.Context, int, int64) (*lightersdk.OrderBookOrdersResponse, error) {
 	return &lightersdk.OrderBookOrdersResponse{Bids: []lightersdk.Bid{{Price: "9", RemainingBaseAmount: "1"}}, Asks: []lightersdk.Ask{{Price: "11", RemainingBaseAmount: "1"}}}, nil
+}
+
+func (f *fakeSDK) GetFundingRate(context.Context, int) (*lightersdk.FundingRateData, error) {
+	return &lightersdk.FundingRateData{
+		Symbol:               "BTC-USDC",
+		MarketId:             7,
+		FundingRate:          "0.0002",
+		FundingIntervalHours: 1,
+		FundingTime:          3600000,
+		NextFundingTime:      7200000,
+	}, nil
 }
 
 func (f *fakeSDK) GetAccount(context.Context) (*lightersdk.AccountResponse, error) {

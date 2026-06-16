@@ -18,6 +18,7 @@ type sdkClient interface {
 	GetContracts(context.Context, *bool) (nadosdk.ContractV2Map, error)
 	GetSymbols(context.Context, *string) (*nadosdk.SymbolsInfo, error)
 	GetOrderBook(context.Context, string, int) (*nadosdk.OrderBookV2, error)
+	GetFundingRate(context.Context, int64) (*nadosdk.FundingRateData, error)
 	GetAccount(context.Context) (*nadosdk.AccountInfo, error)
 	GetAccountProductOrders(context.Context, int64, string) (*nadosdk.AccountProductOrders, error)
 	PlaceOrder(context.Context, nadosdk.ClientOrderInput) (*nadosdk.PlaceOrderResponse, error)
@@ -206,6 +207,36 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 		book.Asks = append(book.Asks, model.OrderBookLevel{Price: decimal.NewFromFloat(ask[0]), Size: decimal.NewFromFloat(ask[1])})
 	}
 	return book, book.Validate()
+}
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if len(c.provider.List()) == 0 {
+		if err := c.provider.LoadAll(ctx); err != nil {
+			return model.FundingRate{}, err
+		}
+	}
+	productID, err := c.provider.productID(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, productID)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := time.Now()
+	if resp.FundingTime > 0 {
+		timestamp = parseNadoUnix(resp.FundingTime)
+	} else if resp.UpdateTime > 0 {
+		timestamp = parseNadoUnix(resp.UpdateTime)
+	}
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            decimal.RequireFromString(firstNonEmpty(resp.FundingRate, "0")),
+		NextFundingTime: parseNadoUnix(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
 }
 func (c *dataClient) SubscribeMarketData(_ context.Context, sub model.SubscribeMarketData) error {
 	if err := sub.Validate(); err != nil {
@@ -632,7 +663,7 @@ func (a *Adapter) Close(ctx context.Context) error {
 	return a.exec.Disconnect(ctx)
 }
 func (a *Adapter) Capabilities() venue.DeclaredCapabilities {
-	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
+	return venue.DeclaredCapabilities{Venue: Venue, Instruments: true, MarketData: venue.MarketDataCapabilities{Snapshots: true, Ticker: true, OrderBook: true, TickerStream: true, OrderBookStream: true, TradeTicks: true, QuoteTicks: true, Bars: true, FundingRates: true, Streams: true}, Execution: venue.ExecutionCapabilities{Submit: true, Cancel: true, OrderReports: true, PrivateStream: true, Resubscribe: true}, Account: venue.AccountCapabilities{Snapshot: true}}
 }
 
 func nadoTopicFor(productID int64, sub model.SubscribeMarketData) nadoMarketTopic {

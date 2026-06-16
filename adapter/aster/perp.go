@@ -18,6 +18,7 @@ type perpSDK interface {
 	ExchangeInfo(context.Context) (*asterperp.ExchangeInfoResponse, error)
 	Ticker(context.Context, string) (*asterperp.TickerResponse, error)
 	Depth(context.Context, string, int) (*asterperp.DepthResponse, error)
+	GetFundingRate(context.Context, string) (*asterperp.FundingRateData, error)
 	GetAccount(context.Context) (*asterperp.AccountResponse, error)
 	PlaceOrder(context.Context, asterperp.PlaceOrderParams) (*asterperp.OrderResponse, error)
 	CancelOrder(context.Context, asterperp.CancelOrderParams) (*asterperp.OrderResponse, error)
@@ -153,6 +154,36 @@ func (c *perpDataClient) FetchOrderBook(ctx context.Context, id model.Instrument
 		book.Asks = append(book.Asks, parseBookLevel(level))
 	}
 	return book, book.Validate()
+}
+func (c *perpDataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	if err := c.provider.ensureLoaded(ctx); err != nil {
+		return model.FundingRate{}, err
+	}
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := time.Now()
+	if resp.Time > 0 {
+		timestamp = parseAsterTime(resp.Time)
+	} else if resp.FundingTime > 0 {
+		timestamp = parseAsterTime(resp.FundingTime)
+	}
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            decimal.RequireFromString(defaultString(resp.LastFundingRate, "0")),
+		MarkPrice:       decimal.RequireFromString(defaultString(resp.MarkPrice, "0")),
+		IndexPrice:      decimal.RequireFromString(defaultString(resp.IndexPrice, "0")),
+		NextFundingTime: parseAsterTime(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
 }
 func (c *perpDataClient) SubscribeMarketData(ctx context.Context, sub model.SubscribeMarketData) error {
 	if err := sub.Validate(); err != nil {

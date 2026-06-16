@@ -113,6 +113,30 @@ func (c *dataClient) FetchOrderBook(ctx context.Context, id model.InstrumentID, 
 	return book, nil
 }
 
+func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID) (model.FundingRate, error) {
+	raw, err := c.provider.rawSymbol(id)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	if err != nil {
+		return model.FundingRate{}, err
+	}
+	timestamp := time.Now()
+	if resp.FundingTime != "" {
+		timestamp = parseUnixMillis(resp.FundingTime)
+	}
+	funding := model.FundingRate{
+		InstrumentID:    id,
+		Rate:            decimalOrFallback(resp.FundingRate, "0"),
+		NextFundingTime: parseUnixMillis(resp.NextFundingTime),
+		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
+	}
+	return funding, funding.Validate()
+}
+
 func (c *dataClient) SubscribeMarketData(_ context.Context, sub model.SubscribeMarketData) error {
 	if err := sub.Validate(); err != nil {
 		return err
