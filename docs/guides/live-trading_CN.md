@@ -23,6 +23,8 @@ if err != nil {
 builder 会校验 nil clients 和 nil strategies。缺失的 bus、cache、risk、portfolio
 会由 `live.NewNode` 提供默认值。
 
+可运行代码：[06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go)。
+
 ## Startup
 
 ```go

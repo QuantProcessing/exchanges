@@ -9,6 +9,9 @@ Capability truth comes from two places:
 2. [Adapter Capability Matrix](../parity/adapter-capability-matrix.md) for
    repository documentation and release review.
 
+Market-data adapter usage is shown in
+[01_fetch_ticker_with_adapter.go](../../examples/01_fetch_ticker_with_adapter.go).
+
 ## Capability Families
 
 `venue.DeclaredCapabilities` is grouped by instruments, market data, execution,

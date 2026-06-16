@@ -17,6 +17,8 @@ Write strategies against normalized model types:
 Venue-specific symbol parsing, signing, endpoint options, and account modes
 belong in SDK or adapter code.
 
+Code reference: [01_fetch_ticker_with_adapter.go](../../examples/01_fetch_ticker_with_adapter.go).
+
 ## 2. Store Runtime, Not Shadow Infrastructure
 
 Use the runtime passed into `OnStart`:
@@ -31,6 +33,8 @@ func (s *Strategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
 Avoid creating independent caches, portfolios, order factories, or venue
 clients inside a strategy. Independent state drifts from the platform state and
 is hard to reconcile after reconnects.
+
+Code reference: [04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go).
 
 ## 3. Create Orders Through `OrderFactory`
 
@@ -61,6 +65,9 @@ list := rt.OrderFactory(accountID).Bracket(model.BracketOrderRequest{
 _, err := rt.SubmitOrderList(ctx, list)
 ```
 
+Code reference: [02_build_orders_with_order_factory.go](../../examples/02_build_orders_with_order_factory.go)
+and [05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go).
+
 ## 4. Put Safety In `risk.Engine`
 
 Do not bury safety checks inside individual strategies. Configure risk at the
@@ -80,6 +87,8 @@ riskEngine := risk.NewEngine(c, risk.Config{
 
 Treat risk rejection as a normal lifecycle outcome. A strategy should be able
 to observe a rejection and stop submitting repeated invalid commands.
+
+Code reference: [03_validate_risk_before_execution.go](../../examples/03_validate_risk_before_execution.go).
 
 ## 5. Query Cache And Portfolio For State
 
@@ -102,6 +111,8 @@ unrealized := rt.Portfolio().UnrealizedPnLs(accountID)
 If a strategy maintains its own signal state, keep it small and rebuildable.
 Orders, fills, positions, balances, and exposure belong to the runtime.
 
+Code reference: [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).
+
 ## 6. Backtest The Lifecycle, Not Only The Signal
 
 A useful backtest asserts more than final profit. It should also check:
@@ -119,6 +130,8 @@ Run focused tests while developing:
 ```bash
 env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./backtest ./examples/... -v
 ```
+
+Code reference: [04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go).
 
 ## 7. Check Adapter Capabilities Before Going Live
 

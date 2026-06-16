@@ -38,6 +38,8 @@ orders := result.Cache.Orders("main")
 exposure := result.Portfolio.Exposure("main", "USDT")
 ```
 
+可运行代码：[04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)。
+
 ## Backtest Inputs
 
 `backtest.Event` 包含：
@@ -67,3 +69,6 @@ deterministic result output。
 env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./backtest ./testsuite -run 'Backtest|Result|FillModel|Catalog' -v
 env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/... -v
 ```
+
+Bracket order-list 行为见
+[05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go)。

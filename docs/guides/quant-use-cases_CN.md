@@ -14,6 +14,7 @@ backtest/live symmetry、adapter capability honesty 和 reconciliation。
 - 用 `cache.Cache` 与 `portfolio.Portfolio` 查询 runtime state。
 - 依赖 optional venue behavior 前检查 `venue.DeclaredCapabilities` 与
   [Adapter 能力矩阵](../parity/adapter-capability-matrix_CN.md)。
+- 这些概念的可运行版本见 [examples cookbook](../../examples/README_CN.md)。
 
 ## Use Case 1: Order Book Imbalance Strategy
 
@@ -54,6 +55,9 @@ func (s *ImbalanceStrategy) OnOrderBook(ctx context.Context, book model.OrderBoo
 }
 ```
 
+可运行参考：
+[06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go)。
+
 ## Use Case 2: Bracket Entry With Take Profit And Stop Loss
 
 ```go
@@ -70,6 +74,9 @@ _, err := s.runtime.SubmitOrderList(ctx, list)
 
 预期 lifecycle：parent submit/accept，children hold，entry fill 后 release children，一个
 child fill 后 sibling cancel，最终 position flat，portfolio PnL 反映 fee。
+
+可运行参考：
+[05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go)。
 
 ## Use Case 3: Deterministic Backtest
 
@@ -91,6 +98,9 @@ snapshot, err := result.DeterministicJSON()
 保持 event timestamps 与 fill model 稳定，并用 `Result.Summary` 或
 `Result.DeterministicJSON` 做可重复断言。
 
+可运行参考：
+[04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)。
+
 ## Use Case 4: Portfolio And Exposure Guardrails
 
 ```go
@@ -110,6 +120,10 @@ unrealized := node.Portfolio().UnrealizedPnLs(accountID)
 realized := node.Portfolio().RealizedPnLs(accountID)
 positions := node.Cache().Positions(accountID)
 ```
+
+可运行参考：
+[03_validate_risk_before_execution.go](../../examples/03_validate_risk_before_execution.go)
+和 [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go)。
 
 ## Use Case 5: Adapter Capability-Aware Live Setup
 

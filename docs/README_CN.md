@@ -15,6 +15,8 @@
 - [运行时流程](./runtime-flow_CN.md)：行情、订单、成交、组合更新、
   reconciliation 和策略回调如何在系统中流动。
 - [项目架构](./architecture_CN.md)：SDK、adapter、runtime 三层边界和设计规则。
+- [示例](../examples/README_CN.md)：文档解释 adapter、order factory、risk、
+  backtest、bracket、live node 等概念时链接到这里的可编译代码。
 
 ## 构建交易程序
 

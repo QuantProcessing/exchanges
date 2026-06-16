@@ -27,6 +27,8 @@ if err != nil {
 The builder validates nil clients and nil strategies. Missing bus, cache, risk,
 and portfolio components are defaulted by `live.NewNode`.
 
+Runnable code: [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).
+
 ## Startup
 
 ```go

@@ -75,6 +75,9 @@ strat := strategy.NewTyped("imbalance", &ImbalanceStrategy{
 })
 ```
 
+Runnable code: [04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)
+and [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).
+
 ## Supported Typed Callbacks
 
 `strategy.NewTyped` dispatches only the methods your handler implements.
@@ -143,6 +146,7 @@ State that should come from runtime:
 For entry plus take-profit/stop-loss workflows, use:
 
 - [Strategy Authoring With Brackets](./strategy-authoring-bracket.md)
+- [05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go)
 
 Order lists preserve parent-child relationships, OTO/OCO contingency metadata,
 reduce-only children, and list identity.

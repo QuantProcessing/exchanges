@@ -26,7 +26,9 @@ If you are new to the repository, read these in order:
    portfolio, and reconciliation move through the system.
 4. [Reliable Quant Program Guide](./docs/guides/reliable-quant-program.md):
    practical rules for writing safer trading programs.
-5. [Documentation Index](./docs/README.md): the full docs site map.
+5. [Examples](./examples/README.md): runnable API recipes from simple adapter
+   market data to an in-memory live node.
+6. [Documentation Index](./docs/README.md): the full docs site map.
 
 ## Current Status
 
@@ -116,7 +118,7 @@ import (
 func main() {
     ctx := context.Background()
 
-    adp, err := binance.NewAdapter(ctx, binance.Options{})
+    adp, err := binance.NewSpotAdapter(ctx, binance.Options{})
     if err != nil {
         panic(err)
     }
@@ -127,9 +129,12 @@ func main() {
         panic(err)
     }
 
-    fmt.Println(ticker.LastPrice)
+    fmt.Println(ticker.Last)
 }
 ```
+
+The compiled version of this pattern lives in
+[01_fetch_ticker_with_adapter.go](./examples/01_fetch_ticker_with_adapter.go).
 
 ## Quick Example: Strategy Shape
 
@@ -162,7 +167,8 @@ func (s *Strategy) OnOrderBook(ctx context.Context, book model.OrderBook) error 
 
 Continue with [Strategy Authoring](./docs/guides/strategy-authoring.md),
 [Backtesting](./docs/guides/backtesting.md), and
-[Live Trading](./docs/guides/live-trading.md).
+[Live Trading](./docs/guides/live-trading.md). The matching runnable code is
+organized in [examples](./examples/README.md).
 
 ## NautilusTrader-Style Contract
 
@@ -218,6 +224,7 @@ equivalent that works with `errors.Is`.
 ## Related Docs
 
 - [SDK README](./sdk/README.md)
+- [Examples](./examples/README.md)
 - [Documentation Index](./docs/README.md)
 - [Project Architecture](./docs/architecture.md)
 - [Module Guide](./docs/module-guide.md)

@@ -57,6 +57,8 @@ orders := result.Cache.Orders("main")
 exposure := result.Portfolio.Exposure("main", "USDT")
 ```
 
+Runnable code: [04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go).
+
 ## Backtest Inputs
 
 `backtest.Event` is intentionally small:
@@ -102,3 +104,6 @@ For strategy examples:
 ```bash
 env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./examples/... -v
 ```
+
+Bracket order-list behavior is covered by
+[05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go).

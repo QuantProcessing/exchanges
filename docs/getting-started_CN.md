@@ -36,7 +36,7 @@ runtime 提交命令，这样 risk、execution、cache、portfolio 才能保持�
 ```go
 ctx := context.Background()
 
-adp, err := binance.NewAdapter(ctx, binance.Options{})
+adp, err := binance.NewSpotAdapter(ctx, binance.Options{})
 if err != nil {
     panic(err)
 }
@@ -47,8 +47,10 @@ ticker, err := adp.Data().FetchTicker(ctx, instrumentID)
 if err != nil {
     panic(err)
 }
-fmt.Println(ticker.LastPrice)
+fmt.Println(ticker.Last)
 ```
+
+可编译示例：[01_fetch_ticker_with_adapter.go](../examples/01_fetch_ticker_with_adapter.go)。
 
 如果要支持多个 venue，优先面向 `venue.DataClient` 和 `venue.ExecutionClient`
 接口编程，而不是直接依赖具体 adapter。
@@ -96,6 +98,9 @@ func (s *ImbalanceStrategy) OnOrderBook(ctx context.Context, book model.OrderBoo
 - open orders、fills、positions、balances 和 exposure 从 `rt.Cache()` 与
   `rt.Portfolio()` 查询。
 
+可编译示例：[02_build_orders_with_order_factory.go](../examples/02_build_orders_with_order_factory.go)
+和 [04_run_strategy_backtest.go](../examples/04_run_strategy_backtest.go)。
+
 ## 在 Backtest 中运行策略
 
 ```go
@@ -128,6 +133,8 @@ if err != nil {
 fmt.Println(result.EventsProcessed)
 ```
 
+可编译示例：[04_run_strategy_backtest.go](../examples/04_run_strategy_backtest.go)。
+
 ## 组装 Live Node
 
 ```go
@@ -153,6 +160,8 @@ defer node.Stop(context.Background())
 live node 启动路径会加载 instruments、连接 market data、连接 execution、查询 account
 state、启动 strategies、转发 stream events 并记录 health。
 
+可编译示例：[06_run_live_node_with_in_memory_venue.go](../examples/06_run_live_node_with_in_memory_venue.go)。
+
 ## 下一步阅读
 
 - [模块指南](./module-guide_CN.md)
@@ -161,3 +170,4 @@ state、启动 strategies、转发 stream events 并记录 health。
 - [策略编写](./guides/strategy-authoring_CN.md)
 - [回测](./guides/backtesting_CN.md)
 - [实盘交易](./guides/live-trading_CN.md)
+- [示例](../examples/README_CN.md)

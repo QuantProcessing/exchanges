@@ -24,7 +24,9 @@
    reconciliation 如何流动。
 4. [可靠量化程序指南](./docs/guides/reliable-quant-program_CN.md)：写可靠
    量化程序的实践清单。
-5. [文档索引](./docs/README_CN.md)：完整文档站地图。
+5. [示例](./examples/README_CN.md)：从简单 adapter 行情到 in-memory live node
+   的可运行 API recipes。
+6. [文档索引](./docs/README_CN.md)：完整文档站地图。
 
 ## 当前状态
 
@@ -109,7 +111,7 @@ import (
 func main() {
     ctx := context.Background()
 
-    adp, err := binance.NewAdapter(ctx, binance.Options{})
+    adp, err := binance.NewSpotAdapter(ctx, binance.Options{})
     if err != nil {
         panic(err)
     }
@@ -120,9 +122,12 @@ func main() {
         panic(err)
     }
 
-    fmt.Println(ticker.LastPrice)
+    fmt.Println(ticker.Last)
 }
 ```
+
+这个模式的可编译版本在
+[01_fetch_ticker_with_adapter.go](./examples/01_fetch_ticker_with_adapter.go)。
 
 ## 快速示例：策略形状
 
@@ -158,6 +163,7 @@ func (s *Strategy) OnOrderBook(ctx context.Context, book model.OrderBook) error 
 - [策略编写](./docs/guides/strategy-authoring_CN.md)
 - [回测](./docs/guides/backtesting_CN.md)
 - [实盘交易](./docs/guides/live-trading_CN.md)
+- [示例](./examples/README_CN.md)
 
 ## NautilusTrader 风格契约
 
@@ -212,6 +218,7 @@ wrapped equivalent。
 ## 相关文档
 
 - [SDK README](./sdk/README_CN.md)
+- [示例](./examples/README_CN.md)
 - [文档索引](./docs/README_CN.md)
 - [项目架构](./docs/architecture_CN.md)
 - [模块指南](./docs/module-guide_CN.md)

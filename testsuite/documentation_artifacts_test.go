@@ -19,6 +19,7 @@ func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 			"# Documentation",
 			"Getting Started",
 			"Module Guide",
+			"Examples",
 			"Reliable Quant Program Guide",
 		},
 		"../docs/getting-started.md": {
@@ -83,6 +84,7 @@ func TestNautilusDocumentationArtifactsCoverEpic13(t *testing.T) {
 		"../docs/guides/workflow-recipes.md": {
 			"# Workflow Recipes",
 			"Bracket Strategy",
+			"05_submit_bracket_order_backtest.go",
 			"Portfolio Query",
 			"Risk Rejection",
 			"Backtest Run",
@@ -110,6 +112,7 @@ func TestChineseDocumentationArtifactsCoverEpic13(t *testing.T) {
 			"# 文档",
 			"快速开始",
 			"模块指南",
+			"示例",
 			"可靠量化程序指南",
 		},
 		"../docs/getting-started_CN.md": {
@@ -174,6 +177,7 @@ func TestChineseDocumentationArtifactsCoverEpic13(t *testing.T) {
 		"../docs/guides/workflow-recipes_CN.md": {
 			"# 工作流示例",
 			"Bracket Strategy",
+			"05_submit_bracket_order_backtest.go",
 			"Portfolio Query",
 			"Risk Rejection",
 			"Backtest Run",
@@ -194,7 +198,7 @@ func TestDocumentationHasChineseCounterparts(t *testing.T) {
 	englishDocs := documentationFiles(t, []string{
 		"../README.md",
 		"../docs",
-		"../examples/usage_comparison/README.md",
+		"../examples",
 		"../sdk/README.md",
 		"../sdk/okx/README.md",
 	})
@@ -212,8 +216,7 @@ func TestDocumentationLinksStayWithinSameLanguage(t *testing.T) {
 		"../README.md",
 		"../README_CN.md",
 		"../docs",
-		"../examples/usage_comparison/README.md",
-		"../examples/usage_comparison/README_CN.md",
+		"../examples",
 		"../sdk/README.md",
 		"../sdk/README_CN.md",
 		"../sdk/okx/README.md",
@@ -230,18 +233,20 @@ func TestDocumentationLinksStayWithinSameLanguage(t *testing.T) {
 		for _, match := range markdownLinkPattern.FindAllStringSubmatch(string(contentBytes), -1) {
 			target := strings.TrimSpace(match[1])
 			target = strings.Trim(target, "<>")
-			targetPath := localMarkdownOrJSONLinkTarget(path, target)
+			targetPath := localDocumentationLinkTarget(path, target)
 			if targetPath == "" {
 				continue
 			}
 
 			require.FileExists(t, targetPath, "%s links to %s", path, target)
-			sourceChinese := isChineseDocPath(path)
-			targetChinese := isChineseDocPath(targetPath)
-			if sourceChinese {
-				require.True(t, targetChinese, "%s must link to Chinese counterpart, got %s", path, target)
-			} else {
-				require.False(t, targetChinese, "%s must link to English counterpart, got %s", path, target)
+			if ext := filepath.Ext(targetPath); ext == ".md" || ext == ".json" {
+				sourceChinese := isChineseDocPath(path)
+				targetChinese := isChineseDocPath(targetPath)
+				if sourceChinese {
+					require.True(t, targetChinese, "%s must link to Chinese counterpart, got %s", path, target)
+				} else {
+					require.False(t, targetChinese, "%s must link to English counterpart, got %s", path, target)
+				}
 			}
 		}
 	}
@@ -293,7 +298,7 @@ func chineseCounterpartPath(path string) string {
 	return strings.TrimSuffix(path, ext) + "_CN" + ext
 }
 
-func localMarkdownOrJSONLinkTarget(sourcePath, rawTarget string) string {
+func localDocumentationLinkTarget(sourcePath, rawTarget string) string {
 	if rawTarget == "" ||
 		strings.HasPrefix(rawTarget, "#") ||
 		strings.Contains(rawTarget, "://") ||
@@ -303,7 +308,7 @@ func localMarkdownOrJSONLinkTarget(sourcePath, rawTarget string) string {
 	target := strings.SplitN(rawTarget, "#", 2)[0]
 	target = strings.SplitN(target, "?", 2)[0]
 	ext := filepath.Ext(target)
-	if ext != ".md" && ext != ".json" {
+	if ext != ".md" && ext != ".json" && ext != ".go" {
 		return ""
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(sourcePath), target))

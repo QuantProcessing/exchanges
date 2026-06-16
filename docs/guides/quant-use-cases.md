@@ -25,6 +25,8 @@ not as complete trading systems.
   before depending on optional venue behavior.
 - In backtests, use deterministic data and `Result.DeterministicJSON` when
   comparing outputs in tests or research pipelines.
+- Use the [examples cookbook](../../examples/README.md) as the runnable version
+  of these concepts.
 
 ## Use Case 1: Order Book Imbalance Strategy
 
@@ -107,7 +109,8 @@ Best-practice notes:
 - Keep venue-specific code in the data/execution client or adapter, not in the
   strategy.
 
-Runnable reference: `examples/usage_comparison/go_demo`.
+Runnable reference:
+[06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).
 
 ## Use Case 2: Bracket Entry With Take Profit And Stop Loss
 
@@ -155,7 +158,8 @@ Best-practice notes:
 - Listen to `OnOrderLifecycle` and `OnOrderFilled` when asserting strategy
   behavior.
 
-Runnable reference: the repository bracket strategy example under `examples/`.
+Runnable reference:
+[05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go).
 
 ## Use Case 3: Deterministic Backtest For Strategy Research
 
@@ -200,6 +204,9 @@ Best-practice notes:
 - Backtest strategies should use the same `strategy.Runtime` APIs as live
   strategies.
 
+Runnable reference:
+[04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go).
+
 ## Use Case 4: Portfolio And Exposure Guardrails
 
 Goal: enforce a notional limit before execution and query resulting exposure
@@ -238,6 +245,10 @@ unrealized := node.Portfolio().UnrealizedPnLs(accountID)
 realized := node.Portfolio().RealizedPnLs(accountID)
 positions := node.Cache().Positions(accountID)
 ```
+
+Runnable references:
+[03_validate_risk_before_execution.go](../../examples/03_validate_risk_before_execution.go)
+and [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).
 
 Best-practice notes:
 

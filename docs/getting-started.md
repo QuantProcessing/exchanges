@@ -55,7 +55,7 @@ import (
 func main() {
     ctx := context.Background()
 
-    adp, err := binance.NewAdapter(ctx, binance.Options{})
+    adp, err := binance.NewSpotAdapter(ctx, binance.Options{})
     if err != nil {
         panic(err)
     }
@@ -67,9 +67,11 @@ func main() {
         panic(err)
     }
 
-    fmt.Println(ticker.LastPrice)
+    fmt.Println(ticker.Last)
 }
 ```
+
+Compiled example: [01_fetch_ticker_with_adapter.go](../examples/01_fetch_ticker_with_adapter.go).
 
 If you need to support several venues, code against the `venue.DataClient` and
 `venue.ExecutionClient` interfaces instead of a concrete adapter package.
@@ -121,6 +123,9 @@ Important rules:
 - Query open orders, fills, positions, balances, and exposure through
   `rt.Cache()` and `rt.Portfolio()`.
 
+Compiled examples: [02_build_orders_with_order_factory.go](../examples/02_build_orders_with_order_factory.go)
+and [04_run_strategy_backtest.go](../examples/04_run_strategy_backtest.go).
+
 ## Run The Strategy In A Backtest
 
 Backtests replay timestamped events through the same strategy callback shape.
@@ -162,6 +167,8 @@ if err != nil {
 fmt.Println(result.EventsProcessed)
 ```
 
+Compiled example: [04_run_strategy_backtest.go](../examples/04_run_strategy_backtest.go).
+
 ## Assemble A Live Node
 
 A live node wires data clients, execution clients, strategies, risk, cache,
@@ -191,6 +198,8 @@ The live node startup path loads instruments, connects market data, connects
 execution, queries account state, starts strategies, forwards stream events,
 and records health. Keep `Node.Stop` in a defer or shutdown handler.
 
+Compiled example: [06_run_live_node_with_in_memory_venue.go](../examples/06_run_live_node_with_in_memory_venue.go).
+
 ## Next Reading
 
 - [Module Guide](./module-guide.md)
@@ -199,3 +208,4 @@ and records health. Keep `Node.Stop` in a defer or shutdown handler.
 - [Strategy Authoring](./guides/strategy-authoring.md)
 - [Backtesting](./guides/backtesting.md)
 - [Live Trading](./guides/live-trading.md)
+- [Examples](../examples/README.md)

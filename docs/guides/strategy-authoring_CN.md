@@ -74,6 +74,9 @@ strat := strategy.NewTyped("imbalance", &ImbalanceStrategy{
 })
 ```
 
+可运行代码：[04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)
+和 [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go)。
+
 ## 支持的 Typed Callbacks
 
 Market data callbacks：
@@ -130,6 +133,7 @@ realized/unrealized PnL、venue stream health。
 entry + take-profit/stop-loss 工作流见：
 
 - [Bracket 策略编写](./strategy-authoring-bracket_CN.md)
+- [05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go)
 
 ## Verification
 

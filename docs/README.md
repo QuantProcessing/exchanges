@@ -19,6 +19,9 @@ together, and how to build a reliable quantitative trading program.
   system.
 - [Project Architecture](./architecture.md): the architectural boundaries and
   design rules that keep SDKs, adapters, and runtime code separated.
+- [Examples](../examples/README.md): compiled recipes that the guides link to
+  when they introduce adapter, order factory, risk, backtest, bracket, and live
+  node concepts.
 
 ## Build Trading Programs
 

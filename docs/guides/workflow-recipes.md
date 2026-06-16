@@ -2,6 +2,7 @@
 
 This guide shows common trading workflows using the repository's Go APIs. Each
 recipe is intentionally small and focuses on the shape of the platform path.
+For runnable code, start with the [examples cookbook](../../examples/README.md).
 
 ## Bracket Strategy
 
@@ -26,6 +27,8 @@ Expected behavior:
 - one exit child filling cancels the sibling;
 - final position and portfolio state are updated from fill events.
 
+Runnable code: [05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go).
+
 ## Portfolio Query
 
 Read lifecycle state from cache and accounting state from portfolio:
@@ -39,6 +42,9 @@ unrealized := node.Portfolio().UnrealizedPnLs(accountID)
 
 Do not recompute exposure in a strategy unless the calculation is deliberately
 strategy-local and disposable.
+
+Runnable code: [04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)
+and [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).
 
 ## Risk Rejection
 
@@ -56,6 +62,8 @@ if err := engine.Check(order); err != nil {
 In normal live paths, `platform.Node.SubmitOrder` performs this check before
 dispatching to the execution client.
 
+Runnable code: [03_validate_risk_before_execution.go](../../examples/03_validate_risk_before_execution.go).
+
 ## Backtest Run
 
 ```go
@@ -71,6 +79,8 @@ result, err := runner.Run(ctx)
 
 The runner replays timestamped events, dispatches timers, drains commands,
 matches orders, updates cache and portfolio, and returns a result summary.
+
+Runnable code: [04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go).
 
 ## Live Node Assembly
 
@@ -90,3 +100,5 @@ defer node.Stop(context.Background())
 ```
 
 Use capability checks before depending on optional execution features.
+
+Runnable code: [06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go).

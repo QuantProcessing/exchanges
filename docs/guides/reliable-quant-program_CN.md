@@ -14,6 +14,8 @@
 venue-specific symbol parsing、signing、endpoint options 和 account modes 应放在
 SDK 或 adapter 中。
 
+代码参考：[01_fetch_ticker_with_adapter.go](../../examples/01_fetch_ticker_with_adapter.go)。
+
 ## 2. 保存 Runtime，不创建影子基础设施
 
 ```go
@@ -25,6 +27,8 @@ func (s *Strategy) OnStart(ctx context.Context, rt strategy.Runtime) error {
 
 不要在 strategy 内创建独立 cache、portfolio、order factory 或 venue client。独立状态
 会和 platform state drift，reconnect 后很难 reconcile。
+
+代码参考：[04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)。
 
 ## 3. 使用 `OrderFactory` 创建订单
 
@@ -52,6 +56,9 @@ list := rt.OrderFactory(accountID).Bracket(model.BracketOrderRequest{
 _, err := rt.SubmitOrderList(ctx, list)
 ```
 
+代码参考：[02_build_orders_with_order_factory.go](../../examples/02_build_orders_with_order_factory.go)
+和 [05_submit_bracket_order_backtest.go](../../examples/05_submit_bracket_order_backtest.go)。
+
 ## 4. 把安全规则放进 `risk.Engine`
 
 ```go
@@ -67,6 +74,8 @@ riskEngine := risk.NewEngine(c, risk.Config{
 ```
 
 risk rejection 是正常 lifecycle outcome，策略应能观察并停止重复提交无效命令。
+
+代码参考：[03_validate_risk_before_execution.go](../../examples/03_validate_risk_before_execution.go)。
 
 ## 5. 用 Cache 和 Portfolio 查询状态
 
@@ -84,6 +93,8 @@ unrealized := rt.Portfolio().UnrealizedPnLs(accountID)
 
 orders、fills、positions、balances 和 exposure 属于 runtime，不应由策略重复维护。
 
+代码参考：[06_run_live_node_with_in_memory_venue.go](../../examples/06_run_live_node_with_in_memory_venue.go)。
+
 ## 6. 回测 Lifecycle，而不只是信号
 
 有价值的 backtest 应检查 subscriptions、order IDs、command metadata、risk acceptance
@@ -92,6 +103,8 @@ orders、fills、positions、balances 和 exposure 属于 runtime，不应由策
 ```bash
 env GOCACHE=/private/tmp/go-build-exchanges go test -count=1 ./backtest ./examples/... -v
 ```
+
+代码参考：[04_run_strategy_backtest.go](../../examples/04_run_strategy_backtest.go)。
 
 ## 7. Live 前检查 Adapter Capabilities
 
