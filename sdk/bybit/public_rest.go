@@ -122,6 +122,28 @@ func (c *Client) GetTicker(ctx context.Context, category, symbol string) (*Ticke
 	return &resp.Result.List[0], nil
 }
 
+func (c *Client) GetTickers(ctx context.Context, category string) ([]Ticker, error) {
+	var resp responseEnvelope[TickersResult]
+	err := c.get(ctx, "/v5/market/tickers", map[string]string{
+		"category": category,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("bybit sdk: get tickers failed: %d %s", resp.RetCode, resp.RetMsg)
+	}
+	if resp.Time > 0 {
+		ts := strconv.FormatInt(resp.Time, 10)
+		for i := range resp.Result.List {
+			if resp.Result.List[i].Time == "" {
+				resp.Result.List[i].Time = ts
+			}
+		}
+	}
+	return resp.Result.List, nil
+}
+
 func (c *Client) GetOrderBook(ctx context.Context, category, symbol string, limit int) (*OrderBook, error) {
 	query := map[string]string{
 		"category": category,

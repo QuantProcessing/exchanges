@@ -2,8 +2,82 @@ package sdk
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 )
+
+func TestClient_GetCurrentFundRateBuildsCurrentFundingRequest(t *testing.T) {
+	t.Parallel()
+
+	var seenPath string
+	var seenQuery string
+	client := NewClient().
+		WithBaseURL("https://example.test").
+		WithHTTPClient(&http.Client{Transport: rawRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			seenPath = req.URL.Path
+			seenQuery = req.URL.RawQuery
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					`{"code":"00000","msg":"success","requestTime":1710000000123,"data":[{"symbol":"BTCUSDT","fundingRate":"0.0001","fundingRateInterval":"8","nextUpdate":"1710003600000","minFundingRate":"-0.003","maxFundingRate":"0.003"}]}`,
+				)),
+				Header: make(http.Header),
+			}, nil
+		})})
+
+	got, err := client.GetCurrentFundRate(context.Background(), "BTCUSDT", "USDT-FUTURES")
+	if err != nil {
+		t.Fatalf("GetCurrentFundRate returned error: %v", err)
+	}
+	if seenPath != "/api/v2/mix/market/current-fund-rate" {
+		t.Fatalf("unexpected path: %s", seenPath)
+	}
+	if !strings.Contains(seenQuery, "symbol=BTCUSDT") || !strings.Contains(seenQuery, "productType=USDT-FUTURES") {
+		t.Fatalf("unexpected query: %s", seenQuery)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected one funding row, got %d", len(got))
+	}
+	if got[0].FundingRate != "0.0001" || got[0].FundingRateInterval != "8" || got[0].RequestTime != 1710000000123 {
+		t.Fatalf("unexpected funding row: %+v", got[0])
+	}
+}
+
+func TestClient_GetTickersBuildsAllTickersRequest(t *testing.T) {
+	t.Parallel()
+
+	var seenPath string
+	var seenQuery string
+	client := NewClient().
+		WithBaseURL("https://example.test").
+		WithHTTPClient(&http.Client{Transport: rawRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			seenPath = req.URL.Path
+			seenQuery = req.URL.RawQuery
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					`{"code":"00000","msg":"success","requestTime":1710000000123,"data":[{"category":"USDT-FUTURES","symbol":"BTCUSDT","fundingRate":"0.0001","markPrice":"65000","indexPrice":"64990","ts":"1710000000123"}]}`,
+				)),
+				Header: make(http.Header),
+			}, nil
+		})})
+
+	got, err := client.GetTickers(context.Background(), "USDT-FUTURES")
+	if err != nil {
+		t.Fatalf("GetTickers returned error: %v", err)
+	}
+	if seenPath != "/api/v3/market/tickers" {
+		t.Fatalf("unexpected path: %s", seenPath)
+	}
+	if strings.Contains(seenQuery, "symbol=") || !strings.Contains(seenQuery, "category=USDT-FUTURES") {
+		t.Fatalf("unexpected query: %s", seenQuery)
+	}
+	if len(got) != 1 || got[0].Symbol != "BTCUSDT" || got[0].FundingRate != "0.0001" {
+		t.Fatalf("unexpected ticker rows: %+v", got)
+	}
+}
 
 func TestClient_GetInstruments(t *testing.T) {
 	got, err := newLiveClient().GetInstruments(context.Background(), bitgetSpotCategory, "")

@@ -3,9 +3,6 @@ package grvt
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"strconv"
 )
 
 // Market Data Methods
@@ -132,105 +129,4 @@ func (c *Client) GetHistoricalFundingRate(ctx context.Context, instrument string
 		return nil, err
 	}
 	return &result, nil
-}
-
-// GetFundingRate retrieves the current real-time funding rate for a specific instrument
-// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
-func (c *Client) GetFundingRate(ctx context.Context, instrument string) (*FundingRateData, error) {
-	// First, get instrument info to find funding interval
-	instruments, err := c.GetInstruments(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find the instrument and get its funding interval
-	var fundingIntervalHours int64
-	found := false
-	for _, inst := range instruments {
-		if inst.Instrument == instrument {
-			fundingIntervalHours = inst.FundingIntervalHours
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return nil, fmt.Errorf("instrument not found: %s", instrument)
-	}
-
-	// Get ticker data
-	ticker, err := c.GetTicker(ctx, instrument)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert funding rate to per-hour rate
-	hourlyRate, err := convertToHourlyRate(ticker.Result.FundingRate, fundingIntervalHours)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert funding rate: %w", err)
-	}
-
-	// Calculate funding time from next funding time - interval
-	fundingTime := ""
-	if ticker.Result.NextFundingTime != "" {
-		nextTime, err := strconv.ParseInt(ticker.Result.NextFundingTime, 10, 64)
-		if err == nil {
-			// Subtract interval in nanoseconds (NextFundingTime appears to be in nanoseconds)
-			intervalNs := fundingIntervalHours * 3600 * 1000000000
-			currentTime := nextTime - intervalNs
-			fundingTime = strconv.FormatInt(currentTime, 10)
-		}
-	}
-
-	return &FundingRateData{
-		Instrument:           ticker.Result.Instrument,
-		FundingRate:          ticker.Result.FundingRate,
-		HourlyFundingRate:    hourlyRate,
-		FundingIntervalHours: fundingIntervalHours,
-		FundingTime:          fundingTime,
-		NextFundingTime:      ticker.Result.NextFundingTime,
-	}, nil
-}
-
-// GetAllFundingRates retrieves real-time funding rates for all instruments
-// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
-func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
-	instruments, err := c.GetInstruments(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []FundingRateData
-	var joinedErr error
-	for _, inst := range instruments {
-		// Only query perpetual futures (which have funding rates)
-		if inst.Kind != "PERPETUAL" {
-			continue
-		}
-
-		fundingData, err := c.GetFundingRate(ctx, inst.Instrument)
-		if err != nil {
-			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", inst.Instrument, err))
-			continue
-		}
-
-		result = append(result, *fundingData)
-	}
-
-	return result, joinedErr
-}
-
-// convertToHourlyRate converts a period funding rate to per-hour rate
-func convertToHourlyRate(periodRate string, intervalHours int64) (string, error) {
-	if intervalHours == 0 {
-		return "", fmt.Errorf("invalid interval hours: 0")
-	}
-
-	rate, err := strconv.ParseFloat(periodRate, 64)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse rate: %w", err)
-	}
-
-	hourlyRate := rate / float64(intervalHours)
-	return fmt.Sprintf("%.10f", hourlyRate), nil
 }

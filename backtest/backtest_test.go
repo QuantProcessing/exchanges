@@ -1484,8 +1484,6 @@ func TestBacktestReplaysFundingRatesIntoStrategiesAndDataRequests(t *testing.T) 
 	funding := model.FundingRate{
 		InstrumentID:    instID,
 		Rate:            decimal.RequireFromString("0.0002"),
-		MarkPrice:       decimal.RequireFromString("43125.50"),
-		IndexPrice:      decimal.RequireFromString("43120.00"),
 		NextFundingTime: time.Unix(800, 0),
 		FundingInterval: 8 * time.Hour,
 		Timestamp:       time.Unix(700, 0),

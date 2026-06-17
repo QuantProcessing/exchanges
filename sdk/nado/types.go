@@ -454,17 +454,6 @@ type FundingRateHistoryQuery struct {
 	Limit     int   `json:"limit,omitempty"`
 }
 
-// FundingRateData contains standardized funding rate information
-type FundingRateData struct {
-	ProductID            int64  `json:"product_id"`
-	Symbol               string `json:"symbol"`               // Retrieved from symbols
-	FundingRate          string `json:"fundingRate"`          // Per-hour funding rate (standardized)
-	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Always 1 for Nado
-	FundingTime          int64  `json:"fundingTime"`          // Current hour start (calculated)
-	NextFundingTime      int64  `json:"nextFundingTime"`      // Next hour start (calculated)
-	UpdateTime           int64  `json:"updateTime"`           // Last update time from API
-}
-
 // Archive Types
 
 type ArchiveSnapshotRequest struct {

@@ -103,16 +103,6 @@ func TestClient_GetFundingInfo(t *testing.T) {
 	}
 }
 
-func TestClient_GetFundingIntervalHours(t *testing.T) {
-	got, err := newLiveClient().GetFundingIntervalHours(context.Background(), binancePerpTestSymbol)
-	if err != nil {
-		t.Fatalf("GetFundingIntervalHours: %v", err)
-	}
-	if got <= 0 {
-		t.Fatalf("unexpected funding interval: %d", got)
-	}
-}
-
 func TestClient_GetFundingRate(t *testing.T) {
 	got, err := newLiveClient().GetFundingRate(context.Background(), binancePerpTestSymbol)
 	if err != nil {
@@ -123,11 +113,8 @@ func TestClient_GetFundingRate(t *testing.T) {
 	}
 }
 
-func TestClient_GetFundingRatePreservesIntervalRateAndReferences(t *testing.T) {
+func TestClient_GetFundingRatePreservesPremiumIndexResponse(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/fapi/v1/fundingInfo", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","fundingIntervalHours":8}]`))
-	})
 	mux.HandleFunc("/fapi/v1/premiumIndex", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("symbol") != "BTCUSDT" {
 			t.Fatalf("unexpected symbol query: %s", r.URL.RawQuery)
@@ -145,25 +132,16 @@ func TestClient_GetFundingRatePreservesIntervalRateAndReferences(t *testing.T) {
 	if got.LastFundingRate != "0.00080000" {
 		t.Fatalf("expected settlement-interval rate to be preserved, got %q", got.LastFundingRate)
 	}
-	if got.HourlyFundingRate != "0.0001000000" {
-		t.Fatalf("unexpected hourly funding rate: %q", got.HourlyFundingRate)
-	}
 	if got.MarkPrice != "43000.10" || got.IndexPrice != "42990.20" {
 		t.Fatalf("expected mark/index prices, got %+v", got)
 	}
 	if got.InterestRate != "0.00010000" || got.Time != 123456789 {
 		t.Fatalf("expected official reference fields, got %+v", got)
 	}
-	if got.FundingIntervalHours != 8 || got.FundingTime != 0 {
-		t.Fatalf("unexpected funding interval/timing: %+v", got)
-	}
 }
 
-func TestClient_GetAllFundingRatesReportsConversionErrors(t *testing.T) {
+func TestClient_GetAllFundingRatesUsesOnlyPremiumIndex(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/fapi/v1/fundingInfo", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","fundingIntervalHours":8}]`))
-	})
 	mux.HandleFunc("/fapi/v1/premiumIndex", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","lastFundingRate":"not-a-number","nextFundingTime":28800000}]`))
 	})
@@ -171,9 +149,12 @@ func TestClient_GetAllFundingRatesReportsConversionErrors(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient().WithBaseURL(server.URL)
-	_, err := client.GetAllFundingRates(context.Background())
-	if err == nil {
-		t.Fatal("expected conversion error")
+	got, err := client.GetAllFundingRates(context.Background())
+	if err != nil {
+		t.Fatalf("GetAllFundingRates: %v", err)
+	}
+	if len(got) != 1 || got[0].LastFundingRate != "not-a-number" {
+		t.Fatalf("expected raw premiumIndex row, got %+v", got)
 	}
 }
 
@@ -204,18 +185,5 @@ func TestClient_GetFundingRateHistory(t *testing.T) {
 	}
 	if len(got) == 0 || got[0].Symbol != binancePerpTestSymbol {
 		t.Fatalf("unexpected funding history response: %+v", got)
-	}
-}
-
-func TestConvertToHourlyRate(t *testing.T) {
-	got, err := convertToHourlyRate("0.0008", 8)
-	if err != nil {
-		t.Fatalf("convertToHourlyRate: %v", err)
-	}
-	if got != "0.0001000000" {
-		t.Fatalf("unexpected hourly rate: %s", got)
-	}
-	if _, err := convertToHourlyRate("0.0008", 0); err == nil {
-		t.Fatal("expected interval validation error")
 	}
 }

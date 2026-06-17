@@ -194,8 +194,23 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0009").Equal(funding.Rate))
 	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
-	require.True(t, funding.MarkPrice.IsZero())
-	require.True(t, funding.IndexPrice.IsZero())
+	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+	require.Equal(t, 8*time.Hour, funding.FundingInterval)
+	require.Equal(t, []string{""}, sdk.currentFundRateSymbols)
+	require.Empty(t, sdk.getTickerSymbols)
+	require.False(t, sdk.fundingHistoryCalled)
+}
+
+func TestDataClientFetchFundingRateRejectsInvalidFundingInterval(t *testing.T) {
+	sdk := &fakeSDK{invalidFundingInterval: true}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("bitget-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.BITGET")
+
+	_, err := client.FetchFundingRate(context.Background(), id)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "invalid Bitget funding interval")
 }
 
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
@@ -340,7 +355,11 @@ func TestExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
 }
 
 type fakeSDK struct {
-	placed bitgetsdk.PlaceOrderRequest
+	placed                 bitgetsdk.PlaceOrderRequest
+	currentFundRateSymbols []string
+	getTickerSymbols       []string
+	fundingHistoryCalled   bool
+	invalidFundingInterval bool
 }
 
 func (f *fakeSDK) GetInstruments(_ context.Context, category, _ string) ([]bitgetsdk.Instrument, error) {
@@ -374,8 +393,17 @@ func (f *fakeSDK) GetInstruments(_ context.Context, category, _ string) ([]bitge
 	}
 }
 
-func (f *fakeSDK) GetTicker(context.Context, string, string) (*bitgetsdk.Ticker, error) {
-	return &bitgetsdk.Ticker{LastPrice: "10", Bid1Price: "9", Ask1Price: "11", Timestamp: "1000"}, nil
+func (f *fakeSDK) GetTicker(_ context.Context, _, symbol string) (*bitgetsdk.Ticker, error) {
+	f.getTickerSymbols = append(f.getTickerSymbols, symbol)
+	return &bitgetsdk.Ticker{
+		LastPrice:   "10",
+		Bid1Price:   "9",
+		Ask1Price:   "11",
+		IndexPrice:  "199",
+		MarkPrice:   "200",
+		FundingRate: "0.0009",
+		Timestamp:   "1000",
+	}, nil
 }
 
 func (f *fakeSDK) GetOrderBook(context.Context, string, string, int) (*bitgetsdk.OrderBook, error) {
@@ -387,10 +415,32 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, string, int) (*bitgetsdk
 }
 
 func (f *fakeSDK) GetHistoryFundRate(context.Context, string, string, int, int) ([]bitgetsdk.HistoryFundRateEntry, error) {
+	f.fundingHistoryCalled = true
 	return []bitgetsdk.HistoryFundRateEntry{{
 		Symbol:      "BTCUSDT",
-		FundingRate: "0.0009",
+		FundingRate: "0.0099",
 		FundingTime: "1000",
+	}}, nil
+}
+
+func (f *fakeSDK) GetCurrentFundRate(_ context.Context, symbol, _ string) ([]bitgetsdk.CurrentFundRateEntry, error) {
+	f.currentFundRateSymbols = append(f.currentFundRateSymbols, symbol)
+	btcInterval := "8"
+	if f.invalidFundingInterval {
+		btcInterval = "not-a-number"
+	}
+	return []bitgetsdk.CurrentFundRateEntry{{
+		Symbol:              "ETHUSDT",
+		FundingRate:         "0.0001",
+		FundingRateInterval: "4",
+		NextUpdate:          "14400000",
+		RequestTime:         900,
+	}, {
+		Symbol:              "BTCUSDT",
+		FundingRate:         "0.0009",
+		FundingRateInterval: btcInterval,
+		NextUpdate:          "28800000",
+		RequestTime:         1000,
 	}}, nil
 }
 

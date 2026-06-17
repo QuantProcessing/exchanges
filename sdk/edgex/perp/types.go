@@ -830,9 +830,9 @@ type FundingRateData struct {
 	FundingTime              string `json:"fundingTime"`              // Funding rate settlement time
 	FundingTimestamp         string `json:"fundingTimestamp"`         // Funding rate calculation time in milliseconds
 	OraclePrice              string `json:"oraclePrice"`              // Oracle price
+	MarkPrice                string `json:"markPrice"`                // Mark price
 	IndexPrice               string `json:"indexPrice"`               // Index price
 	FundingRate              string `json:"fundingRate"`              // Rate for the settlement interval returned by the venue
-	HourlyFundingRate        string `json:"hourlyFundingRate"`        // Derived FundingRate / FundingRateIntervalMin
 	IsSettlement             bool   `json:"isSettlement"`             // Funding rate settlement flag
 	ForecastFundingRate      string `json:"forecastFundingRate"`      // Forecast funding rate
 	PreviousFundingRate      string `json:"previousFundingRate"`      // Previous funding rate
@@ -846,7 +846,6 @@ type FundingRateData struct {
 	InterestRate             string `json:"interestRate"`             // Interest rate
 	PredictedFundingRate     string `json:"predictedFundingRate"`     // Predicted funding rate
 	FundingRateIntervalMin   string `json:"fundingRateIntervalMin"`   // Funding rate interval in minutes
-	NextFundingTime          string `json:"nextFundingTime"`          // Next funding time (calculated)
 	StarkExFundingIndex      string `json:"starkExFundingIndex"`      // StarkEx funding index
 }
 

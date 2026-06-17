@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -113,19 +114,33 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	history, err := c.sdk.GetFundingHistory(ctx, c.provider.category, raw, 0, 0, 1)
+	tickers, err := c.sdk.GetTickers(ctx, c.provider.category)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	if len(history) == 0 {
-		return model.FundingRate{}, fmt.Errorf("%w: empty Bybit funding history for %s", model.ErrInstrumentNotFound, id.String())
+	var ticker bybitsdk.Ticker
+	found := false
+	for _, row := range tickers {
+		if row.Symbol == raw {
+			ticker = row
+			found = true
+			break
+		}
 	}
-	row := history[0]
+	if !found || ticker.FundingRate == "" {
+		return model.FundingRate{}, fmt.Errorf("%w: empty Bybit current funding rate for %s", model.ErrInstrumentNotFound, id.String())
+	}
+	intervalHours, err := strconv.ParseInt(ticker.FundingIntervalHour, 10, 64)
+	if err != nil {
+		return model.FundingRate{}, fmt.Errorf("invalid Bybit funding interval %q for %s: %w", ticker.FundingIntervalHour, id.String(), err)
+	}
 	funding := model.FundingRate{
-		InstrumentID: id,
-		Rate:         decimalOrFallback(row.FundingRate, "0"),
-		Timestamp:    parseUnixMillis(row.FundingRateTimestamp),
-		InitTime:     time.Now(),
+		InstrumentID:    id,
+		Rate:            decimalOrFallback(ticker.FundingRate, "0"),
+		NextFundingTime: parseUnixMillis(ticker.NextFundingTime),
+		FundingInterval: time.Duration(intervalHours) * time.Hour,
+		Timestamp:       parseUnixMillis(defaultString(ticker.Time, ticker.TS)),
+		InitTime:        time.Now(),
 	}
 	return funding, funding.Validate()
 }

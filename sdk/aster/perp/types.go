@@ -145,13 +145,10 @@ type FundingRateData struct {
 	MarkPrice            string `json:"markPrice"`
 	IndexPrice           string `json:"indexPrice"`
 	EstimatedSettlePrice string `json:"estimatedSettlePrice"`
-	LastFundingRate      string `json:"lastFundingRate"`      // Rate for the settlement interval returned by the venue.
-	InterestRate         string `json:"interestRate"`         // Venue interest-rate component when provided.
-	NextFundingTime      int64  `json:"nextFundingTime"`      // Venue timestamp in milliseconds.
-	Time                 int64  `json:"time"`                 // Venue response timestamp in milliseconds.
-	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Actual settlement interval in hours.
-	FundingTime          int64  `json:"fundingTime"`          // Current funding interval start in milliseconds.
-	HourlyFundingRate    string `json:"hourlyFundingRate"`    // Derived LastFundingRate / FundingIntervalHours.
+	LastFundingRate      string `json:"lastFundingRate"`
+	InterestRate         string `json:"interestRate"`
+	NextFundingTime      int64  `json:"nextFundingTime"`
+	Time                 int64  `json:"time"`
 }
 
 type TimeInForce string

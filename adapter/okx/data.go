@@ -118,19 +118,39 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	rates, err := c.sdk.GetAllFundingRates(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
+	}
+	var resp okxsdk.FundingRate
+	found := false
+	for _, row := range rates {
+		if row.InstrumentID == raw {
+			resp = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		return model.FundingRate{}, fmt.Errorf("%w: missing OKX funding rate for %s", model.ErrInstrumentNotFound, id.String())
 	}
 	timestamp := time.Now()
 	if resp.FundingTime != "" {
 		timestamp = parseUnixMillis(resp.FundingTime)
 	}
+	var nextFundingTime time.Time
+	if resp.NextFundingTime != "" {
+		nextFundingTime = parseUnixMillis(resp.NextFundingTime)
+	}
+	var fundingInterval time.Duration
+	if resp.FundingTime != "" && resp.NextFundingTime != "" && nextFundingTime.After(timestamp) {
+		fundingInterval = nextFundingTime.Sub(timestamp)
+	}
 	funding := model.FundingRate{
 		InstrumentID:    id,
 		Rate:            decimalOrFallback(resp.FundingRate, "0"),
-		NextFundingTime: parseUnixMillis(resp.NextFundingTime),
-		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		NextFundingTime: nextFundingTime,
+		FundingInterval: fundingInterval,
 		Timestamp:       timestamp,
 		InitTime:        time.Now(),
 	}

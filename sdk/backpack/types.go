@@ -90,12 +90,18 @@ type Kline struct {
 	Trades      string `json:"trades"`
 }
 
-type FundingRate struct {
+type MarkPrice struct {
 	Symbol               string `json:"symbol"`
 	FundingRate          string `json:"fundingRate"`
 	MarkPrice            string `json:"markPrice"`
 	IndexPrice           string `json:"indexPrice"`
 	NextFundingTimestamp int64  `json:"nextFundingTimestamp"`
+}
+
+type FundingRate struct {
+	Symbol               string      `json:"symbol"`
+	IntervalEndTimestamp StringValue `json:"intervalEndTimestamp"`
+	FundingRate          string      `json:"fundingRate"`
 }
 
 type CapitalBalance struct {

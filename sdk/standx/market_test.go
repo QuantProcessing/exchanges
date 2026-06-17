@@ -29,6 +29,15 @@ func TestMarketEndpoints(t *testing.T) {
 		t.Logf("Market Stats: %+v", market)
 	})
 
+	t.Run("QueryMarketOverview", func(t *testing.T) {
+		overview, err := client.QueryMarketOverview(ctx)
+		require.NoError(t, err)
+		assert.Greater(t, overview.Summary.SymbolCount, 0)
+		assert.NotEmpty(t, overview.Symbols)
+		assert.NotEmpty(t, overview.Symbols[0].FundingRate)
+		assert.NotEmpty(t, overview.Symbols[0].MarkPrice)
+	})
+
 	t.Run("QueryDepthBook", func(t *testing.T) {
 		book, err := client.QueryDepthBook(ctx, symbol, 10)
 		require.NoError(t, err)

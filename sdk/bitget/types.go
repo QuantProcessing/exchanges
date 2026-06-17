@@ -323,6 +323,16 @@ type HistoryFundRateEntry struct {
 	FundingTime string `json:"fundingTime"`
 }
 
+type CurrentFundRateEntry struct {
+	Symbol              string `json:"symbol"`
+	FundingRate         string `json:"fundingRate"`
+	FundingRateInterval string `json:"fundingRateInterval"`
+	NextUpdate          string `json:"nextUpdate"`
+	MinFundingRate      string `json:"minFundingRate"`
+	MaxFundingRate      string `json:"maxFundingRate"`
+	RequestTime         int64  `json:"-"`
+}
+
 type Candle [7]NumberString
 
 func (c *Candle) UnmarshalJSON(data []byte) error {

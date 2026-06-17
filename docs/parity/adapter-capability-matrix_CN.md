@@ -43,12 +43,18 @@ test evidence。
 `model.FundingRate`。这不代表已经支持资金费率 stream；只有 stream-backed
 implementation 与测试存在后，`Funding stream` 才能从 `No` 改成 `Yes`。
 
-当前 snapshot-backed providers：Binance Perp、Aster Perp、OKX Swap、
-Hyperliquid Perp、Lighter、Nado、EdgeX、GRVT、Backpack。
+当前 snapshot-backed providers：Binance Perp、Aster Perp、OKX Swap、Bybit
+Linear、Bitget Perp、Hyperliquid Perp、Lighter、EdgeX、GRVT、StandX、Backpack。
 
-latest-known history-backed providers：Bybit Linear、Bitget Perp、StandX。这些
-adapter 调用交易所 funding-history API，并把最新一条记录标准化成 snapshot。venue 没有
-提供的 mark price、index price 或 funding interval 会保留零值，不会由 adapter 编造。
+如果 venue 提供当前全 symbol funding 或 ticker snapshot，adapter 必须使用这个批量来源，
+再在本地筛选目标 instrument，不能挨个 symbol 轮询。StandX 使用
+`/api/query_market_overview`；该批量响应不提供 next funding time，所以该字段保留零值。
+GRVT 仍需要人工核对是否存在官方批量 current funding/ticker endpoint；当前实测
+`/lite/v1/ticker` 需要传入 instrument。
+
+`model.FundingRate` 只表示当前资费信息。adapter 不能用历史 funding rows 来满足这个
+capability。mark price 和 index price 不属于 `model.FundingRate`；需要这些参考价的策略应使用普通
+market data capability。
 
 ## Extension Targets Outside Current SDK Scope
 

@@ -87,6 +87,71 @@ func TestClientGetOrderBookDelegatesToDepthEndpoint(t *testing.T) {
 	require.Equal(t, "7", book.LastUpdateID)
 }
 
+func TestClientGetMarkPricesUsesCurrentMarkPricesEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	client := NewClient()
+	client.baseURL = "https://example.test"
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotPath = r.URL.Path
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					`[{"symbol":"BTC_USDC_PERP","fundingRate":"0.0001","markPrice":"65000","indexPrice":"64990","nextFundingTimestamp":1710003600000}]`,
+				)),
+				Header: make(http.Header),
+			}, nil
+		}),
+	}
+
+	got, err := client.GetMarkPrices(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/markPrices", gotPath)
+	require.Len(t, got, 1)
+	require.Equal(t, "BTC_USDC_PERP", got[0].Symbol)
+	require.Equal(t, "0.0001", got[0].FundingRate)
+	require.Equal(t, int64(1710003600000), got[0].NextFundingTimestamp)
+}
+
+func TestClientGetFundingRatesUsesHistoricalFundingEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotSymbol string
+	client := NewClient()
+	client.baseURL = "https://example.test"
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotPath = r.URL.Path
+			gotSymbol = r.URL.Query().Get("symbol")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					`[{"symbol":"BTC_USDC_PERP","intervalEndTimestamp":"1710000000000","fundingRate":"0.0002"}]`,
+				)),
+				Header: make(http.Header),
+			}, nil
+		}),
+	}
+
+	got, err := client.GetFundingRates(context.Background(), "BTC_USDC_PERP")
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/fundingRates", gotPath)
+	require.Equal(t, "BTC_USDC_PERP", gotSymbol)
+	require.Len(t, got, 1)
+	require.Equal(t, "1710000000000", got[0].IntervalEndTimestamp.String())
+	require.Equal(t, "0.0002", got[0].FundingRate)
+}
+
+func TestClientGetFundingRatesRequiresSymbol(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewClient().GetFundingRates(context.Background(), "")
+	require.ErrorContains(t, err, "symbol is required")
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

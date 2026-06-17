@@ -14,13 +14,16 @@ import (
 )
 
 type FundingVenueSnapshot struct {
-	Venue        model.Venue
-	AccountID    model.AccountID
-	RawSymbol    string
-	Base         model.Currency
-	Quote        model.Currency
-	Funding      model.FundingRate
-	TakerFeeRate decimal.Decimal
+	Venue     model.Venue
+	AccountID model.AccountID
+	RawSymbol string
+	Base      model.Currency
+	Quote     model.Currency
+	Funding   model.FundingRate
+	// ReferenceMarkPrice comes from ordinary market data, not the funding
+	// payload. FundingRate intentionally stays limited to funding semantics.
+	ReferenceMarkPrice decimal.Decimal
+	TakerFeeRate       decimal.Decimal
 }
 
 type FundingRateSource interface {
@@ -70,12 +73,12 @@ func RunFundingRateArbitrageMonitor(ctx context.Context) (FundingArbitrageDecisi
 		Funding: model.FundingRate{
 			InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BINANCE"),
 			Rate:            decimal.RequireFromString("0.0012"),
-			MarkPrice:       decimal.RequireFromString("50000"),
 			NextFundingTime: now.Add(8 * time.Hour),
 			FundingInterval: 8 * time.Hour,
 			Timestamp:       now,
 		},
-		TakerFeeRate: decimal.RequireFromString("0.00012"),
+		ReferenceMarkPrice: decimal.RequireFromString("50000"),
+		TakerFeeRate:       decimal.RequireFromString("0.00012"),
 	}
 	bybit := FundingVenueSnapshot{
 		Venue:     "BYBIT",
@@ -86,12 +89,12 @@ func RunFundingRateArbitrageMonitor(ctx context.Context) (FundingArbitrageDecisi
 		Funding: model.FundingRate{
 			InstrumentID:    model.MustInstrumentID("BTC-USDT-PERP.BYBIT"),
 			Rate:            decimal.RequireFromString("-0.0001"),
-			MarkPrice:       decimal.RequireFromString("50000"),
 			NextFundingTime: now.Add(8 * time.Hour),
 			FundingInterval: 8 * time.Hour,
 			Timestamp:       now,
 		},
-		TakerFeeRate: decimal.RequireFromString("0.00010"),
+		ReferenceMarkPrice: decimal.RequireFromString("50000"),
+		TakerFeeRate:       decimal.RequireFromString("0.00010"),
 	}
 
 	riskCache := cache.New()
@@ -151,7 +154,7 @@ func (m *FundingArbitrageMonitor) EvaluateOnce(ctx context.Context) (FundingArbi
 	spread := short.Funding.Rate.Sub(long.Funding.Rate)
 	costRate := short.TakerFeeRate.Add(long.TakerFeeRate).Add(m.cfg.SlippageBufferRate)
 	netRate := spread.Sub(costRate)
-	notional := m.cfg.Quantity.Mul(short.Funding.MarkPrice.Add(long.Funding.MarkPrice).Div(decimal.NewFromInt(2)))
+	notional := m.cfg.Quantity.Mul(short.ReferenceMarkPrice.Add(long.ReferenceMarkPrice).Div(decimal.NewFromInt(2)))
 	decision := FundingArbitrageDecision{
 		Long:              long,
 		Short:             short,
@@ -254,9 +257,9 @@ func putFundingInstrumentAndMark(c *cache.Cache, snapshot FundingVenueSnapshot) 
 	}
 	if err := c.PutMarketEvent(model.MarketEvent{Ticker: &model.Ticker{
 		InstrumentID: snapshot.Funding.InstrumentID,
-		Bid:          snapshot.Funding.MarkPrice.Sub(decimal.RequireFromString("1")),
-		Ask:          snapshot.Funding.MarkPrice.Add(decimal.RequireFromString("1")),
-		Last:         snapshot.Funding.MarkPrice,
+		Bid:          snapshot.ReferenceMarkPrice.Sub(decimal.RequireFromString("1")),
+		Ask:          snapshot.ReferenceMarkPrice.Add(decimal.RequireFromString("1")),
+		Last:         snapshot.ReferenceMarkPrice,
 		Timestamp:    snapshot.Funding.Timestamp,
 	}}); err != nil {
 		return err

@@ -2,6 +2,7 @@ package perp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,8 +29,7 @@ func TestClient_GetFundingRate(t *testing.T) {
 	fundingRate, err := newLiveClient().GetFundingRate(context.Background(), hyperliquidPerpCoin)
 	require.NoError(t, err)
 	require.Equal(t, hyperliquidPerpCoin, fundingRate.Coin)
-	require.NotZero(t, fundingRate.FundingTime)
-	require.NotZero(t, fundingRate.NextFundingTime)
+	require.NotEmpty(t, fundingRate.Funding)
 }
 
 func TestClient_GetFundingRateIncludesReferencePrices(t *testing.T) {
@@ -45,10 +45,16 @@ func TestClient_GetFundingRateIncludesReferencePrices(t *testing.T) {
 	client := NewClient(base)
 	fundingRate, err := client.GetFundingRate(context.Background(), hyperliquidPerpCoin)
 	require.NoError(t, err)
-	require.Equal(t, "0.0001", fundingRate.FundingRate)
-	require.Equal(t, "43000.10", fundingRate.MarkPrice)
-	require.Equal(t, "42990.20", fundingRate.IndexPrice)
+	require.Equal(t, "0.0001", fundingRate.Funding)
+	require.Equal(t, "43000.10", fundingRate.MarkPx)
+	require.Equal(t, "42990.20", fundingRate.OraclePx)
 	require.Equal(t, "0.0002", fundingRate.Premium)
+
+	raw, err := json.Marshal(fundingRate)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "fundingIntervalHours")
+	require.NotContains(t, string(raw), "fundingTime")
+	require.NotContains(t, string(raw), "nextFundingTime")
 }
 
 func TestClient_GetFundingRate_InvalidCoin(t *testing.T) {

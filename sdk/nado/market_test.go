@@ -123,17 +123,13 @@ func TestGetFundingRate(t *testing.T) {
 		t.Errorf("Expected ProductID 36, got %d", rate.ProductID)
 	}
 
-	if rate.FundingIntervalHours != 1 {
-		t.Errorf("Expected FundingIntervalHours to be 1, got %d", rate.FundingIntervalHours)
+	if rate.FundingRateX18 == "" {
+		t.Error("Expected raw funding_rate_x18")
 	}
 
 	t.Logf("Product ID: %d", rate.ProductID)
-	t.Logf("Symbol: %s", rate.Symbol)
-	t.Logf("Funding rate (hourly): %s", rate.FundingRate)
-	t.Logf("Funding interval hours: %d", rate.FundingIntervalHours)
-	t.Logf("Funding time: %d", rate.FundingTime)
-	t.Logf("Next funding time: %d", rate.NextFundingTime)
-	t.Logf("Update time: %d", rate.UpdateTime)
+	t.Logf("Funding rate x18: %s", rate.FundingRateX18)
+	t.Logf("Update time: %s", rate.UpdateTime)
 }
 
 // TestGetAllFundingRates tests the GetAllFundingRates method
@@ -157,19 +153,18 @@ func TestGetAllFundingRates(t *testing.T) {
 	t.Logf("Total products with funding rates: %d", len(rates))
 
 	// Show first 3 rates
-	for i, rate := range rates {
+	i := 0
+	for productID, rate := range rates {
 		if i >= 3 {
 			break
 		}
-		t.Logf("Product %d (%s): rate=%s (hourly), interval=%dh",
-			rate.ProductID, rate.Symbol, rate.FundingRate, rate.FundingIntervalHours)
+		t.Logf("Product %s: rate_x18=%s, update_time=%s", productID, rate.FundingRateX18, rate.UpdateTime)
+		i++
 	}
 
-	// Verify all have 1-hour interval
-	for _, rate := range rates {
-		if rate.FundingIntervalHours != 1 {
-			t.Errorf("Expected all rates to have 1-hour interval, got %d for product %d",
-				rate.FundingIntervalHours, rate.ProductID)
+	for productID, rate := range rates {
+		if rate.FundingRateX18 == "" {
+			t.Errorf("Expected raw funding_rate_x18 for product %s", productID)
 		}
 	}
 }

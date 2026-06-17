@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -241,9 +242,8 @@ func (c *Client) GetFundingRates(ctx context.Context) (*FundingRatesResponse, er
 	return &res, nil
 }
 
-// GetFundingRate retrieves the funding rate for a specific market id
-// Returns per-hour funding rate (Lighter uses 1-hour interval natively)
-func (c *Client) GetFundingRate(ctx context.Context, marketId int) (*FundingRateData, error) {
+// GetFundingRate retrieves the raw funding-rate row for a specific market id.
+func (c *Client) GetFundingRate(ctx context.Context, marketId int) (*FundingRate, error) {
 	rates, err := c.GetFundingRates(ctx)
 	if err != nil {
 		return nil, err
@@ -254,17 +254,16 @@ func (c *Client) GetFundingRate(ctx context.Context, marketId int) (*FundingRate
 
 	// Find the rate for the requested market id
 	for _, rate := range rates.FundingRate {
-		if rate.MarketId == marketId {
-			return convertLighterFundingRateToStandardized(rate), nil
+		if rate.MarketId == marketId && strings.EqualFold(rate.Exchange, "lighter") {
+			return rate, nil
 		}
 	}
 
 	return nil, fmt.Errorf("funding rate not found for market id: %d", marketId)
 }
 
-// GetAllFundingRates retrieves funding rates for all symbols
-// Returns per-hour funding rates (Lighter uses 1-hour interval natively)
-func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
+// GetAllFundingRates retrieves raw funding-rate rows for all Lighter markets.
+func (c *Client) GetAllFundingRates(ctx context.Context) ([]*FundingRate, error) {
 	rates, err := c.GetFundingRates(ctx)
 	if err != nil {
 		return nil, err
@@ -273,34 +272,15 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 		return nil, fmt.Errorf("failed to get funding rates: %s", rates.Msg)
 	}
 
-	var result []FundingRateData
+	var result []*FundingRate
 	for _, rate := range rates.FundingRate {
-		result = append(result, *convertLighterFundingRateToStandardized(rate))
+		if !strings.EqualFold(rate.Exchange, "lighter") {
+			continue
+		}
+		result = append(result, rate)
 	}
 
 	return result, nil
-}
-
-// convertLighterFundingRateToStandardized converts Lighter funding rate to standardized format
-// Lighter uses 1-hour funding intervals, so we calculate funding times based on the current hour
-func convertLighterFundingRateToStandardized(funding *FundingRate) *FundingRateData {
-	// Get current time in milliseconds
-	now := time.Now().UTC()
-
-	// Calculate funding time (start of current hour)
-	fundingTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, time.UTC)
-
-	// Calculate next funding time (start of next hour)
-	nextFundingTime := fundingTime.Add(1 * time.Hour)
-
-	return &FundingRateData{
-		Symbol:               funding.Symbol,
-		MarketId:             funding.MarketId,
-		FundingRate:          fmt.Sprintf("%.10f", funding.Rate),
-		FundingIntervalHours: 1, // Lighter always uses 1-hour interval
-		FundingTime:          fundingTime.UnixMilli(),
-		NextFundingTime:      nextFundingTime.UnixMilli(),
-	}
 }
 
 // GetExchangeStats fetches exchange statistics

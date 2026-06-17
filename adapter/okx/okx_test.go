@@ -2,6 +2,7 @@ package okx
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -165,7 +166,23 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	require.True(t, decimal.RequireFromString("0.0006").Equal(funding.Rate))
 	require.Equal(t, 8*time.Hour, funding.FundingInterval)
 	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
-	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+	require.Equal(t, time.UnixMilli(28801000), funding.NextFundingTime)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateInstIDs)
+}
+
+func TestDataClientFetchFundingRateReturnsAllFundingError(t *testing.T) {
+	allFundingErr := errors.New("all funding request failed")
+	sdk := &fakeSDK{allFundingRatesErr: allFundingErr}
+	provider := newSwapProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("okx-swap-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.OKX")
+
+	_, err := client.FetchFundingRate(context.Background(), id)
+	require.ErrorIs(t, err, allFundingErr)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateInstIDs)
 }
 
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
@@ -276,7 +293,10 @@ func TestExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
 }
 
 type fakeSDK struct {
-	placed okxsdk.OrderRequest
+	placed                   okxsdk.OrderRequest
+	getAllFundingRatesCalled bool
+	getFundingRateInstIDs    []string
+	allFundingRatesErr       error
 }
 
 func (f *fakeSDK) GetInstruments(_ context.Context, instType string) ([]okxsdk.Instrument, error) {
@@ -318,14 +338,22 @@ func (f *fakeSDK) GetOrderBook(_ context.Context, instID string, _ *int) ([]okxs
 	return []okxsdk.OrderBook{{Bids: [][]string{{"9", "1", "0", "1"}}, Asks: [][]string{{"11", "1", "0", "1"}}, Ts: "2000"}}, nil
 }
 
-func (f *fakeSDK) GetFundingRate(context.Context, string) (*okxsdk.FundingRateData, error) {
-	return &okxsdk.FundingRateData{
-		Symbol:               "BTC-USDT-SWAP",
-		FundingRate:          "0.0006",
-		FundingIntervalHours: 8,
-		FundingTime:          "1000",
-		NextFundingTime:      "28800000",
+func (f *fakeSDK) GetFundingRate(_ context.Context, instID string) (*okxsdk.FundingRate, error) {
+	f.getFundingRateInstIDs = append(f.getFundingRateInstIDs, instID)
+	return &okxsdk.FundingRate{
+		InstrumentID:    "BTC-USDT-SWAP",
+		FundingRate:     "0.0006",
+		FundingTime:     "1000",
+		NextFundingTime: "28801000",
 	}, nil
+}
+
+func (f *fakeSDK) GetAllFundingRates(context.Context) ([]okxsdk.FundingRate, error) {
+	f.getAllFundingRatesCalled = true
+	return []okxsdk.FundingRate{
+		{InstrumentID: "ETH-USDT-SWAP", FundingRate: "0.0001", FundingTime: "900", NextFundingTime: "28800900"},
+		{InstrumentID: "BTC-USDT-SWAP", FundingRate: "0.0006", FundingTime: "1000", NextFundingTime: "28801000"},
+	}, f.allFundingRatesErr
 }
 
 func (f *fakeSDK) GetAccountBalance(context.Context, *string) ([]okxsdk.Balance, error) {

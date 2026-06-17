@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 type sdkClient interface {
 	GetOrderBookDetails(context.Context, *int, *string) (*lightersdk.OrderBookDetailsResponse, error)
 	GetOrderBookOrders(context.Context, int, int64) (*lightersdk.OrderBookOrdersResponse, error)
-	GetFundingRate(context.Context, int) (*lightersdk.FundingRateData, error)
+	GetFundingRates(context.Context) (*lightersdk.FundingRatesResponse, error)
 	GetAccount(context.Context) (*lightersdk.AccountResponse, error)
 	GetAccountActiveOrders(context.Context, int) (*lightersdk.AccountActiveOrdersResponse, error)
 	PlaceOrder(context.Context, lightersdk.CreateOrderRequest) (*lightersdk.CreateOrderResponse, error)
@@ -186,19 +187,26 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, marketID)
+	rates, err := c.sdk.GetFundingRates(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	timestamp := time.Now()
-	if resp.FundingTime > 0 {
-		timestamp = parseLighterUnix(resp.FundingTime)
+	var resp *lightersdk.FundingRate
+	for _, row := range rates.FundingRate {
+		if row.MarketId == marketID && strings.EqualFold(row.Exchange, "lighter") {
+			resp = row
+			break
+		}
 	}
+	if resp == nil {
+		return model.FundingRate{}, fmt.Errorf("%w: missing Lighter funding rate for %s", model.ErrInstrumentNotFound, id.String())
+	}
+	timestamp := time.Now().UTC().Truncate(time.Hour)
 	funding := model.FundingRate{
 		InstrumentID:    id,
-		Rate:            decimalOrFallback(resp.FundingRate, "0"),
-		NextFundingTime: parseLighterUnix(resp.NextFundingTime),
-		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Rate:            decimal.NewFromFloat(resp.Rate),
+		NextFundingTime: timestamp.Add(time.Hour),
+		FundingInterval: time.Hour,
 		Timestamp:       timestamp,
 		InitTime:        time.Now(),
 	}

@@ -44,13 +44,22 @@ before an adapter can be treated as supporting a workflow.
 funding updates; `Funding stream` remains `No` until a stream-backed
 implementation and tests exist.
 
-Current snapshot-backed providers: Binance Perp, Aster Perp, OKX Swap,
-Hyperliquid Perp, Lighter, Nado, EdgeX, GRVT, and Backpack.
+Current snapshot-backed providers: Binance Perp, Aster Perp, OKX Swap, Bybit
+Linear, Bitget Perp, Hyperliquid Perp, Lighter, EdgeX, GRVT, StandX, and
+Backpack.
 
-Latest-known history-backed providers: Bybit Linear, Bitget Perp, and StandX.
-These adapters query the venue funding-history API and return the newest row as
-a normalized snapshot. Missing venue fields such as mark price, index price, or
-funding interval remain zero values instead of being invented.
+When a venue exposes a current all-symbol funding or ticker snapshot, adapters
+must use that bulk source and select the requested instrument locally instead of
+polling one symbol at a time. StandX uses `/api/query_market_overview`; that
+bulk response does not expose next funding time, so that field remains zero.
+GRVT still needs manual verification for an official bulk current funding/ticker
+endpoint; the currently observed `/lite/v1/ticker` endpoint requires an
+instrument.
+
+`model.FundingRate` represents current funding information only. Adapters must
+not satisfy this capability from historical funding rows. Mark and index prices
+are not part of `model.FundingRate`; strategies that need them must use ordinary
+market data capabilities.
 
 ## Extension Targets Outside Current SDK Scope
 

@@ -118,8 +118,6 @@ func TestEngineRequestUsesCatalogForFundingRates(t *testing.T) {
 	funding := model.FundingRate{
 		InstrumentID:    instID,
 		Rate:            decimal.RequireFromString("0.0003"),
-		MarkPrice:       decimal.RequireFromString("43000"),
-		IndexPrice:      decimal.RequireFromString("42995"),
 		NextFundingTime: time.Unix(800, 0),
 		FundingInterval: 8 * time.Hour,
 		Timestamp:       time.Unix(700, 0),

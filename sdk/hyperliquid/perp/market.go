@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // MetaAndAssetCtxsFull is the parsed form of the metaAndAssetCtxs response:
@@ -167,20 +166,12 @@ func (c *Client) GetFundingRate(ctx context.Context, coin string) (*FundingRate,
 				return nil, fmt.Errorf("asset context not found for coin: %s", coin)
 			}
 
-			// Calculate funding times (1-hour interval)
-			now := time.Now().UTC()
-			fundingTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, time.UTC)
-			nextFundingTime := fundingTime.Add(1 * time.Hour)
-
 			return &FundingRate{
-				Coin:                 coin,
-				FundingRate:          meta.AssetCtxs[i].Funding,
-				MarkPrice:            meta.AssetCtxs[i].MarkPx,
-				IndexPrice:           meta.AssetCtxs[i].OraclePx,
-				Premium:              meta.AssetCtxs[i].Premium,
-				FundingIntervalHours: 1,
-				FundingTime:          fundingTime.UnixMilli(),
-				NextFundingTime:      nextFundingTime.UnixMilli(),
+				Coin:     coin,
+				Funding:  meta.AssetCtxs[i].Funding,
+				MarkPx:   meta.AssetCtxs[i].MarkPx,
+				OraclePx: meta.AssetCtxs[i].OraclePx,
+				Premium:  meta.AssetCtxs[i].Premium,
 			}, nil
 		}
 	}

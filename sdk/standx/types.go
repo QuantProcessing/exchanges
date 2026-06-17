@@ -106,6 +106,33 @@ type SymbolMarket struct {
 	VolumeQuote24h       float64  `json:"volume_quote_24h"`
 }
 
+type MarketOverview struct {
+	Summary MarketOverviewSummary  `json:"summary"`
+	Symbols []MarketOverviewSymbol `json:"symbols"`
+}
+
+type MarketOverviewSummary struct {
+	OpenInterestNotional string `json:"open_interest_notional"`
+	SymbolCount          int    `json:"symbol_count"`
+	VolumeQuote24h       string `json:"volume_quote_24h"`
+}
+
+type MarketOverviewSymbol struct {
+	Base                 string  `json:"base"`
+	FundingRate          string  `json:"funding_rate"`
+	LastPrice            string  `json:"last_price"`
+	MarkPrice            string  `json:"mark_price"`
+	OpenInterest         string  `json:"open_interest"`
+	OpenInterestNotional string  `json:"open_interest_notional"`
+	OpenPrice24h         float64 `json:"open_price_24h"`
+	PriceChangePct       float64 `json:"price_change_pct"`
+	Quote                string  `json:"quote"`
+	Symbol               string  `json:"symbol"`
+	Time                 string  `json:"time"`
+	Volume24h            string  `json:"volume_24h"`
+	VolumeQuote24h       string  `json:"volume_quote_24h"`
+}
+
 type DepthBook struct {
 	Asks   [][]string `json:"asks"` // [price, qty]
 	Bids   [][]string `json:"bids"` // [price, qty]

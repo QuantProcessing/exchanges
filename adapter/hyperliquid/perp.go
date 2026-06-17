@@ -15,9 +15,9 @@ import (
 
 type perpSDK interface {
 	GetPrepMeta(context.Context) (*hlperp.PrepMeta, error)
+	GetMetaAndAssetCtxs(context.Context) (*hlperp.MetaAndAssetCtxsFull, error)
 	AllMids(context.Context) (map[string]string, error)
 	L2Book(context.Context, string) (*hlperp.L2BookResponse, error)
-	GetFundingRate(context.Context, string) (*hlperp.FundingRate, error)
 	GetBalance(context.Context) (*hlperp.PerpPosition, error)
 	UserOpenOrders(context.Context, string) ([]hlperp.Order, error)
 	PlaceOrder(context.Context, hlperp.PlaceOrderRequest) (*hlperp.OrderStatus, error)
@@ -179,25 +179,24 @@ func (c *perpDataClient) FetchFundingRate(ctx context.Context, id model.Instrume
 	if err := c.provider.ensureLoaded(ctx); err != nil {
 		return model.FundingRate{}, err
 	}
-	raw, err := c.provider.rawSymbol(id)
+	assetID, err := c.provider.assetID(id)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	resp, err := c.sdk.GetMetaAndAssetCtxs(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	timestamp := time.Now()
-	if resp.FundingTime > 0 {
-		timestamp = parseHLTime(resp.FundingTime)
+	if assetID >= len(resp.AssetCtxs) {
+		return model.FundingRate{}, fmt.Errorf("%w: missing Hyperliquid asset context for %s", model.ErrInstrumentNotFound, id.String())
 	}
+	asset := resp.AssetCtxs[assetID]
+	timestamp := time.Now().UTC().Truncate(time.Hour)
 	funding := model.FundingRate{
 		InstrumentID:    id,
-		Rate:            decimalOrFallback(resp.FundingRate, "0"),
-		MarkPrice:       decimalOrFallback(resp.MarkPrice, "0"),
-		IndexPrice:      decimalOrFallback(resp.IndexPrice, "0"),
-		NextFundingTime: parseHLTime(resp.NextFundingTime),
-		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Rate:            decimalOrFallback(asset.Funding, "0"),
+		NextFundingTime: timestamp.Add(time.Hour),
+		FundingInterval: time.Hour,
 		Timestamp:       timestamp,
 		InitTime:        time.Now(),
 	}

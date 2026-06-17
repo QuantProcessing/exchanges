@@ -62,12 +62,9 @@ func TestGetFundingRate(t *testing.T) {
 	t.Logf("Next funding time: %d", rate.NextFundingTime)
 }
 
-func TestGetFundingRatePreservesIntervalRateAndReferences(t *testing.T) {
+func TestGetFundingRatePreservesPremiumIndexResponse(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/fapi/v1/fundingInfo", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"symbol":"BTCUSDT","fundingIntervalHours":4}]`))
-	})
 	mux.HandleFunc("/fapi/v1/premiumIndex", func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "BTCUSDT", r.URL.Query().Get("symbol"))
 		_, _ = w.Write([]byte(`{"symbol":"BTCUSDT","markPrice":"43000.10","indexPrice":"42990.20","estimatedSettlePrice":"42995.00","lastFundingRate":"0.00040000","interestRate":"0.00010000","nextFundingTime":14400000,"time":123456789}`))
@@ -80,13 +77,10 @@ func TestGetFundingRatePreservesIntervalRateAndReferences(t *testing.T) {
 	rate, err := c.GetFundingRate(context.Background(), "BTCUSDT")
 	require.NoError(t, err)
 	require.Equal(t, "0.00040000", rate.LastFundingRate)
-	require.Equal(t, "0.0001000000", rate.HourlyFundingRate)
 	require.Equal(t, "43000.10", rate.MarkPrice)
 	require.Equal(t, "42990.20", rate.IndexPrice)
 	require.Equal(t, "0.00010000", rate.InterestRate)
 	require.Equal(t, int64(123456789), rate.Time)
-	require.Equal(t, int64(4), rate.FundingIntervalHours)
-	require.Equal(t, int64(0), rate.FundingTime)
 }
 
 // TestGetAllFundingRates tests retrieving all funding rates

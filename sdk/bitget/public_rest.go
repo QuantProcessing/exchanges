@@ -39,6 +39,20 @@ func (c *Client) GetTicker(ctx context.Context, category, symbol string) (*Ticke
 	return &out.Data[0], nil
 }
 
+func (c *Client) GetTickers(ctx context.Context, category string) ([]Ticker, error) {
+	var out responseEnvelope[[]Ticker]
+	err := c.get(ctx, "/api/v3/market/tickers", map[string]string{
+		"category": category,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get tickers failed: %s %s", out.Code, out.Msg)
+	}
+	return out.Data, nil
+}
+
 func (c *Client) GetOrderBook(ctx context.Context, category, symbol string, limit int) (*OrderBook, error) {
 	query := map[string]string{
 		"category": category,
@@ -119,6 +133,28 @@ func (c *Client) GetHistoryFundRate(ctx context.Context, symbol, productType str
 	}
 	if out.Code != "00000" {
 		return nil, fmt.Errorf("bitget sdk: get history fund rate failed: %s %s", out.Code, out.Msg)
+	}
+	return out.Data, nil
+}
+
+// GetCurrentFundRate retrieves the current funding rate.
+// productType: "USDT-FUTURES" | "COIN-FUTURES" | "USDC-FUTURES".
+// Docs: https://www.bitget.com/api-doc/contract/market/Get-Current-Funding-Rate
+func (c *Client) GetCurrentFundRate(ctx context.Context, symbol, productType string) ([]CurrentFundRateEntry, error) {
+	query := map[string]string{
+		"symbol":      symbol,
+		"productType": productType,
+	}
+	var out responseEnvelope[[]CurrentFundRateEntry]
+	err := c.get(ctx, "/api/v2/mix/market/current-fund-rate", query, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Code != "00000" {
+		return nil, fmt.Errorf("bitget sdk: get current fund rate failed: %s %s", out.Code, out.Msg)
+	}
+	for i := range out.Data {
+		out.Data[i].RequestTime = out.RequestTime
 	}
 	return out.Data, nil
 }

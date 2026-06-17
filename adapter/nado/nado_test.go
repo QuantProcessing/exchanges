@@ -54,8 +54,28 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0001").Equal(funding.Rate))
 	require.Equal(t, time.Hour, funding.FundingInterval)
-	require.Equal(t, time.UnixMilli(3600000), funding.Timestamp)
+	require.Equal(t, time.UnixMilli(1200000), funding.Timestamp)
 	require.Equal(t, time.UnixMilli(7200000), funding.NextFundingTime)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateProductIDs)
+}
+
+func TestDataClientFetchFundingRateUsesCurrentTimestampWhenRawUpdateTimeMissing(t *testing.T) {
+	sdk := &fakeSDK{fundingRates: map[string]nadosdk.FundingRateResponse{
+		"9": {
+			ProductID:      9,
+			FundingRateX18: "2400000000000000",
+		},
+	}}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("nado-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDC-PERP.NADO")
+
+	before := time.Now()
+	funding, err := client.FetchFundingRate(context.Background(), id)
+	require.NoError(t, err)
+	require.False(t, funding.Timestamp.Before(before))
 }
 
 func TestSubmitMapsOrderRequest(t *testing.T) {
@@ -236,11 +256,14 @@ func TestExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
 }
 
 type fakeSDK struct {
-	placed nadosdk.ClientOrderInput
+	placed                   nadosdk.ClientOrderInput
+	getAllFundingRatesCalled bool
+	getFundingRateProductIDs []int64
+	fundingRates             map[string]nadosdk.FundingRateResponse
 }
 
 func (f *fakeSDK) GetContracts(context.Context, *bool) (nadosdk.ContractV2Map, error) {
-	return nadosdk.ContractV2Map{"BTC-USDC": {ProductID: 9, TickerID: "BTC-USDC", BaseCurrency: "BTC", QuoteCurrency: "USDC", ProductType: "perp", LastPrice: 10}}, nil
+	return nadosdk.ContractV2Map{"BTC-USDC": {ProductID: 9, TickerID: "BTC-USDC", BaseCurrency: "BTC", QuoteCurrency: "USDC", ProductType: "perp", LastPrice: 10, NextFundingRateTimestamp: 7200000}}, nil
 }
 
 func (f *fakeSDK) GetSymbols(context.Context, *string) (*nadosdk.SymbolsInfo, error) {
@@ -261,14 +284,23 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*nadosdk.OrderBook
 	return &nadosdk.OrderBookV2{Bids: [][2]float64{{9, 1}}, Asks: [][2]float64{{11, 1}}}, nil
 }
 
-func (f *fakeSDK) GetFundingRate(context.Context, int64) (*nadosdk.FundingRateData, error) {
-	return &nadosdk.FundingRateData{
-		ProductID:            9,
-		Symbol:               "BTC-USDC",
-		FundingRate:          "0.0001",
-		FundingIntervalHours: 1,
-		FundingTime:          3600000,
-		NextFundingTime:      7200000,
+func (f *fakeSDK) GetFundingRate(_ context.Context, productID int64) (*nadosdk.FundingRateResponse, error) {
+	f.getFundingRateProductIDs = append(f.getFundingRateProductIDs, productID)
+	return &nadosdk.FundingRateResponse{
+		ProductID:      9,
+		FundingRateX18: "2400000000000000",
+		UpdateTime:     "1200000",
+	}, nil
+}
+
+func (f *fakeSDK) GetAllFundingRates(context.Context) (map[string]nadosdk.FundingRateResponse, error) {
+	f.getAllFundingRatesCalled = true
+	if f.fundingRates != nil {
+		return f.fundingRates, nil
+	}
+	return map[string]nadosdk.FundingRateResponse{
+		"8": {ProductID: 8, FundingRateX18: "4800000000000000"},
+		"9": {ProductID: 9, FundingRateX18: "2400000000000000", UpdateTime: "1200000"},
 	}, nil
 }
 

@@ -3,6 +3,7 @@ package aster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -356,11 +357,25 @@ func TestPerpDataClientFetchFundingRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0008").Equal(funding.Rate))
-	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
-	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
-	require.Equal(t, 8*time.Hour, funding.FundingInterval)
+	require.Zero(t, funding.FundingInterval)
 	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
 	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateSymbols)
+}
+
+func TestPerpDataClientFetchFundingRateReturnsAllFundingError(t *testing.T) {
+	allFundingErr := errors.New("all funding request failed")
+	sdk := &fakePerpSDK{allFundingRatesErr: allFundingErr}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newPerpDataClient("aster-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.ASTER")
+
+	_, err := client.FetchFundingRate(context.Background(), id)
+	require.ErrorIs(t, err, allFundingErr)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateSymbols)
 }
 
 func TestPerpExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
@@ -543,7 +558,10 @@ func (f *fakeSpotSDK) GetOpenOrders(context.Context, string) ([]asterspot.OrderR
 }
 
 type fakePerpSDK struct {
-	perpPlaced asterperp.PlaceOrderParams
+	perpPlaced               asterperp.PlaceOrderParams
+	getAllFundingRatesCalled bool
+	getFundingRateSymbols    []string
+	allFundingRatesErr       error
 }
 
 func (f *fakePerpSDK) ExchangeInfo(context.Context) (*asterperp.ExchangeInfoResponse, error) {
@@ -568,16 +586,24 @@ func (f *fakePerpSDK) Depth(context.Context, string, int) (*asterperp.DepthRespo
 	return &asterperp.DepthResponse{E: 2000, T: 1900, Bids: [][]string{{"19", "1"}}, Asks: [][]string{{"21", "1"}}}, nil
 }
 
-func (f *fakePerpSDK) GetFundingRate(context.Context, string) (*asterperp.FundingRateData, error) {
+func (f *fakePerpSDK) GetFundingRate(_ context.Context, symbol string) (*asterperp.FundingRateData, error) {
+	f.getFundingRateSymbols = append(f.getFundingRateSymbols, symbol)
 	return &asterperp.FundingRateData{
-		Symbol:               "BTCUSDT",
-		LastFundingRate:      "0.0008",
-		MarkPrice:            "200",
-		IndexPrice:           "199",
-		NextFundingTime:      28800000,
-		Time:                 1000,
-		FundingIntervalHours: 8,
+		Symbol:          "BTCUSDT",
+		LastFundingRate: "0.0008",
+		MarkPrice:       "200",
+		IndexPrice:      "199",
+		NextFundingTime: 28800000,
+		Time:            1000,
 	}, nil
+}
+
+func (f *fakePerpSDK) GetAllFundingRates(context.Context) ([]asterperp.FundingRateData, error) {
+	f.getAllFundingRatesCalled = true
+	return []asterperp.FundingRateData{
+		{Symbol: "ETHUSDT", LastFundingRate: "0.0001", MarkPrice: "100", IndexPrice: "99", NextFundingTime: 14400000, Time: 900},
+		{Symbol: "BTCUSDT", LastFundingRate: "0.0008", MarkPrice: "200", IndexPrice: "199", NextFundingTime: 28800000, Time: 1000},
+	}, f.allFundingRatesErr
 }
 
 func (f *fakePerpSDK) GetAccount(context.Context) (*asterperp.AccountResponse, error) {

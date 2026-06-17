@@ -560,8 +560,6 @@ func TestFundingRateCanTravelAsMarketEvent(t *testing.T) {
 	funding := FundingRate{
 		InstrumentID:    MustInstrumentID("BTC-USDT-PERP.BINANCE"),
 		Rate:            decimal.RequireFromString("0.0001"),
-		MarkPrice:       decimal.RequireFromString("100.25"),
-		IndexPrice:      decimal.RequireFromString("100.20"),
 		NextFundingTime: testNow.Add(8 * time.Hour),
 		FundingInterval: 8 * time.Hour,
 		Timestamp:       testNow,
@@ -573,10 +571,6 @@ func TestFundingRateCanTravelAsMarketEvent(t *testing.T) {
 	require.NoError(t, event.Validate())
 	require.Equal(t, funding.InstrumentID, event.InstrumentID())
 
-	funding.MarkPrice = decimal.RequireFromString("-1")
-	require.ErrorIs(t, funding.Validate(), ErrInvalidMarketData)
-
-	funding.MarkPrice = decimal.RequireFromString("100.25")
 	funding.FundingInterval = -time.Hour
 	require.ErrorIs(t, funding.Validate(), ErrInvalidMarketData)
 }

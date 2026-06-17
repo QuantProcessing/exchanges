@@ -354,10 +354,11 @@ Live funding use must still check adapter capability truth first:
 `caps.MarketData.FundingRateStream` for streaming.
 
 Current funding snapshot providers are Binance Perp, Aster Perp, OKX Swap,
-Hyperliquid Perp, Lighter, Nado, EdgeX, GRVT, and Backpack. Bybit Linear,
-Bitget Perp, and StandX expose latest-known snapshots backed by venue funding
-history. Strategies should validate non-zero mark/index prices and funding
-intervals before using those fields in sizing or execution decisions.
+Bybit Linear, Bitget Perp, Hyperliquid Perp, Lighter, EdgeX, GRVT, StandX, and
+Backpack, and Nado. Strategies should validate required funding fields before
+using funding snapshots in sizing or execution decisions. Mark/index prices are
+separate market-data inputs and are intentionally not embedded in
+`model.FundingRate`.
 
 Runnable reference:
 [07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go).

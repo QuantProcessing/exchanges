@@ -304,11 +304,10 @@ func TestPerpDataClientFetchFundingRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0001").Equal(funding.Rate))
-	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
-	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
 	require.Equal(t, time.Hour, funding.FundingInterval)
-	require.Equal(t, time.UnixMilli(3600000), funding.Timestamp)
-	require.Equal(t, time.UnixMilli(7200000), funding.NextFundingTime)
+	require.Equal(t, time.Hour, funding.NextFundingTime.Sub(funding.Timestamp))
+	require.Equal(t, 0, funding.Timestamp.Minute())
+	require.Equal(t, 0, funding.Timestamp.Second())
 }
 
 func TestPerpDataClientStreamsBboAndOrderBook(t *testing.T) {
@@ -737,24 +736,26 @@ func (f *fakePerpSDK) GetPrepMeta(context.Context) (*hlperp.PrepMeta, error) {
 	}{{Name: "BTC", SzDecimals: 3, MaxLeverage: 50}}}, nil
 }
 
+func (f *fakePerpSDK) GetMetaAndAssetCtxs(context.Context) (*hlperp.MetaAndAssetCtxsFull, error) {
+	meta := &hlperp.MetaAndAssetCtxsFull{
+		AssetCtxs: hlperp.MetaAndAssetCtxsResponse{{
+			Funding:  "0.0001",
+			MarkPx:   "200",
+			OraclePx: "199",
+		}},
+	}
+	meta.Meta.Universe = []struct {
+		Name string `json:"name"`
+	}{{Name: "BTC"}}
+	return meta, nil
+}
+
 func (f *fakePerpSDK) AllMids(context.Context) (map[string]string, error) {
 	return map[string]string{"BTC": "10"}, nil
 }
 
 func (f *fakePerpSDK) L2Book(context.Context, string) (*hlperp.L2BookResponse, error) {
 	return &hlperp.L2BookResponse{Levels: [][]hlperp.L2Level{{{Px: "9", Sz: "1"}}, {{Px: "11", Sz: "1"}}}}, nil
-}
-
-func (f *fakePerpSDK) GetFundingRate(context.Context, string) (*hlperp.FundingRate, error) {
-	return &hlperp.FundingRate{
-		Coin:                 "BTC",
-		FundingRate:          "0.0001",
-		MarkPrice:            "200",
-		IndexPrice:           "199",
-		FundingIntervalHours: 1,
-		FundingTime:          3600000,
-		NextFundingTime:      7200000,
-	}, nil
 }
 
 func (f *fakePerpSDK) GetBalance(context.Context) (*hlperp.PerpPosition, error) {

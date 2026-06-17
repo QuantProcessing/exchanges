@@ -17,7 +17,6 @@ type sdkClient interface {
 	GetInstruments(context.Context) ([]grvtsdk.Instrument, error)
 	GetTicker(context.Context, string) (*grvtsdk.GetTickerResponse, error)
 	GetOrderBook(context.Context, string, int) (*grvtsdk.GetOrderBookResponse, error)
-	GetFundingRate(context.Context, string) (*grvtsdk.FundingRateData, error)
 	GetAccountSummary(context.Context) (*grvtsdk.GetAccountSummaryResponse, error)
 	GetOpenOrders(context.Context, string) ([]grvtsdk.Order, error)
 	CreateOrder(context.Context, *grvtsdk.CreateOrderRequest, map[string]grvtsdk.Instrument) (*grvtsdk.CreateOrderResponse, error)
@@ -235,23 +234,32 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	resp, err := c.sdk.GetTicker(ctx, raw)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	rate, err := decimalFromString(resp.FundingRate, "0")
+	ticker := resp.Result
+	rate, err := decimalFromString(ticker.FundingRate, "0")
 	if err != nil {
 		return model.FundingRate{}, err
 	}
 	timestamp := time.Now()
-	if resp.FundingTime != "" {
-		timestamp = parseGRVTTime(resp.FundingTime)
+	if ticker.EventTime != "" {
+		timestamp = parseGRVTTime(ticker.EventTime)
+	}
+	var fundingInterval time.Duration
+	if inst, ok := c.provider.instruments[raw]; ok && inst.FundingIntervalHours > 0 {
+		fundingInterval = time.Duration(inst.FundingIntervalHours) * time.Hour
+	}
+	var nextFundingTime time.Time
+	if ticker.NextFundingTime != "" {
+		nextFundingTime = parseGRVTTime(ticker.NextFundingTime)
 	}
 	funding := model.FundingRate{
 		InstrumentID:    id,
 		Rate:            rate,
-		NextFundingTime: parseGRVTTime(resp.NextFundingTime),
-		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		NextFundingTime: nextFundingTime,
+		FundingInterval: fundingInterval,
 		Timestamp:       timestamp,
 		InitTime:        time.Now(),
 	}

@@ -56,8 +56,9 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0002").Equal(funding.Rate))
 	require.Equal(t, time.Hour, funding.FundingInterval)
-	require.Equal(t, time.UnixMilli(3600000), funding.Timestamp)
-	require.Equal(t, time.UnixMilli(7200000), funding.NextFundingTime)
+	require.Equal(t, time.Hour, funding.NextFundingTime.Sub(funding.Timestamp))
+	require.Equal(t, 0, funding.Timestamp.Minute())
+	require.Equal(t, 0, funding.Timestamp.Second())
 }
 
 func TestSubmitMapsDecimalsToLighterIntegerUnits(t *testing.T) {
@@ -263,14 +264,13 @@ func (f *fakeSDK) GetOrderBookOrders(context.Context, int, int64) (*lightersdk.O
 	return &lightersdk.OrderBookOrdersResponse{Bids: []lightersdk.Bid{{Price: "9", RemainingBaseAmount: "1"}}, Asks: []lightersdk.Ask{{Price: "11", RemainingBaseAmount: "1"}}}, nil
 }
 
-func (f *fakeSDK) GetFundingRate(context.Context, int) (*lightersdk.FundingRateData, error) {
-	return &lightersdk.FundingRateData{
-		Symbol:               "BTC-USDC",
-		MarketId:             7,
-		FundingRate:          "0.0002",
-		FundingIntervalHours: 1,
-		FundingTime:          3600000,
-		NextFundingTime:      7200000,
+func (f *fakeSDK) GetFundingRates(context.Context) (*lightersdk.FundingRatesResponse, error) {
+	return &lightersdk.FundingRatesResponse{
+		Code: 200,
+		FundingRate: []*lightersdk.FundingRate{
+			{Symbol: "ETH-USDC", MarketId: 8, Exchange: "lighter", Rate: 0.0001},
+			{Symbol: "BTC-USDC", MarketId: 7, Exchange: "lighter", Rate: 0.0002},
+		},
 	}, nil
 }
 

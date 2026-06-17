@@ -12,8 +12,8 @@ import (
 type sdkClient interface {
 	GetInstruments(context.Context, string) ([]bybitsdk.Instrument, error)
 	GetTicker(context.Context, string, string) (*bybitsdk.Ticker, error)
+	GetTickers(context.Context, string) ([]bybitsdk.Ticker, error)
 	GetOrderBook(context.Context, string, string, int) (*bybitsdk.OrderBook, error)
-	GetFundingHistory(context.Context, string, string, int64, int64, int) ([]bybitsdk.FundingHistoryEntry, error)
 	GetWalletBalance(context.Context, string, string) (*bybitsdk.WalletBalanceResult, error)
 	PlaceOrder(context.Context, bybitsdk.PlaceOrderRequest) (*bybitsdk.OrderActionResponse, error)
 	CancelOrder(context.Context, bybitsdk.CancelOrderRequest) (*bybitsdk.OrderActionResponse, error)

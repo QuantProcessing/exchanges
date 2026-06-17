@@ -19,7 +19,7 @@ type sdkClient interface {
 	GetMarkets(context.Context) ([]backpacksdk.Market, error)
 	GetTicker(context.Context, string) (*backpacksdk.Ticker, error)
 	GetOrderBook(context.Context, string, int) (*backpacksdk.Depth, error)
-	GetFundingRates(context.Context) ([]backpacksdk.FundingRate, error)
+	GetMarkPrices(context.Context) ([]backpacksdk.MarkPrice, error)
 	GetBalances(context.Context) (map[string]backpacksdk.CapitalBalance, error)
 	GetOpenOrders(context.Context, string, string) ([]backpacksdk.Order, error)
 	GetOpenPositions(context.Context, string) ([]backpacksdk.Position, error)
@@ -214,7 +214,7 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	rates, err := c.sdk.GetFundingRates(ctx)
+	rates, err := c.sdk.GetMarkPrices(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
@@ -229,8 +229,6 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 		funding := model.FundingRate{
 			InstrumentID:    id,
 			Rate:            decimal.RequireFromString(firstNonEmpty(row.FundingRate, "0")),
-			MarkPrice:       decimal.RequireFromString(firstNonEmpty(row.MarkPrice, "0")),
-			IndexPrice:      decimal.RequireFromString(firstNonEmpty(row.IndexPrice, "0")),
 			NextFundingTime: nextFunding,
 			Timestamp:       time.Now(),
 			InitTime:        time.Now(),

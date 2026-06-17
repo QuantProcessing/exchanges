@@ -76,14 +76,13 @@ if caps.Execution.Query {
 当前声明 `caps.MarketData.FundingRates` 并实现 `venue.FundingRateProvider` 的
 adapter：
 
-- 当前 venue snapshot：Binance Perp、Aster Perp、OKX Swap、Hyperliquid Perp、
-  Lighter、Nado、EdgeX、GRVT、Backpack；
-- latest-known venue history row：Bybit Linear、Bitget Perp、StandX。
+- 当前 venue snapshot：Binance Perp、Aster Perp、OKX Swap、Bybit Linear、
+  Bitget Perp、Hyperliquid Perp、Lighter、EdgeX、GRVT、StandX、Backpack、Nado。
 
-标准化 payload 始终是 `model.FundingRate`。不要推断 venue 未提供的字段：如果 endpoint
-没有 mark price、index price、funding interval 或 next funding time，adapter 会保留零值。
-依赖这些字段的策略应在下单前自行校验。funding snapshot claim 不代表
-`FundingRateStream`；stream support 有单独 capability flag。
+标准化 payload 始终是 `model.FundingRate`，并且只表达当前 funding 本体：rate、interval、
+next funding time、timestamp 和 init time。它不承载 mark price 或 index price。需要参考价的策略必须把 funding
+snapshot 和普通 market-data capability 组合起来，例如 ticker、mark-price 或 index-price feed。
+funding snapshot claim 不代表 `FundingRateStream`；stream support 有单独 capability flag。
 
 live arbitrage 形态见
 [07_monitor_funding_rate_arbitrage.go](../../examples/07_monitor_funding_rate_arbitrage.go)。

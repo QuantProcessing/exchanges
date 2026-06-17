@@ -124,8 +124,6 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0005").Equal(funding.Rate))
-	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
-	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
 	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
 }
 
@@ -301,8 +299,8 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*backpacksdk.Depth
 	return &backpacksdk.Depth{Bids: [][]string{{"9", "1"}}, Asks: [][]string{{"11", "1"}}}, nil
 }
 
-func (f *fakeSDK) GetFundingRates(context.Context) ([]backpacksdk.FundingRate, error) {
-	return []backpacksdk.FundingRate{{
+func (f *fakeSDK) GetMarkPrices(context.Context) ([]backpacksdk.MarkPrice, error) {
+	return []backpacksdk.MarkPrice{{
 		Symbol:               "BTC_USDC_PERP",
 		FundingRate:          "0.0005",
 		MarkPrice:            "200",

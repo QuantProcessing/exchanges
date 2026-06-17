@@ -2,6 +2,9 @@ package sdk
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +35,40 @@ func TestClient_GetTicker(t *testing.T) {
 	}
 	if got.Symbol != bybitSpotSymbol {
 		t.Fatalf("unexpected ticker symbol: %s", got.Symbol)
+	}
+}
+
+func TestClient_GetTickersBuildsAllTickersRequest(t *testing.T) {
+	t.Parallel()
+
+	var seenPath string
+	var seenQuery string
+	client := NewClient().
+		WithBaseURL("https://example.test").
+		WithHTTPClient(&http.Client{Transport: rawRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			seenPath = req.URL.Path
+			seenQuery = req.URL.RawQuery
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					`{"retCode":0,"retMsg":"OK","time":1710000000123,"result":{"category":"linear","list":[{"symbol":"BTCUSDT","fundingRate":"0.0001","markPrice":"65000","indexPrice":"64990","nextFundingTime":"1710003600000","fundingIntervalHour":"8"}]}}`,
+				)),
+				Header: make(http.Header),
+			}, nil
+		})})
+
+	got, err := client.GetTickers(context.Background(), "linear")
+	if err != nil {
+		t.Fatalf("GetTickers returned error: %v", err)
+	}
+	if seenPath != "/v5/market/tickers" {
+		t.Fatalf("unexpected path: %s", seenPath)
+	}
+	if strings.Contains(seenQuery, "symbol=") || !strings.Contains(seenQuery, "category=linear") {
+		t.Fatalf("unexpected query: %s", seenQuery)
+	}
+	if len(got) != 1 || got[0].Symbol != "BTCUSDT" || got[0].FundingRate != "0.0001" || got[0].Time != "1710000000123" {
+		t.Fatalf("unexpected ticker rows: %+v", got)
 	}
 }
 

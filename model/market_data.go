@@ -291,12 +291,9 @@ func (b OrderBook) Validate() error {
 
 type FundingRate struct {
 	InstrumentID InstrumentID
-	// Rate is the venue's settlement-interval funding rate. FundingInterval
-	// declares that interval when the venue exposes it; callers that need an
-	// hourly rate should derive it explicitly from these fields.
+	// Rate is the venue's settlement-interval funding rate. FundingInterval is
+	// the zero value when the venue endpoint does not expose an interval.
 	Rate            decimal.Decimal
-	MarkPrice       decimal.Decimal
-	IndexPrice      decimal.Decimal
 	NextFundingTime time.Time
 	FundingInterval time.Duration
 	Timestamp       time.Time
@@ -306,9 +303,6 @@ type FundingRate struct {
 func (f FundingRate) Validate() error {
 	if err := f.InstrumentID.Validate(); err != nil {
 		return err
-	}
-	if f.MarkPrice.IsNegative() || f.IndexPrice.IsNegative() {
-		return fmt.Errorf("%w: negative funding reference price", ErrInvalidMarketData)
 	}
 	if f.FundingInterval < 0 {
 		return fmt.Errorf("%w: funding interval cannot be negative", ErrInvalidMarketData)

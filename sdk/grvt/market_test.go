@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestGetFundingRate tests retrieving real-time funding rate for a specific instrument
-func TestGetFundingRate(t *testing.T) {
+// TestGetTickerFundingFields tests retrieving raw current funding fields from ticker.
+func TestGetTickerFundingFields(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test")
 	}
@@ -14,58 +14,26 @@ func TestGetFundingRate(t *testing.T) {
 	client := newLiveClient()
 	ctx := context.Background()
 
-	// Test with BTC_USDT_Perp (GRVT uses this format)
-	var rate *FundingRateData
-	retryGRVTLive(t, "GetFundingRate", func() error {
+	var ticker *GetTickerResponse
+	retryGRVTLive(t, "GetTicker", func() error {
 		var err error
-		rate, err = client.GetFundingRate(ctx, "BTC_USDT_Perp")
+		ticker, err = client.GetTicker(ctx, "BTC_USDT_Perp")
 		return err
 	})
 
-	if rate == nil {
-		t.Fatal("Expected funding rate, got nil")
+	if ticker == nil {
+		t.Fatal("Expected ticker, got nil")
 	}
 
-	if rate.Instrument == "" {
+	if ticker.Result.Instrument == "" {
 		t.Error("Expected non-empty instrument")
 	}
 
-	if rate.FundingRate == "" {
+	if ticker.Result.FundingRate == "" {
 		t.Error("Expected non-empty funding rate")
 	}
 
-	t.Logf("Instrument: %s", rate.Instrument)
-	t.Logf("Funding rate: %s", rate.FundingRate)
-	t.Logf("Next funding time: %s", rate.NextFundingTime)
-}
-
-// TestGetAllFundingRates tests retrieving all funding rates
-func TestGetAllFundingRates(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
-
-	client := newLiveClient()
-	ctx := context.Background()
-
-	var rates []FundingRateData
-	retryGRVTLive(t, "GetAllFundingRates", func() error {
-		var err error
-		rates, err = client.GetAllFundingRates(ctx)
-		return err
-	})
-
-	if len(rates) == 0 {
-		t.Fatal("Expected at least one funding rate, got empty array")
-	}
-
-	t.Logf("Total perpetual instruments with funding rates: %d", len(rates))
-
-	// Show first 3 rates
-	for i, rate := range rates {
-		if i >= 3 {
-			break
-		}
-		t.Logf("%s: rate=%s", rate.Instrument, rate.FundingRate)
-	}
+	t.Logf("Instrument: %s", ticker.Result.Instrument)
+	t.Logf("Funding rate: %s", ticker.Result.FundingRate)
+	t.Logf("Next funding time: %s", ticker.Result.NextFundingTime)
 }

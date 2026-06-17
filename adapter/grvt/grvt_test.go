@@ -306,22 +306,26 @@ type fakeSDK struct {
 
 func (f *fakeSDK) GetInstruments(context.Context) ([]grvtsdk.Instrument, error) {
 	return []grvtsdk.Instrument{{
-		Instrument:     "BTC_USDT_Perp",
-		InstrumentHash: "0x1",
-		Base:           "BTC",
-		Quote:          "USDT",
-		Kind:           "PERPETUAL",
-		TickSize:       "0.1",
-		MinSize:        "0.001",
+		Instrument:           "BTC_USDT_Perp",
+		InstrumentHash:       "0x1",
+		Base:                 "BTC",
+		Quote:                "USDT",
+		Kind:                 "PERPETUAL",
+		TickSize:             "0.1",
+		MinSize:              "0.001",
+		FundingIntervalHours: 8,
 	}}, nil
 }
 
 func (f *fakeSDK) GetTicker(context.Context, string) (*grvtsdk.GetTickerResponse, error) {
 	return &grvtsdk.GetTickerResponse{Result: grvtsdk.Ticker{
-		Instrument:   "BTC_USDT_Perp",
-		LastPrice:    "10",
-		BestBidPrice: "9",
-		BestAskPrice: "11",
+		EventTime:       "1000",
+		Instrument:      "BTC_USDT_Perp",
+		LastPrice:       "10",
+		BestBidPrice:    "9",
+		BestAskPrice:    "11",
+		FundingRate:     "0.0003",
+		NextFundingTime: "28800000",
 	}}, nil
 }
 
@@ -331,16 +335,6 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*grvtsdk.GetOrderB
 		Bids:       []grvtsdk.OrderBookLevel{{Price: "9", Size: "1"}},
 		Asks:       []grvtsdk.OrderBookLevel{{Price: "11", Size: "1"}},
 	}}, nil
-}
-
-func (f *fakeSDK) GetFundingRate(context.Context, string) (*grvtsdk.FundingRateData, error) {
-	return &grvtsdk.FundingRateData{
-		Instrument:           "BTC_USDT_Perp",
-		FundingRate:          "0.0003",
-		FundingIntervalHours: 8,
-		FundingTime:          "1000",
-		NextFundingTime:      "28800000",
-	}, nil
 }
 
 func (f *fakeSDK) GetAccountSummary(context.Context) (*grvtsdk.GetAccountSummaryResponse, error) {

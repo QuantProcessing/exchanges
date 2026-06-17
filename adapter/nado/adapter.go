@@ -18,7 +18,7 @@ type sdkClient interface {
 	GetContracts(context.Context, *bool) (nadosdk.ContractV2Map, error)
 	GetSymbols(context.Context, *string) (*nadosdk.SymbolsInfo, error)
 	GetOrderBook(context.Context, string, int) (*nadosdk.OrderBookV2, error)
-	GetFundingRate(context.Context, int64) (*nadosdk.FundingRateData, error)
+	GetAllFundingRates(context.Context) (map[string]nadosdk.FundingRateResponse, error)
 	GetAccount(context.Context) (*nadosdk.AccountInfo, error)
 	GetAccountProductOrders(context.Context, int64, string) (*nadosdk.AccountProductOrders, error)
 	PlaceOrder(context.Context, nadosdk.ClientOrderInput) (*nadosdk.PlaceOrderResponse, error)
@@ -31,11 +31,12 @@ type perpProvider struct {
 	productIDs   map[model.InstrumentID]int64
 	tickers      map[model.InstrumentID]string
 	productIndex map[int64]model.InstrumentID
+	nextFunding  map[model.InstrumentID]int64
 	last         map[model.InstrumentID]decimal.Decimal
 }
 
 func newPerpProvider(sdk sdkClient) *perpProvider {
-	return &perpProvider{sdk: sdk, insts: make(map[model.InstrumentID]model.Instrument), productIDs: make(map[model.InstrumentID]int64), tickers: make(map[model.InstrumentID]string), productIndex: make(map[int64]model.InstrumentID), last: make(map[model.InstrumentID]decimal.Decimal)}
+	return &perpProvider{sdk: sdk, insts: make(map[model.InstrumentID]model.Instrument), productIDs: make(map[model.InstrumentID]int64), tickers: make(map[model.InstrumentID]string), productIndex: make(map[int64]model.InstrumentID), nextFunding: make(map[model.InstrumentID]int64), last: make(map[model.InstrumentID]decimal.Decimal)}
 }
 
 func nadoX18Decimal(raw string) (decimal.Decimal, error) {
@@ -79,6 +80,7 @@ func (p *perpProvider) LoadAll(ctx context.Context) error {
 	p.productIDs = make(map[model.InstrumentID]int64)
 	p.tickers = make(map[model.InstrumentID]string)
 	p.productIndex = make(map[int64]model.InstrumentID)
+	p.nextFunding = make(map[model.InstrumentID]int64)
 	p.last = make(map[model.InstrumentID]decimal.Decimal)
 	for _, contract := range contracts {
 		if contract.ProductType != "" && !strings.EqualFold(contract.ProductType, "perp") {
@@ -109,6 +111,7 @@ func (p *perpProvider) LoadAll(ctx context.Context) error {
 		p.productIDs[inst.ID] = int64(contract.ProductID)
 		p.tickers[inst.ID] = contract.TickerID
 		p.productIndex[int64(contract.ProductID)] = inst.ID
+		p.nextFunding[inst.ID] = contract.NextFundingRateTimestamp
 		p.last[inst.ID] = decimal.NewFromFloat(contract.LastPrice)
 	}
 	return nil
@@ -218,21 +221,49 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, productID)
+	rates, err := c.sdk.GetAllFundingRates(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
+	var resp nadosdk.FundingRateResponse
+	found := false
+	if row, ok := rates[strconv.FormatInt(productID, 10)]; ok {
+		resp = row
+		found = true
+	} else {
+		for key, row := range rates {
+			keyProductID, keyErr := strconv.ParseInt(key, 10, 64)
+			if keyErr == nil && keyProductID == productID || row.ProductID == productID {
+				if row.ProductID == 0 {
+					row.ProductID = productID
+				}
+				resp = row
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		return model.FundingRate{}, fmt.Errorf("%w: missing Nado funding rate for %s", model.ErrInstrumentNotFound, id.String())
+	}
+	rate, err := nadoX18Decimal(resp.FundingRateX18)
+	if err != nil {
+		return model.FundingRate{}, fmt.Errorf("invalid Nado funding rate %q for %s: %w", resp.FundingRateX18, id.String(), err)
+	}
+	rate = rate.Div(decimal.NewFromInt(24))
 	timestamp := time.Now()
-	if resp.FundingTime > 0 {
-		timestamp = parseNadoUnix(resp.FundingTime)
-	} else if resp.UpdateTime > 0 {
-		timestamp = parseNadoUnix(resp.UpdateTime)
+	if resp.UpdateTime != "" {
+		timestamp = parseNadoTime(resp.UpdateTime)
+	}
+	var nextFundingTime time.Time
+	if nextRaw := c.provider.nextFunding[id]; nextRaw > 0 {
+		nextFundingTime = parseNadoUnix(nextRaw)
 	}
 	funding := model.FundingRate{
 		InstrumentID:    id,
-		Rate:            decimal.RequireFromString(firstNonEmpty(resp.FundingRate, "0")),
-		NextFundingTime: parseNadoUnix(resp.NextFundingTime),
-		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
+		Rate:            rate,
+		NextFundingTime: nextFundingTime,
+		FundingInterval: time.Hour,
 		Timestamp:       timestamp,
 		InitTime:        time.Now(),
 	}

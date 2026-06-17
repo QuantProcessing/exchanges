@@ -198,8 +198,6 @@ func TestCacheStoresLatestMarketEventsByInstrument(t *testing.T) {
 	funding := model.FundingRate{
 		InstrumentID:    instID,
 		Rate:            decimal.RequireFromString("0.0001"),
-		MarkPrice:       decimal.RequireFromString("100.75"),
-		IndexPrice:      decimal.RequireFromString("100.70"),
 		NextFundingTime: testTime.Add(8 * time.Hour),
 		FundingInterval: 8 * time.Hour,
 		Timestamp:       testTime,

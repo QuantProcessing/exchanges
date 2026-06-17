@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 )
 
@@ -48,9 +49,18 @@ func (c *Client) GetTrades(ctx context.Context, symbol string, limit int) ([]Tra
 	return out, err
 }
 
-func (c *Client) GetFundingRates(ctx context.Context) ([]FundingRate, error) {
+func (c *Client) GetFundingRates(ctx context.Context, symbol string) ([]FundingRate, error) {
+	if symbol == "" {
+		return nil, fmt.Errorf("backpack sdk: funding rates symbol is required")
+	}
 	var out []FundingRate
-	err := c.get(ctx, "/api/v1/fundingRates", nil, &out)
+	err := c.get(ctx, "/api/v1/fundingRates", map[string]string{"symbol": symbol}, &out)
+	return out, err
+}
+
+func (c *Client) GetMarkPrices(ctx context.Context) ([]MarkPrice, error) {
+	var out []MarkPrice
+	err := c.get(ctx, "/api/v1/markPrices", nil, &out)
 	return out, err
 }
 

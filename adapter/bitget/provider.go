@@ -13,7 +13,7 @@ type sdkClient interface {
 	GetInstruments(context.Context, string, string) ([]bitgetsdk.Instrument, error)
 	GetTicker(context.Context, string, string) (*bitgetsdk.Ticker, error)
 	GetOrderBook(context.Context, string, string, int) (*bitgetsdk.OrderBook, error)
-	GetHistoryFundRate(context.Context, string, string, int, int) ([]bitgetsdk.HistoryFundRateEntry, error)
+	GetCurrentFundRate(context.Context, string, string) ([]bitgetsdk.CurrentFundRateEntry, error)
 	GetAccountAssets(context.Context) (*bitgetsdk.AccountAssets, error)
 	PlaceOrder(context.Context, *bitgetsdk.PlaceOrderRequest) (*bitgetsdk.PlaceOrderResponse, error)
 	CancelOrder(context.Context, *bitgetsdk.CancelOrderRequest) (*bitgetsdk.CancelOrderResponse, error)

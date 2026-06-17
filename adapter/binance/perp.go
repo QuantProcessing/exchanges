@@ -18,7 +18,7 @@ type perpSDK interface {
 	ExchangeInfo(context.Context) (*perp.ExchangeInfoResponse, error)
 	Ticker(context.Context, string) (*perp.TickerResponse, error)
 	Depth(context.Context, string, int) (*perp.DepthResponse, error)
-	GetFundingRate(context.Context, string) (*perp.FundingRateData, error)
+	GetAllFundingRates(context.Context) ([]perp.FundingRateData, error)
 	GetAccount(context.Context) (*perp.AccountResponse, error)
 	PlaceOrder(context.Context, perp.PlaceOrderParams) (*perp.OrderResponse, error)
 	CancelOrder(context.Context, perp.CancelOrderParams) (*perp.OrderResponse, error)
@@ -174,19 +174,32 @@ func (c *perpDataClient) FetchFundingRate(ctx context.Context, id model.Instrume
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, raw)
+	rates, err := c.sdk.GetAllFundingRates(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
+	var resp perp.FundingRateData
+	found := false
+	for _, row := range rates {
+		if strings.EqualFold(row.Symbol, raw) {
+			resp = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		return model.FundingRate{}, fmt.Errorf("%w: missing Binance funding rate for %s", model.ErrInstrumentNotFound, id.String())
+	}
 
+	rate, err := decimal.NewFromString(defaultString(resp.LastFundingRate, "0"))
+	if err != nil {
+		return model.FundingRate{}, fmt.Errorf("invalid Binance funding rate %q for %s: %w", resp.LastFundingRate, id.String(), err)
+	}
 	now := time.Now()
 	funding := model.FundingRate{
 		InstrumentID:    id,
-		Rate:            decimal.RequireFromString(defaultString(resp.LastFundingRate, "0")),
-		MarkPrice:       decimal.RequireFromString(defaultString(resp.MarkPrice, "0")),
-		IndexPrice:      decimal.RequireFromString(defaultString(resp.IndexPrice, "0")),
+		Rate:            rate,
 		NextFundingTime: binanceEventTime(resp.NextFundingTime),
-		FundingInterval: time.Duration(resp.FundingIntervalHours) * time.Hour,
 		Timestamp:       now,
 		InitTime:        now,
 	}

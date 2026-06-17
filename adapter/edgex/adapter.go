@@ -18,7 +18,7 @@ type sdkClient interface {
 	GetExchangeInfo(context.Context) (*edgexperp.ExchangeInfo, error)
 	GetTicker(context.Context, string) (*edgexperp.Ticker, error)
 	GetOrderBook(context.Context, string, int) (*edgexperp.OrderBook, error)
-	GetFundingRate(context.Context, string) (*edgexperp.FundingRateData, error)
+	GetAllFundingRates(context.Context) ([]edgexperp.FundingRateData, error)
 	GetAccountAsset(context.Context) (*edgexperp.AccountAsset, error)
 	GetOpenOrders(context.Context, *string) ([]edgexperp.Order, error)
 	PlaceOrder(context.Context, edgexperp.PlaceOrderParams, *edgexperp.Contract, *edgexperp.Coin) (*edgexperp.CreateOrderData, error)
@@ -288,31 +288,37 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	resp, err := c.sdk.GetFundingRate(ctx, contractID)
+	rates, err := c.sdk.GetAllFundingRates(ctx)
 	if err != nil {
 		return model.FundingRate{}, err
+	}
+	var resp edgexperp.FundingRateData
+	found := false
+	for _, row := range rates {
+		if row.ContractId == contractID {
+			resp = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		return model.FundingRate{}, fmt.Errorf("%w: missing EdgeX funding rate for %s", model.ErrInstrumentNotFound, id.String())
 	}
 	rate, err := decimalFromString(resp.FundingRate, "0")
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	mark, err := decimalFromString(resp.OraclePrice, "0")
+	intervalMinutes, err := strconv.ParseInt(resp.FundingRateIntervalMin, 10, 64)
 	if err != nil {
-		return model.FundingRate{}, err
+		return model.FundingRate{}, fmt.Errorf("invalid EdgeX funding interval %q for %s: %w", resp.FundingRateIntervalMin, id.String(), err)
 	}
-	index, err := decimalFromString(resp.IndexPrice, "0")
-	if err != nil {
-		return model.FundingRate{}, err
-	}
-	intervalMinutes, _ := strconv.ParseInt(resp.FundingRateIntervalMin, 10, 64)
 	timestamp := parseEdgeXTime(firstNonEmpty(resp.FundingTimestamp, resp.FundingTime))
+	interval := time.Duration(intervalMinutes) * time.Minute
 	funding := model.FundingRate{
 		InstrumentID:    id,
 		Rate:            rate,
-		MarkPrice:       mark,
-		IndexPrice:      index,
-		NextFundingTime: parseEdgeXTime(resp.NextFundingTime),
-		FundingInterval: time.Duration(intervalMinutes) * time.Minute,
+		NextFundingTime: timestamp.Add(interval),
+		FundingInterval: interval,
 		Timestamp:       timestamp,
 		InitTime:        time.Now(),
 	}

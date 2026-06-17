@@ -617,17 +617,6 @@ type FundingRate struct {
 	Rate     float64 `json:"rate"`
 }
 
-// FundingRateData contains standardized funding rate information
-type FundingRateData struct {
-	Symbol               string `json:"symbol"`
-	MarketId             int    `json:"market_id"`
-	Exchange             string `json:"exchange"`             // Exchange name (lighter, binance, bybit, hyperliquid)
-	FundingRate          string `json:"rate"`                 // Changed from fundingRate to rate to match API
-	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Always 1 for Lighter
-	FundingTime          int64  `json:"fundingTime"`          // Current hour start (calculated)
-	NextFundingTime      int64  `json:"nextFundingTime"`      // Next hour start (calculated)
-}
-
 type ExchangeStatsResponse struct {
 	Code             int32            `json:"code"`
 	Msg              string           `json:"message"`

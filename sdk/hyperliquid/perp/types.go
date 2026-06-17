@@ -218,14 +218,11 @@ type AssetContext struct {
 	DayBaseVlm   string   `json:"dayBaseVlm,omitempty"` // Daily base volume
 }
 
-// FundingRate - Simplified funding rate response
+// FundingRate is a single asset context's funding fields plus the matched coin.
 type FundingRate struct {
-	Coin                 string `json:"coin"`
-	FundingRate          string `json:"fundingRate"`          // Per-hour funding rate
-	MarkPrice            string `json:"markPrice"`            // Mark price from asset context.
-	IndexPrice           string `json:"indexPrice"`           // Oracle/index price from asset context.
-	Premium              string `json:"premium"`              // Premium component from asset context.
-	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Always 1 for Hyperliquid
-	FundingTime          int64  `json:"fundingTime"`          // Current hour start (calculated)
-	NextFundingTime      int64  `json:"nextFundingTime"`      // Next hour start (calculated)
+	Coin     string `json:"coin"`
+	Funding  string `json:"funding"`
+	MarkPx   string `json:"markPx"`
+	OraclePx string `json:"oraclePx"`
+	Premium  string `json:"premium"`
 }

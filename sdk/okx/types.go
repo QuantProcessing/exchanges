@@ -335,16 +335,6 @@ type FundingRate struct {
 	Ts              string `json:"ts"`
 }
 
-// FundingRateData contains funding rate information with venue and derived units.
-type FundingRateData struct {
-	Symbol               string `json:"symbol"`
-	FundingRate          string `json:"fundingRate"`          // Rate for the settlement interval returned by the venue.
-	HourlyFundingRate    string `json:"hourlyFundingRate"`    // Derived FundingRate / FundingIntervalHours.
-	FundingIntervalHours int64  `json:"fundingIntervalHours"` // Calculated from time difference.
-	FundingTime          string `json:"fundingTime"`
-	NextFundingTime      string `json:"nextFundingTime"`
-}
-
 // --- Order ---
 
 type OrderRequest struct {

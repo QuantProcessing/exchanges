@@ -117,10 +117,12 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	funding, err := client.FetchFundingRate(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, id, funding.InstrumentID)
-	require.True(t, decimal.RequireFromString("0.0006").Equal(funding.Rate))
-	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
-	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
-	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
+	require.True(t, decimal.RequireFromString("0.0007").Equal(funding.Rate))
+	require.Equal(t, time.UnixMilli(2000), funding.Timestamp)
+	require.True(t, funding.NextFundingTime.IsZero())
+	require.True(t, sdk.queryMarketOverviewCalled)
+	require.False(t, sdk.querySymbolMarketCalled)
+	require.False(t, sdk.queryFundingRatesCalled)
 }
 
 func TestDataClientStreamsNautilusMarketDataTypes(t *testing.T) {
@@ -227,7 +229,10 @@ func TestGeneratePositionStatusReportsUsesQueryPositions(t *testing.T) {
 }
 
 type fakeSDK struct {
-	created standxsdk.CreateOrderRequest
+	created                   standxsdk.CreateOrderRequest
+	queryMarketOverviewCalled bool
+	querySymbolMarketCalled   bool
+	queryFundingRatesCalled   bool
 }
 
 func (f *fakeSDK) QuerySymbolInfo(context.Context, string) ([]standxsdk.SymbolInfo, error) {
@@ -246,7 +251,39 @@ func (f *fakeSDK) QuerySymbolInfo(context.Context, string) ([]standxsdk.SymbolIn
 }
 
 func (f *fakeSDK) QuerySymbolMarket(context.Context, string) (standxsdk.SymbolMarket, error) {
-	return standxsdk.SymbolMarket{Symbol: "BTC-USDT", Bid1: "9", Ask1: "11", LastPrice: "10"}, nil
+	f.querySymbolMarketCalled = true
+	return standxsdk.SymbolMarket{
+		Symbol:          "BTC-USDT",
+		Bid1:            "9",
+		Ask1:            "11",
+		LastPrice:       "10",
+		FundingRate:     "0.0006",
+		MarkPrice:       "200",
+		IndexPrice:      "199",
+		NextFundingTime: "28800000",
+		Time:            "1000",
+	}, nil
+}
+
+func (f *fakeSDK) QueryMarketOverview(context.Context) (standxsdk.MarketOverview, error) {
+	f.queryMarketOverviewCalled = true
+	return standxsdk.MarketOverview{
+		Summary: standxsdk.MarketOverviewSummary{SymbolCount: 2},
+		Symbols: []standxsdk.MarketOverviewSymbol{
+			{
+				Symbol:      "ETH-USDT",
+				FundingRate: "0.0001",
+				MarkPrice:   "101",
+				Time:        "1000",
+			},
+			{
+				Symbol:      "BTC-USDT",
+				FundingRate: "0.0007",
+				MarkPrice:   "201",
+				Time:        "2000",
+			},
+		},
+	}, nil
 }
 
 func (f *fakeSDK) QueryDepthBook(context.Context, string, int) (standxsdk.DepthBook, error) {
@@ -254,9 +291,10 @@ func (f *fakeSDK) QueryDepthBook(context.Context, string, int) (standxsdk.DepthB
 }
 
 func (f *fakeSDK) QueryFundingRates(context.Context, string, int64, int64) ([]standxsdk.FundingRate, error) {
+	f.queryFundingRatesCalled = true
 	return []standxsdk.FundingRate{{
 		Symbol:      "BTC-USDT",
-		FundingRate: "0.0006",
+		FundingRate: "0.0099",
 		MarkPrice:   "200",
 		IndexPrice:  "199",
 		Time:        "1000",

@@ -2,9 +2,7 @@ package perp
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strconv"
 )
 
 // Depth
@@ -228,110 +226,27 @@ func (c *Client) GetFundingInfo(ctx context.Context) ([]FundingInfo, error) {
 	return res, nil
 }
 
-// GetFundingIntervalHours returns the hourly funding interval for a symbol,
-// derived from /fapi/v1/fundingInfo. Defaults to 8 when the symbol is absent.
-func (c *Client) GetFundingIntervalHours(ctx context.Context, symbol string) (int64, error) {
-	infos, err := c.GetFundingInfo(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for _, fi := range infos {
-		if fi.Symbol == symbol {
-			return fi.FundingIntervalHours, nil
-		}
-	}
-	return 8, nil
-}
-
 // GetFundingRate retrieves the funding rate for a specific symbol.
-// LastFundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetFundingRate(ctx context.Context, symbol string) (*FundingRateData, error) {
-	// Get funding info to find the interval
-	fundingInfos, err := c.GetFundingInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find funding interval for this symbol
-	var fundingIntervalHours int64 = 8 // default
-	for _, info := range fundingInfos {
-		if info.Symbol == symbol {
-			fundingIntervalHours = info.FundingIntervalHours
-			break
-		}
-	}
-
-	// Get premium index data
 	params := map[string]interface{}{
 		"symbol": symbol,
 	}
 	var res FundingRateData
-	err = c.Get(ctx, "/fapi/v1/premiumIndex", params, false, &res)
+	err := c.Get(ctx, "/fapi/v1/premiumIndex", params, false, &res)
 	if err != nil {
 		return nil, err
 	}
-
-	// Convert to hourly rate
-	hourlyRate, err := convertToHourlyRate(res.LastFundingRate, fundingIntervalHours)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate funding time from next funding time - interval
-	fundingTime := res.NextFundingTime - (fundingIntervalHours * 3600 * 1000)
-
-	res.HourlyFundingRate = hourlyRate
-	res.FundingIntervalHours = fundingIntervalHours
-	res.FundingTime = fundingTime
 	return &res, nil
 }
 
 // GetAllFundingRates retrieves funding rates for all symbols.
-// LastFundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
-	// Get funding info first
-	fundingInfos, err := c.GetFundingInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build a map for quick lookup
-	intervalMap := make(map[string]int64)
-	for _, info := range fundingInfos {
-		intervalMap[info.Symbol] = info.FundingIntervalHours
-	}
-
-	// Get all premium index data
 	var res []FundingRateData
-	err = c.Get(ctx, "/fapi/v1/premiumIndex", nil, false, &res)
+	err := c.Get(ctx, "/fapi/v1/premiumIndex", nil, false, &res)
 	if err != nil {
 		return nil, err
 	}
-
-	// Convert all rates to hourly
-	var joinedErr error
-	for i := range res {
-		intervalHours := int64(8) // default
-		if interval, ok := intervalMap[res[i].Symbol]; ok {
-			intervalHours = interval
-		}
-
-		hourlyRate, err := convertToHourlyRate(res[i].LastFundingRate, intervalHours)
-		if err != nil {
-			res[i].FundingIntervalHours = intervalHours
-			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", res[i].Symbol, err))
-			continue
-		}
-
-		// Calculate funding time
-		fundingTime := res[i].NextFundingTime - (intervalHours * 3600 * 1000)
-
-		res[i].HourlyFundingRate = hourlyRate
-		res[i].FundingIntervalHours = intervalHours
-		res[i].FundingTime = fundingTime
-	}
-
-	return res, joinedErr
+	return res, nil
 }
 
 // OpenInterestResponse matches /fapi/v1/openInterest.
@@ -379,19 +294,4 @@ func (c *Client) GetFundingRateHistory(ctx context.Context, symbol string, start
 		return nil, err
 	}
 	return res, nil
-}
-
-// convertToHourlyRate converts a period funding rate to per-hour rate
-func convertToHourlyRate(periodRate string, intervalHours int64) (string, error) {
-	if intervalHours == 0 {
-		return "", fmt.Errorf("invalid interval hours: 0")
-	}
-
-	rate, err := strconv.ParseFloat(periodRate, 64)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse rate: %w", err)
-	}
-
-	hourlyRate := rate / float64(intervalHours)
-	return fmt.Sprintf("%.10f", hourlyRate), nil
 }

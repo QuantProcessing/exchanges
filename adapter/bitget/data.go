@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -113,19 +114,37 @@ func (c *dataClient) FetchFundingRate(ctx context.Context, id model.InstrumentID
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	history, err := c.sdk.GetHistoryFundRate(ctx, raw, c.provider.category, 1, 1)
+	current, err := c.sdk.GetCurrentFundRate(ctx, "", c.provider.category)
 	if err != nil {
 		return model.FundingRate{}, err
 	}
-	if len(history) == 0 {
-		return model.FundingRate{}, fmt.Errorf("%w: empty Bitget funding history for %s", model.ErrInstrumentNotFound, id.String())
+	var row bitgetsdk.CurrentFundRateEntry
+	found := false
+	for _, currentRow := range current {
+		if currentRow.Symbol == raw {
+			row = currentRow
+			found = true
+			break
+		}
 	}
-	row := history[0]
+	if !found {
+		return model.FundingRate{}, fmt.Errorf("%w: missing Bitget current funding rate for %s", model.ErrInstrumentNotFound, id.String())
+	}
+	intervalHours, err := strconv.ParseInt(row.FundingRateInterval, 10, 64)
+	if err != nil {
+		return model.FundingRate{}, fmt.Errorf("invalid Bitget funding interval %q for %s: %w", row.FundingRateInterval, id.String(), err)
+	}
+	timestamp := time.Now()
+	if row.RequestTime > 0 {
+		timestamp = time.UnixMilli(row.RequestTime)
+	}
 	funding := model.FundingRate{
-		InstrumentID: id,
-		Rate:         decimalOrFallback(row.FundingRate, "0"),
-		Timestamp:    parseUnixMillis(row.FundingTime),
-		InitTime:     time.Now(),
+		InstrumentID:    id,
+		Rate:            decimalOrFallback(row.FundingRate, "0"),
+		NextFundingTime: parseUnixMillis(row.NextUpdate),
+		FundingInterval: time.Duration(intervalHours) * time.Hour,
+		Timestamp:       timestamp,
+		InitTime:        time.Now(),
 	}
 	return funding, funding.Validate()
 }

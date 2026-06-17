@@ -3,10 +3,8 @@ package perp
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 )
 
 var (
@@ -76,7 +74,6 @@ func (c *Client) GetExchangeLongShortRatio(ctx context.Context, rang, filterCont
 }
 
 // GetFundingRate retrieves the latest funding rate for a specific contract.
-// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetFundingRate(ctx context.Context, contractId string) (*FundingRateData, error) {
 	params := make(map[string]interface{})
 	if contractId != "" {
@@ -93,17 +90,10 @@ func (c *Client) GetFundingRate(ctx context.Context, contractId string) (*Fundin
 		return nil, ErrInvalidParam
 	}
 
-	// Convert funding rate to per-hour rate
-	converted, err := convertEdgexFundingRateToHourly(&data[0])
-	if err != nil {
-		return nil, err
-	}
-
-	return converted, nil
+	return &data[0], nil
 }
 
 // GetAllFundingRates retrieves the latest funding rates for all contracts.
-// FundingRate is the venue settlement-interval rate; HourlyFundingRate is derived.
 func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, error) {
 	// First, get all contract information to retrieve contract IDs
 	exchangeInfo, err := c.GetExchangeInfo(ctx)
@@ -134,51 +124,5 @@ func (c *Client) GetAllFundingRates(ctx context.Context) ([]FundingRateData, err
 		return nil, err
 	}
 
-	// Add derived hourly rates without replacing the venue interval rate.
-	var result []FundingRateData
-	var joinedErr error
-	for i := range data {
-		converted, err := convertEdgexFundingRateToHourly(&data[i])
-		if err != nil {
-			joinedErr = errors.Join(joinedErr, fmt.Errorf("%s: %w", data[i].ContractId, err))
-			continue
-		}
-		result = append(result, *converted)
-	}
-
-	return result, joinedErr
-}
-
-// convertEdgexFundingRateToHourly preserves EdgeX's interval rate and adds a per-hour derivative.
-func convertEdgexFundingRateToHourly(data *FundingRateData) (*FundingRateData, error) {
-	// Parse funding interval in minutes
-	intervalMin, err := strconv.ParseFloat(data.FundingRateIntervalMin, 64)
-	if err != nil || intervalMin == 0 {
-		return nil, fmt.Errorf("invalid funding rate interval: %s", data.FundingRateIntervalMin)
-	}
-
-	// Convert to hours
-	intervalHours := intervalMin / 60.0
-
-	// Parse original funding rate
-	rate, err := strconv.ParseFloat(data.FundingRate, 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse funding rate: %w", err)
-	}
-
-	// Convert to per-hour rate
-	hourlyRate := rate / intervalHours
-
-	// Calculate next funding time from current funding timestamp
-	fundingTimestamp, err := strconv.ParseInt(data.FundingTimestamp, 10, 64)
-	if err == nil {
-		// Add interval in milliseconds
-		intervalMs := int64(intervalMin * 60 * 1000)
-		nextFundingTimestamp := fundingTimestamp + intervalMs
-		data.NextFundingTime = strconv.FormatInt(nextFundingTimestamp, 10)
-	}
-
-	result := *data
-	result.HourlyFundingRate = fmt.Sprintf("%.10f", hourlyRate)
-	return &result, nil
+	return data, nil
 }

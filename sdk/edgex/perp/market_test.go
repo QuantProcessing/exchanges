@@ -1,28 +1,43 @@
 package perp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
-func TestConvertEdgexFundingRatePreservesIntervalRate(t *testing.T) {
-	got, err := convertEdgexFundingRateToHourly(&FundingRateData{
-		ContractId:             "10000001",
-		FundingRate:            "0.00080000",
-		FundingRateIntervalMin: "480",
-		FundingTimestamp:       "1000",
-	})
+func TestGetFundingRatePreservesLatestFundingRateResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/public/funding/getLatestFundingRate" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("contractId") != "10000001" {
+			t.Fatalf("unexpected contractId: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"code":"0","data":[{"contractId":"10000001","fundingRate":"0.00080000","fundingTimestamp":"1000","fundingRateIntervalMin":"480","markPrice":"201","indexPrice":"199","oraclePrice":"200"}]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient()
+	client.BaseURL = srv.URL
+	got, err := client.GetFundingRate(context.Background(), "10000001")
 	if err != nil {
-		t.Fatalf("convertEdgexFundingRateToHourly: %v", err)
+		t.Fatalf("GetFundingRate: %v", err)
 	}
 	if got.FundingRate != "0.00080000" {
 		t.Fatalf("expected settlement-interval rate, got %q", got.FundingRate)
 	}
-	if got.HourlyFundingRate != "0.0001000000" {
-		t.Fatalf("unexpected hourly funding rate: %q", got.HourlyFundingRate)
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal raw response: %v", err)
 	}
-	if got.NextFundingTime != "28801000" {
-		t.Fatalf("unexpected next funding time: %q", got.NextFundingTime)
+	if bytes.Contains(raw, []byte("hourlyFundingRate")) || bytes.Contains(raw, []byte("nextFundingTime")) {
+		t.Fatalf("SDK must not add derived funding fields: %s", raw)
 	}
 }
 

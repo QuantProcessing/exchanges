@@ -469,8 +469,6 @@ func (f fakeFundingData) FetchFundingRate(_ context.Context, instrumentID model.
 	return model.FundingRate{
 		InstrumentID: instrumentID,
 		Rate:         dec("0.0001"),
-		MarkPrice:    dec("100.5"),
-		IndexPrice:   dec("100.4"),
 	}, nil
 }
 

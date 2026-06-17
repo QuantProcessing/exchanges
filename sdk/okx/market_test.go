@@ -2,6 +2,8 @@ package okx
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -84,29 +86,33 @@ func TestClient_GetFundingRate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFundingRate: %v", err)
 	}
-	if got.Symbol != okxSwapInstID || got.FundingRate == "" {
+	if got.InstrumentID != okxSwapInstID || got.FundingRate == "" {
 		t.Fatalf("unexpected funding rate response: %+v", got)
 	}
 }
 
-func TestConvertOKXFundingPreservesIntervalRate(t *testing.T) {
-	got, err := convertOKXFundingToStandardized(&FundingRate{
-		InstrumentID:    okxSwapInstID,
-		FundingRate:     "0.00040000",
-		FundingTime:     "1000",
-		NextFundingTime: "14401000",
-	})
+func TestClient_GetFundingRatePreservesRawResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v5/public/funding-rate" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("instId") != okxSwapInstID {
+			t.Fatalf("unexpected instId: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"code":"0","msg":"","data":[{"instType":"SWAP","instId":"BTC-USDT-SWAP","fundingRate":"0.00040000","nextFundingRate":"0.00050000","fundingTime":"1000","nextFundingTime":"14401000","premium":"0.0001","settFundingRate":"0.0003","settState":"settled","ts":"900"}]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient()
+	client.BaseURL = srv.URL
+	got, err := client.GetFundingRate(context.Background(), okxSwapInstID)
 	if err != nil {
-		t.Fatalf("convertOKXFundingToStandardized: %v", err)
+		t.Fatalf("GetFundingRate: %v", err)
 	}
-	if got.FundingRate != "0.00040000" {
-		t.Fatalf("expected settlement-interval rate, got %q", got.FundingRate)
-	}
-	if got.HourlyFundingRate != "0.0001000000" {
-		t.Fatalf("unexpected hourly funding rate: %q", got.HourlyFundingRate)
-	}
-	if got.FundingIntervalHours != 4 {
-		t.Fatalf("unexpected funding interval: %+v", got)
+	if got.InstrumentID != okxSwapInstID || got.Premium != "0.0001" || got.SettFundingRate != "0.0003" || got.Ts != "900" {
+		t.Fatalf("expected raw OKX funding payload, got %+v", got)
 	}
 }
 

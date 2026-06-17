@@ -60,18 +60,21 @@ type TickersResult struct {
 }
 
 type Ticker struct {
-	Symbol       string `json:"symbol"`
-	LastPrice    string `json:"lastPrice"`
-	Bid1Price    string `json:"bid1Price"`
-	Ask1Price    string `json:"ask1Price"`
-	Volume24h    string `json:"volume24h"`
-	Turnover24h  string `json:"turnover24h"`
-	HighPrice24h string `json:"highPrice24h"`
-	LowPrice24h  string `json:"lowPrice24h"`
-	IndexPrice   string `json:"indexPrice"`
-	MarkPrice    string `json:"markPrice"`
-	Time         string `json:"time"`
-	TS           string `json:"ts"`
+	Symbol              string `json:"symbol"`
+	LastPrice           string `json:"lastPrice"`
+	Bid1Price           string `json:"bid1Price"`
+	Ask1Price           string `json:"ask1Price"`
+	Volume24h           string `json:"volume24h"`
+	Turnover24h         string `json:"turnover24h"`
+	HighPrice24h        string `json:"highPrice24h"`
+	LowPrice24h         string `json:"lowPrice24h"`
+	IndexPrice          string `json:"indexPrice"`
+	MarkPrice           string `json:"markPrice"`
+	FundingRate         string `json:"fundingRate"`
+	NextFundingTime     string `json:"nextFundingTime"`
+	FundingIntervalHour string `json:"fundingIntervalHour"`
+	Time                string `json:"time"`
+	TS                  string `json:"ts"`
 }
 
 type OrderBook struct {

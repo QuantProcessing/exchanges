@@ -3,6 +3,7 @@ package edgex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -56,11 +57,25 @@ func TestDataClientFetchFundingRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id, funding.InstrumentID)
 	require.True(t, decimal.RequireFromString("0.0004").Equal(funding.Rate))
-	require.True(t, decimal.RequireFromString("200").Equal(funding.MarkPrice))
-	require.True(t, decimal.RequireFromString("199").Equal(funding.IndexPrice))
 	require.Equal(t, 8*time.Hour, funding.FundingInterval)
 	require.Equal(t, time.UnixMilli(1000), funding.Timestamp)
-	require.Equal(t, time.UnixMilli(28800000), funding.NextFundingTime)
+	require.Equal(t, time.UnixMilli(28801000), funding.NextFundingTime)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateContractIDs)
+}
+
+func TestDataClientFetchFundingRateReturnsAllFundingError(t *testing.T) {
+	allFundingErr := errors.New("all funding request failed")
+	sdk := &fakeSDK{allFundingRatesErr: allFundingErr}
+	provider := newPerpProvider(sdk)
+	require.NoError(t, provider.LoadAll(context.Background()))
+	client := newDataClient("edgex-perp-data", provider, sdk)
+	id := model.MustInstrumentID("BTC-USDT-PERP.EDGEX")
+
+	_, err := client.FetchFundingRate(context.Background(), id)
+	require.ErrorIs(t, err, allFundingErr)
+	require.True(t, sdk.getAllFundingRatesCalled)
+	require.Empty(t, sdk.getFundingRateContractIDs)
 }
 
 func TestSubmitMapsOrderRequest(t *testing.T) {
@@ -255,9 +270,12 @@ func TestExecutionClientPrivateStreamMapsOrdersFillsAndPositions(t *testing.T) {
 }
 
 type fakeSDK struct {
-	placed        edgexperp.PlaceOrderParams
-	placeContract *edgexperp.Contract
-	placeQuote    *edgexperp.Coin
+	placed                    edgexperp.PlaceOrderParams
+	placeContract             *edgexperp.Contract
+	placeQuote                *edgexperp.Coin
+	getAllFundingRatesCalled  bool
+	getFundingRateContractIDs []string
+	allFundingRatesErr        error
 }
 
 func (f *fakeSDK) GetExchangeInfo(context.Context) (*edgexperp.ExchangeInfo, error) {
@@ -298,16 +316,25 @@ func (f *fakeSDK) GetOrderBook(context.Context, string, int) (*edgexperp.OrderBo
 	}, nil
 }
 
-func (f *fakeSDK) GetFundingRate(context.Context, string) (*edgexperp.FundingRateData, error) {
+func (f *fakeSDK) GetFundingRate(_ context.Context, contractID string) (*edgexperp.FundingRateData, error) {
+	f.getFundingRateContractIDs = append(f.getFundingRateContractIDs, contractID)
 	return &edgexperp.FundingRateData{
 		ContractId:             "100",
 		FundingRate:            "0.0004",
 		OraclePrice:            "200",
+		MarkPrice:              "201",
 		IndexPrice:             "199",
 		FundingTimestamp:       "1000",
-		NextFundingTime:        "28800000",
 		FundingRateIntervalMin: "480",
 	}, nil
+}
+
+func (f *fakeSDK) GetAllFundingRates(context.Context) ([]edgexperp.FundingRateData, error) {
+	f.getAllFundingRatesCalled = true
+	return []edgexperp.FundingRateData{
+		{ContractId: "200", FundingRate: "0.0001", OraclePrice: "100", MarkPrice: "101", IndexPrice: "99", FundingTimestamp: "900", FundingRateIntervalMin: "240"},
+		{ContractId: "100", FundingRate: "0.0004", OraclePrice: "200", MarkPrice: "201", IndexPrice: "199", FundingTimestamp: "1000", FundingRateIntervalMin: "480"},
+	}, f.allFundingRatesErr
 }
 
 func (f *fakeSDK) GetAccountAsset(context.Context) (*edgexperp.AccountAsset, error) {

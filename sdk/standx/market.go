@@ -33,6 +33,14 @@ func (c *Client) QuerySymbolMarket(ctx context.Context, symbol string) (SymbolMa
 	return resp, err
 }
 
+// QueryMarketOverview returns all current market overview rows.
+// GET /api/query_market_overview
+func (c *Client) QueryMarketOverview(ctx context.Context) (MarketOverview, error) {
+	var resp MarketOverview
+	err := c.DoPublic(ctx, http.MethodGet, "/api/query_market_overview", nil, &resp)
+	return resp, err
+}
+
 // QueryDepthBook returns the order book
 // GET /api/query_depth_book
 func (c *Client) QueryDepthBook(ctx context.Context, symbol string, limit int) (DepthBook, error) {
